@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.Python
+.venv/
+venv/
+.conda/
+.DS_Store
+.vscode/
+*.log
+*.bag
+*.vrs
