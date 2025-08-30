@@ -56,7 +56,7 @@ class AriaRgbObserver:
         if record.camera_id == aria.CameraId.Rgb:
             # Rotar imagen 90° para orientación correcta
             # Las cámaras Aria están montadas lateralmente
-            rotated_image = np.rot90(image)
+            rotated_image = np.rot90(image, -1)
             
             # Actualizar frame actual (thread-safe simple)
             self.current_frame = rotated_image
@@ -122,7 +122,7 @@ def setup_rgb_streaming(device):
     streaming_config = aria.StreamingConfig()
     
     # Usar perfil predefinido (profile18 es estándar para RGB)
-    streaming_config.profile_name = "profile18"
+    streaming_config.profile_name = "profile28"
     
     # Configurar interfaz USB (más estable que WiFi para desarrollo)
     streaming_config.streaming_interface = aria.StreamingInterface.Usb
