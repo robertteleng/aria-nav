@@ -11,7 +11,10 @@ Versión: 1.0 - RGB streaming básico
 import signal
 import cv2
 import numpy as np
+import torch
 import aria.sdk as aria
+from ultralytics import YOLO
+
 
 
 class CtrlCHandler:
@@ -43,6 +46,15 @@ class AriaRgbObserver:
         self.current_frame = None
         # Contador para estadísticas
         self.frame_count = 0
+
+        print("[INFO] Cargando modelo YOLO...")
+        self.yolo_model = YOLO('yolo11n.pt')  
+        
+        self.device = 'cpu'
+    
+        # Mover modelo al device
+        self.yolo_model.to(self.device)
+        print("[INFO] ✓ YOLOv11 cargado y configurado")
     
     def on_image_received(self, image: np.array, record) -> None:
         """
@@ -57,9 +69,17 @@ class AriaRgbObserver:
             # Rotar imagen 90° para orientación correcta
             # Las cámaras Aria están montadas lateralmente
             rotated_image = np.rot90(image, -1)
-            
-            # Actualizar frame actual (thread-safe simple)
-            self.current_frame = rotated_image
+
+            contiguous_image = np.ascontiguousarray(rotated_image)
+
+            # YOLO detection
+            results = self.yolo_model(contiguous_image, device=self.device, verbose=False)
+
+            # CAMBIO CRÍTICO: Verificar que results[0].plot() no sea None
+            annotated_frame = results[0].plot()
+
+            self.current_frame = annotated_frame
+               
             self.frame_count += 1
             
             # Debug: mostrar estadísticas cada 100 frames
