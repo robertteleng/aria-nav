@@ -16,6 +16,13 @@ import aria.sdk as aria
 from ultralytics import YOLO
 
 
+from projectaria_tools.core.calibration import (
+    device_calibration_from_json_string,
+    distort_by_calibration,
+    get_linear_camera_calibration,
+)
+
+
 
 class CtrlCHandler:
     """
@@ -41,9 +48,15 @@ class AriaRgbObserver:
     Filtra solo imágenes RGB y aplica transformaciones necesarias.
     """
     
-    def __init__(self):
+    def __init__(self, rgb_calib=None):
         # Frame más reciente recibido
         self.current_frame = None
+        # Contador para estadísticas
+        self.frame_count = 0
+
+        # Calibración oficial (si está disponible)
+        self.rgb_calib = rgb_calib
+        self.dst_calib = None
         # Contador para estadísticas
         self.frame_count = 0
 
@@ -66,18 +79,26 @@ class AriaRgbObserver:
         """
         # Filtrar solo cámara RGB (ignorar SLAM1, SLAM2, EyeTrack)
         if record.camera_id == aria.CameraId.Rgb:
-            # Rotar imagen 90° para orientación correcta
-            # Las cámaras Aria están montadas lateralmente
-            rotated_image = np.rot90(image, -1)
+            # --- Undistort con calibración oficial ---
+            img_bgr = image  # tal como llega del SDK
 
+            if self.rgb_calib is not None and self.dst_calib is None:
+                h, w = img_bgr.shape[:2]
+                self.dst_calib = get_linear_camera_calibration(w, h, 120, "camera-rgb")
+                print(f"[INFO] Undistort activo → destino {w}x{h}")
+
+            if self.rgb_calib is not None and self.dst_calib is not None:
+                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                undist_rgb = distort_by_calibration(img_rgb, self.dst_calib, self.rgb_calib)
+                img_bgr = cv2.cvtColor(undist_rgb, cv2.COLOR_RGB2BGR)
+
+            # Rotar imagen 90° para orientación correcta (montaje físico)
+            rotated_image = np.rot90(img_bgr, -1)
             contiguous_image = np.ascontiguousarray(rotated_image)
 
             # YOLO detection
             results = self.yolo_model(contiguous_image, device=self.device, verbose=False)
-
-            # CAMBIO CRÍTICO: Verificar que results[0].plot() no sea None
             annotated_frame = results[0].plot()
-
             self.current_frame = annotated_frame
                
             self.frame_count += 1
@@ -153,12 +174,23 @@ def setup_rgb_streaming(device):
     # Aplicar configuración al manager
     streaming_manager.streaming_config = streaming_config
     
-    # Iniciar el streaming en el dispositivo
+        # Iniciar el streaming en el dispositivo
     streaming_manager.start_streaming()
-    
-    print("[INFO] ✓ Streaming RGB iniciado")
-    return streaming_manager
 
+    # Obtener calibración oficial en JSON
+    sensors_calib_json = streaming_manager.sensors_calibration()
+    sensors_calib = device_calibration_from_json_string(sensors_calib_json)
+
+    rgb_calib = None
+    try:
+        rgb_calib = sensors_calib.get_camera_calib("camera-rgb")
+        print("[INFO] ✓ Calibración RGB obtenida del SDK")
+    except Exception as e:
+        print(f"[WARN] No se pudo obtener calibración RGB: {e}")
+
+    print("[INFO] ✓ Streaming RGB iniciado")
+
+    return streaming_manager, rgb_calib
 
 def main():
     """
@@ -183,13 +215,13 @@ def main():
         device_client, device = connect_aria_device()
         
         # 2. CONFIGURACIÓN DE STREAMING
-        streaming_manager = setup_rgb_streaming(device)
+        streaming_manager, rgb_calib = setup_rgb_streaming(device)
         
         # 3. SETUP DEL OBSERVER
         print("[INFO] Configurando observer RGB...")
         
-        # Crear nuestro observer personalizado
-        rgb_observer = AriaRgbObserver()
+        # Crear nuestro observer personalizado con calibración
+        rgb_observer = AriaRgbObserver(rgb_calib=rgb_calib)
         
         # Obtener cliente de streaming
         streaming_client = streaming_manager.streaming_client
