@@ -1,4 +1,5 @@
 __pycache__/
+docs/
 *.pyc
 *.pyo
 .Python
@@ -10,3 +11,4 @@ venv/
 *.log
 *.bag
 *.vrs
+*.pt
