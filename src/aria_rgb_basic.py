@@ -1,15 +1,17 @@
 """
-Sistema de navegación para personas ciegas usando gafas Meta Aria
-TFM - Día 1: Stream RGB básico con observer personalizado
+Navigation system for blind users using Meta Aria glasses
+TFM - Day 1: Basic RGB stream with custom observer
 
-Fecha: 30/08/2025
-Versión: 1.0 - RGB streaming básico
+Date: 2025-08-30
+Version: 1.0 - Basic RGB streaming
 """
 
 import signal
 import cv2
 import numpy as np
 import torch
+import threading
+import time
 import aria.sdk as aria
 from ultralytics import YOLO
 
@@ -26,8 +28,8 @@ from audio_navigation_system import AudioNavigationSystem
 
 class CtrlCHandler:
     """
-    Maneja la señal Ctrl+C para salida limpia del programa.
-    Evita corrupción de datos y desconexión abrupta del dispositivo.
+    Handle Ctrl+C for clean shutdown to avoid data corruption
+    and abrupt device disconnect.
     """
     def __init__(self):
         self.should_stop = False
@@ -35,52 +37,60 @@ class CtrlCHandler:
         signal.signal(signal.SIGINT, self._signal_handler)
     
     def _signal_handler(self, sig, frame):
-        """Callback ejecutado cuando se detecta Ctrl+C"""
-        print("\n[INFO] Señal de interrupción detectada, cerrando limpiamente...")
+        """Callback executed when Ctrl+C is detected"""
+        print("\n[INFO] Interrupt signal detected, closing cleanly...")
         self.should_stop = True
 
 
 class AriaRgbObserver:
     """
-    Observer personalizado para recibir solo stream RGB de las gafas Aria.
-    
-    Implementa el patrón Observer para callbacks asíncronos del SDK de Aria.
-    Filtra solo imágenes RGB y aplica transformaciones necesarias.
+    Custom observer to receive only the RGB stream from Aria glasses.
+    Implements observer callbacks from the Aria SDK and filters RGB images.
     """
     
     def __init__(self, rgb_calib=None):
-        # Frame más reciente recibido
+        # Most recent frame produced
         self.current_frame = None
-        # Contador para estadísticas
+        # Counter for stats
         self.frame_count = 0
 
-        # Calibración oficial (si está disponible)
+        # Official calibration if available
         self.rgb_calib = rgb_calib
         self.dst_calib = None
-        # Contador para estadísticas
+        # Counter for stats
         self.frame_count = 0
 
-        print("[INFO] Cargando modelo YOLO...")
+        print("[INFO] Loading YOLO model...")
         self.yolo_model = YOLO('yolo11n.pt')  
         
         self.device = 'cpu'
     
-        # Mover modelo al device
+        # Move model to selected device
         self.yolo_model.to(self.device)
-        print("[INFO] ✓ YOLOv11 cargado y configurado")
+        print("[INFO] ✓ YOLOv11 loaded and configured")
+
+        # Initialize audio navigation system
+        self.audio_system = AudioNavigationSystem()
+
+        # Procesamiento asíncrono para evitar bloqueo del observer
+        self._lock = threading.Lock()
+        self._latest_raw = None
+        self._stop = False
+        self._proc_thread = threading.Thread(target=self._processing_loop, daemon=True)
+        self._proc_thread.start()
+
     
     def on_image_received(self, image: np.array, record) -> None:
         """
-        Callback invocado por el SDK cuando llega una nueva imagen.
-        
+        SDK callback when a new image arrives
         Args:
-            image: Array NumPy con los datos de la imagen (BGR)
-            record: Metadata de la imagen (timestamp, camera_id, etc.)
+            image: NumPy array with image data (BGR)
+            record: Image metadata (timestamp, camera_id, ...)
         """
-        # Filtrar solo cámara RGB (ignorar SLAM1, SLAM2, EyeTrack)
+        # Filter only RGB camera
         if record.camera_id == aria.CameraId.Rgb:
-            # --- Undistort con calibración oficial ---
-            img_bgr = image  # tal como llega del SDK
+            # --- Undistort with official calibration (optional) ---
+            img_bgr = image  # as provided by the SDK
 
             # if self.rgb_calib is not None and self.dst_calib is None:
             #     h, w = img_bgr.shape[:2]
@@ -92,230 +102,326 @@ class AriaRgbObserver:
             #     undist_rgb = distort_by_calibration(img_rgb, self.dst_calib, self.rgb_calib)
             #     img_bgr = cv2.cvtColor(undist_rgb, cv2.COLOR_RGB2BGR)
 
-            # Rotar imagen 90° para orientación correcta (montaje físico)
+            # Rotate 90° for correct orientation (physical mount)
             rotated_image = np.rot90(img_bgr, -1)
             contiguous_image = np.ascontiguousarray(rotated_image)
 
-            # YOLO detection
-            results = self.yolo_model(contiguous_image, device=self.device, verbose=False)
+            h, w = contiguous_image.shape[:2]
+            self.audio_system.update_frame_dimensions(w, h)
 
-            # Añadir procesamiento audio:
-            detections = self.audio_system.process_detections(results)
-
-            annotated_frame = results[0].plot()
-            self.current_frame = annotated_frame
-               
+            # Hand off the frame to the async pipeline (keep only the latest)
+            with self._lock:
+                self._latest_raw = contiguous_image
             self.frame_count += 1
             
-            # Debug: mostrar estadísticas cada 100 frames
+            # Debug: print stats every 100 frames
             if self.frame_count % 100 == 0:
-                print(f"[DEBUG] Frames RGB procesados: {self.frame_count}")
+                print(f"[DEBUG] RGB frames processed: {self.frame_count}")
+
+    def _draw_enhanced_frame(self, frame, detections):
+        """Draw overlays with zones and navigation detections"""
+        height, width = frame.shape[:2]
+
+        # Copy frame to annotate
+        annotated_frame = frame.copy()
+
+        # === 4-quadrant grid ===
+        midx, midy = width // 2, height // 2
+        cv2.line(annotated_frame, (midx, 0), (midx, height - 1), (255, 255, 255), 1)
+        cv2.line(annotated_frame, (0, midy), (width - 1, midy), (255, 255, 255), 1)
+
+        # Quadrant labels (Title Case)
+        cv2.putText(annotated_frame, "Top Left", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(annotated_frame, "Top Right", (midx + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(annotated_frame, "Bottom Left", (10, midy + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(annotated_frame, "Bottom Right", (midx + 10, midy + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Colors per quadrant (visible over the image)
+        quadrant_colors = {
+            'top_left': (0, 255, 255),     # yellow
+            'top_right': (0, 165, 255),    # orange
+            'bottom_left': (0, 0, 255),    # red
+            'bottom_right': (255, 0, 255)  # magenta
+        }
+
+        # Draw detections
+        zone_title = {
+            'top_left': 'Top Left',
+            'top_right': 'Top Right',
+            'bottom_left': 'Bottom Left',
+            'bottom_right': 'Bottom Right',
+            'center': 'Center',
+        }
+        for det in detections:
+            x1, y1, x2, y2 = det['bbox']
+            zone = det.get('zone', det.get('quadrant'))
+            color = quadrant_colors.get(zone, (255, 255, 255))
+
+            # Colorized bbox by quadrant
+            cv2.rectangle(annotated_frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+
+            # Label with class, quadrant and distance
+            zone_text = zone_title.get(zone, zone.replace('_', ' ').title())
+            label = f"{det['name']} ({zone_text}) - {det['distance']}"
+            cv2.putText(annotated_frame, label, (int(x1), max(20, int(y1) - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+
+        # Audio system status
+        queue_len = len(self.audio_system.audio_queue) if hasattr(self.audio_system, 'audio_queue') else 0
+        audio_status = "🔊 SPEAKING" if self.audio_system.is_speaking else f"Queue: {queue_len}"
+        cv2.putText(annotated_frame, audio_status, (10, height - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+
+        return annotated_frame
     
     def get_latest_frame(self):
         """
-        Obtiene el frame más reciente disponible.
-        
+        Get the most recent available frame
         Returns:
-            np.array or None: Último frame RGB rotado, o None si no hay datos
+            np.array or None: Latest rotated RGB frame, or None if no data
         """
         return self.current_frame
+
+    def _processing_loop(self):
+        """Hilo: consume último frame y corre YOLO + overlay"""
+        while not self._stop:
+            frame = None
+            with self._lock:
+                if self._latest_raw is not None:
+                    frame = self._latest_raw
+                    self._latest_raw = None
+            if frame is None:
+                time.sleep(0.003)
+                continue
+
+            try:
+                results = self.yolo_model(frame, device=self.device, verbose=False)
+                detections = self.audio_system.process_detections(results)
+                annotated = self._draw_enhanced_frame(frame, detections)
+                self.current_frame = annotated
+            except Exception as e:
+                print(f"[WARN] Pipeline de procesamiento falló: {e}")
+                self.current_frame = frame
+
+    def stop(self):
+        self._stop = True
+        try:
+            if hasattr(self, '_proc_thread') and self._proc_thread.is_alive():
+                self._proc_thread.join(timeout=0.5)
+        except Exception:
+            pass
 
 
 def connect_aria_device():
     """
-    Establece conexión con el dispositivo Aria.
-    
+    Establish connection with the Aria device
     Returns:
-        tuple: (device_client, device) - Cliente y dispositivo conectado
-        
+        tuple: (device_client, device)
     Raises:
-        Exception: Si no se puede conectar al dispositivo
+        Exception: if connection fails
     """
-    print("[INFO] Iniciando conexión con gafas Aria...")
+    print("[INFO] Starting connection with Aria glasses...")
     
-    # Crear cliente del dispositivo
+    # Create device client
     device_client = aria.DeviceClient()
     
-    # TODO: Añadir configuración para IP específica si se usa WiFi
+    # TODO: add IP config if using WiFi
     # client_config = aria.DeviceClientConfig()
     # client_config.ip_v4_address = "192.168.1.100"
     # device_client.set_client_config(client_config)
     
-    # Conectar al dispositivo (por defecto USB)
+    # Connect to device (USB by default)
     device = device_client.connect()
     
-    print("[INFO] ✓ Conexión establecida exitosamente")
+    print("[INFO] ✓ Connection established successfully")
     return device_client, device
 
 
 def setup_rgb_streaming(device):
     """
-    Configura el streaming para capturar solo datos de imagen.
-    
+    Configure streaming to capture only image data
     Args:
-        device: Dispositivo Aria conectado
-        
+        device: Connected Aria device
     Returns:
-        StreamingManager: Manager configurado y streaming iniciado
+        StreamingManager configured and started
     """
-    print("[INFO] Configurando streaming RGB...")
+    print("[INFO] Configuring RGB streaming...")
     
-    # Obtener el manager de streaming del dispositivo
+    # Get streaming manager
     streaming_manager = device.streaming_manager
     
-    # Crear configuración de streaming
+    # Create streaming config
     streaming_config = aria.StreamingConfig()
     
-    # Usar perfil predefinido (profile18 es estándar para RGB)
+    # Use predefined profile (example: profile28 includes RGB)
     streaming_config.profile_name = "profile28"
     
-    # Configurar interfaz USB (más estable que WiFi para desarrollo)
+    # Use USB interface (more stable than WiFi for dev)
     streaming_config.streaming_interface = aria.StreamingInterface.Usb
     
-    # Usar certificados efímeros (no requiere setup manual de certificados)
+    # Use ephemeral certs (no manual cert setup)
     streaming_config.security_options.use_ephemeral_certs = True
     
-    # Aplicar configuración al manager
+    # Apply config to manager
     streaming_manager.streaming_config = streaming_config
     
-        # Iniciar el streaming en el dispositivo
+        # Start streaming on device
     streaming_manager.start_streaming()
 
-    # Obtener calibración oficial en JSON
+    # Get official calibration JSON
     sensors_calib_json = streaming_manager.sensors_calibration()
     sensors_calib = device_calibration_from_json_string(sensors_calib_json)
 
     rgb_calib = None
     try:
         rgb_calib = sensors_calib.get_camera_calib("camera-rgb")
-        print("[INFO] ✓ Calibración RGB obtenida del SDK")
+        print("[INFO] ✓ RGB calibration obtained from SDK")
     except Exception as e:
-        print(f"[WARN] No se pudo obtener calibración RGB: {e}")
+        print(f"[WARN] Could not fetch RGB calibration: {e}")
 
-    print("[INFO] ✓ Streaming RGB iniciado")
+    print("[INFO] ✓ RGB streaming started")
 
     return streaming_manager, rgb_calib
 
 def main():
     """
-    Función principal del programa.
-    Orquesta la conexión, streaming y visualización.
+    Main entrypoint: handle connection, streaming and visualization
     """
     print("=" * 60)
-    print("TFM - Sistema de navegación para ciegos")
-    print("Día 1: Stream RGB básico desde gafas Aria")
+    print("TFM - Navigation system for blind users")
+    print("Day 1: Basic RGB stream from Aria glasses")
     print("=" * 60)
     
-    # Configurar handler para salida limpia
+    # Setup handler for clean exit
     ctrl_handler = CtrlCHandler()
     
-    # Variables para cleanup en caso de error
+    # Variables for cleanup in case of error
     device_client = None
     streaming_manager = None
     streaming_client = None
     
     try:
-        # 1. CONEXIÓN AL DISPOSITIVO
+        # 1. Device connection
         device_client, device = connect_aria_device()
         
-        # 2. CONFIGURACIÓN DE STREAMING
+        # 2. Streaming configuration
         streaming_manager, rgb_calib = setup_rgb_streaming(device)
         
-        # 3. SETUP DEL OBSERVER
-        print("[INFO] Configurando observer RGB...")
+        # 3. Observer setup
+        print("[INFO] Setting up RGB observer...")
         
-        # Crear nuestro observer personalizado con calibración
+        # Create custom observer with calibration
         rgb_observer = AriaRgbObserver(rgb_calib=rgb_calib)
         
-        # Obtener cliente de streaming
+        # Get streaming client
         streaming_client = streaming_manager.streaming_client
         
-        # Registrar nuestro observer
+        # Register observer
         streaming_client.set_streaming_client_observer(rgb_observer)
         
-        # TODO: Configurar filtro para solo imágenes (opcional)
+        # TODO: Configure filter for images only (optional)
         # subscription_config = streaming_client.subscription_config
         # subscription_config.subscriber_data_type = aria.StreamingDataType.Image
         
-        # Iniciar suscripción al stream
+        # Start subscription
         streaming_client.subscribe()
-        print("[INFO] ✓ Suscripción al stream RGB activa")
+        print("[INFO] ✓ RGB stream subscription active")
         
-        # 4. CONFIGURACIÓN DE VISUALIZACIÓN
-        window_name = "Aria RGB Stream - TFM Navegación"
+        # 4. Visualization setup
+        window_name = "Aria RGB Stream - TFM Navigation"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, 800, 600)
         
-        print("[INFO] Stream activo - Presiona 'q' para salir o Ctrl+C")
-        print("[INFO] Esperando frames RGB...")
+        print("[INFO] Stream active - Press 'q' to quit or Ctrl+C")
+        print("[INFO] Waiting for RGB frames...")
         
-        # 5. LOOP PRINCIPAL DE VISUALIZACIÓN
+        # 5. Main visualization loop
         frames_displayed = 0
         
         while not ctrl_handler.should_stop:
-            # Obtener frame más reciente
+            # Get latest frame
             current_frame = rgb_observer.get_latest_frame()
             
-            # Si hay frame disponible, mostrarlo
+            # If a frame is available, show it
             if current_frame is not None:
                 cv2.imshow(window_name, current_frame)
                 frames_displayed += 1
                 
-                # Estadísticas cada 200 frames mostrados
+                # Stats every 200 displayed frames
                 if frames_displayed % 200 == 0:
-                    print(f"[INFO] Frames mostrados: {frames_displayed}")
+                    print(f"[INFO] Frames displayed: {frames_displayed}")
             
-            # Verificar si se presionó 'q' para salir
+            # Check if 'q' was pressed
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                print("[INFO] Tecla 'q' detectada, cerrando aplicación...")
+                print("[INFO] 'q' detected, closing application...")
                 break
+            if key == ord('t'):
+                print("[INFO] Test key 't' pressed → speaking 'audio test' (force)")
+                try:
+                    rgb_observer.audio_system.speak_force("audio test")
+                except Exception as e:
+                    print(f"[WARN] Test speak failed: {e}")
         
-        # Mostrar estadísticas finales
-        print(f"[INFO] Estadísticas finales:")
-        print(f"  - Frames RGB recibidos: {rgb_observer.frame_count}")
-        print(f"  - Frames mostrados: {frames_displayed}")
+        # Final stats
+        print(f"[INFO] Final stats:")
+        print(f"  - RGB frames received: {rgb_observer.frame_count}")
+        print(f"  - Frames displayed: {frames_displayed}")
         
     except KeyboardInterrupt:
-        print("\n[INFO] Interrupción por teclado detectada")
+        print("\n[INFO] Keyboard interrupt detected")
         
     except Exception as e:
-        print(f"[ERROR] Error durante ejecución: {e}")
-        print("[ERROR] Revisa conexión del dispositivo y dependencias")
+        print(f"[ERROR] Error during execution: {e}")
+        print("[ERROR] Check device connection and dependencies")
         
     finally:
-        # 6. CLEANUP ORDENADO DE RECURSOS
-        print("[INFO] Iniciando limpieza de recursos...")
-        
+        # 6. Ordered cleanup of resources
+        print("[INFO] Starting resource cleanup...")
+
         try:
-            # Desuscribirse del stream
+            # Stop processing thread from observer
+            if 'rgb_observer' in locals() and rgb_observer:
+                rgb_observer.stop()
+        except Exception:
+            pass
+
+        try:
+            # Unsubscribe from stream
             if streaming_client:
                 streaming_client.unsubscribe()
-                print("[INFO] ✓ Desuscripción completada")
+                print("[INFO] ✓ Unsubscribed successfully")
         except Exception as e:
-            print(f"[WARN] Error en unsubscribe: {e}")
+            print(f"[WARN] Error during unsubscribe: {e}")
         
         try:
-            # Detener streaming
+            # Stop streaming
             if streaming_manager:
                 streaming_manager.stop_streaming()
-                print("[INFO] ✓ Streaming detenido")
+                print("[INFO] ✓ Streaming stopped")
         except Exception as e:
-            print(f"[WARN] Error deteniendo streaming: {e}")
+            print(f"[WARN] Error stopping streaming: {e}")
         
         try:
-            # Desconectar dispositivo
+            # Disconnect device
             if device_client and 'device' in locals():
                 device_client.disconnect(device)
-                print("[INFO] ✓ Dispositivo desconectado")
+                print("[INFO] ✓ Device disconnected")
         except Exception as e:
-            print(f"[WARN] Error en desconexión: {e}")
+            print(f"[WARN] Error on disconnect: {e}")
+
+        try:
+            # Close audio system resources
+            if 'rgb_observer' in locals() and rgb_observer and hasattr(rgb_observer, 'audio_system'):
+                rgb_observer.audio_system.close()
+        except Exception:
+            pass
         
-        # Cerrar ventanas OpenCV
+        # Close OpenCV windows
         cv2.destroyAllWindows()
-        print("[INFO] ✓ Ventanas cerradas")
+        print("[INFO] ✓ Windows closed")
         
-        print("[INFO] Programa terminado exitosamente")
+        print("[INFO] Program finished successfully")
 
 
 if __name__ == "__main__":
