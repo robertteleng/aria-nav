@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Sistema de navegación para personas ciegas usando gafas Meta Aria
 TFM - Día 1: Stream RGB básico con observer personalizado
@@ -21,6 +19,8 @@ from projectaria_tools.core.calibration import (
     distort_by_calibration,
     get_linear_camera_calibration,
 )
+
+from audio_navigation_system import AudioNavigationSystem
 
 
 
@@ -82,15 +82,15 @@ class AriaRgbObserver:
             # --- Undistort con calibración oficial ---
             img_bgr = image  # tal como llega del SDK
 
-            if self.rgb_calib is not None and self.dst_calib is None:
-                h, w = img_bgr.shape[:2]
-                self.dst_calib = get_linear_camera_calibration(w, h, 120, "camera-rgb")
-                print(f"[INFO] Undistort activo → destino {w}x{h}")
+            # if self.rgb_calib is not None and self.dst_calib is None:
+            #     h, w = img_bgr.shape[:2]
+            #     self.dst_calib = get_linear_camera_calibration(w, h, 120, "camera-rgb")
+            #     print(f"[INFO] Undistort activo → destino {w}x{h}")
 
-            if self.rgb_calib is not None and self.dst_calib is not None:
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                undist_rgb = distort_by_calibration(img_rgb, self.dst_calib, self.rgb_calib)
-                img_bgr = cv2.cvtColor(undist_rgb, cv2.COLOR_RGB2BGR)
+            # if self.rgb_calib is not None and self.dst_calib is not None:
+            #     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            #     undist_rgb = distort_by_calibration(img_rgb, self.dst_calib, self.rgb_calib)
+            #     img_bgr = cv2.cvtColor(undist_rgb, cv2.COLOR_RGB2BGR)
 
             # Rotar imagen 90° para orientación correcta (montaje físico)
             rotated_image = np.rot90(img_bgr, -1)
@@ -98,6 +98,10 @@ class AriaRgbObserver:
 
             # YOLO detection
             results = self.yolo_model(contiguous_image, device=self.device, verbose=False)
+
+            # Añadir procesamiento audio:
+            detections = self.audio_system.process_detections(results)
+
             annotated_frame = results[0].plot()
             self.current_frame = annotated_frame
                
