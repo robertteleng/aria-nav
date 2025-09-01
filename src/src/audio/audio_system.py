@@ -15,7 +15,13 @@ class AudioSystem:
         # Audio control
         self.audio_queue = deque(maxlen=3)
         self.last_announcement_time = time.time()
-        self.announcement_cooldown = 3.0
+        # Lower base cooldown to reduce perceived delay
+        self.announcement_cooldown = 0.8
+        # Additional repeat cooldown for the same phrase
+        self.repeat_cooldown = 2.0
+        # Track last spoken phrase to allow immediate speech on changes
+        self.last_phrase: Optional[str] = None
+        self.last_phrase_time: float = 0.0
         
         # TTS state
         self.tts_speaking = False
@@ -57,7 +63,7 @@ class AudioSystem:
         
         # Generate and speak command if conditions are met
         command = self._generate_command(detection)
-        if command and self._should_announce():
+        if command and self._should_announce(command):
             self.speak_async(command)
     
     def _generate_command(self, detection: dict) -> Optional[str]:
@@ -72,11 +78,16 @@ class AudioSystem:
         zone_text = zone_mapping.get(detection['zone'], 'center')
         return f"{detection['name']} {zone_text}"
     
-    def _should_announce(self) -> bool:
-        """Check if enough time has passed since last announcement"""
-        current_time = time.time()
-        return (current_time - self.last_announcement_time >= self.announcement_cooldown 
-                and not self.tts_speaking and self.say_available)
+    def _should_announce(self, phrase: str) -> bool:
+        """Decide if we should speak now based on cooldown and phrase changes"""
+        if not self.say_available or self.tts_speaking:
+            return False
+        now = time.time()
+        # If phrase changed, allow immediate (no base cooldown)
+        if phrase != self.last_phrase:
+            return True
+        # Same phrase: enforce repeat cooldown
+        return (now - self.last_announcement_time) >= self.repeat_cooldown
     
     def speak_async(self, message: str):
         """Speak message asynchronously with cooldown control"""
@@ -110,8 +121,10 @@ class AudioSystem:
                         pass
                 self.tts_speaking = False
         
-        if self._should_announce():
+        if self._should_announce(message):
+            self.last_phrase = message
             self.last_announcement_time = time.time()
+            self.last_phrase_time = self.last_announcement_time
             threading.Thread(target=_speak, daemon=True).start()
     
     def speak_force(self, message: str):
