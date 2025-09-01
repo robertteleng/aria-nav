@@ -4,6 +4,8 @@ from collections import deque
 from typing import Optional
 from projectaria_tools.core.sensor_data import MotionData
 
+from src.motion.orientation_state import OrientationState
+
 class MotionProcessor:
     """
     Process IMU and magnetometer data for spatial orientation.
