@@ -1,13 +1,14 @@
 import numpy as np
+import cv2
 import threading
 import time
 import aria.sdk as aria
 from projectaria_tools.core.sensor_data import MotionData, BarometerData, ImageDataRecord
 
-from src.vision.yolo_proccesor import YoloProcessor
-from src.audio.audio_system import AudioSystem
-from src.utils.visualization import FrameRenderer
-from src.motion.motion_processor import MotionProcessor
+from vision.yolo_proccesor import YoloProcessor
+from audio.audio_system import AudioSystem
+from utils.visualization import FrameRenderer
+from motion.motion_processor import MotionProcessor
 
 
 class Observer:
@@ -46,6 +47,10 @@ class Observer:
     def on_image_received(self, image: np.array, record: ImageDataRecord) -> None:
         """SDK callback for new images - RGB only"""
         if record.camera_id == aria.CameraId.Rgb:
+            # FIX COLOR: Convertir BGR a RGB
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
             # Rotate for correct orientation
             rotated_image = np.rot90(image, -1)
             contiguous_image = np.ascontiguousarray(rotated_image)

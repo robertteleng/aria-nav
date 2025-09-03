@@ -9,9 +9,9 @@ Version: 3.0 - Clean modular architecture
 """
 
 import cv2
-from src.core.ctrl_handler import CtrlCHandler
-from src.core.device_manager import DeviceManager
-from src.core.observers import Observer
+from utils.ctrl_handler import CtrlCHandler
+from core.device_manager import DeviceManager
+from core.observers import Observer
 
 
 def main():

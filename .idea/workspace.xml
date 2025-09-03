@@ -1,25 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="ChangeListManager">
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/src/src/audio/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/audio/audio_system.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/core/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/core/ctrl_handler.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/core/device_manager.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/core/observers.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/imu/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/imu/motion_processor.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/imu/orientation_calculator.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/imu/orientation_state.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/utils/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/utils/config.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/utils/visualization.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/vision/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/vision/detected_object.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/vision/object_tracker.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/src/vision/yolo_proccesor.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/yolo11n.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -42,8 +28,12 @@
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;motion__service&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;feature/motion&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/robertorojosahuquillo/projectaria_navigation&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
@@ -65,6 +55,14 @@
       <updated>1756801261018</updated>
       <workItem from="1756801262184" duration="92000" />
       <workItem from="1756801365736" duration="27000" />
+      <workItem from="1756813038166" duration="632000" />
+      <workItem from="1756814118266" duration="8000" />
+      <workItem from="1756849102427" duration="36000" />
+      <workItem from="1756849140450" duration="139000" />
+      <workItem from="1756885761195" duration="459000" />
+      <workItem from="1756886813651" duration="75000" />
+      <workItem from="1756886904727" duration="475000" />
+      <workItem from="1756887389394" duration="44000" />
     </task>
     <servers />
   </component>

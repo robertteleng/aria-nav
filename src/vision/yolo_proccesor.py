@@ -1,14 +1,14 @@
 import numpy as np
 from ultralytics import YOLO
 from typing import List
-from src.vision.detected_object import DetectedObject
+from vision.detected_object import DetectedObject
 
 class YoloProcessor:
     """YOLO-based object detection optimized for navigation"""
     
     def __init__(self):
         print("[INFO] Loading YOLO model...")
-        self.model = YOLO('yolo11n.pt')
+        self.model = YOLO('yolo12n.pt')
         self.device = 'cpu'  # Avoid MPS NMS bug
         self.model.to(self.device)
         
