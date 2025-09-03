@@ -78,8 +78,8 @@ class Observer:
                 sample = samples[0]
                 accel = sample.accel_msec2
                 gyro = sample.gyro_radsec
-                print(f"[IMU] Accel: [{accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}] m/s²")
-                print(f"[IMU] Gyro: [{gyro[0]:.3f}, {gyro[1]:.3f}, {gyro[2]:.3f}] rad/s")
+                # print(f"[IMU] Accel: [{accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}] m/s²")
+                # print(f"[IMU] Gyro: [{gyro[0]:.3f}, {gyro[1]:.3f}, {gyro[2]:.3f}] rad/s")
             self._last_imu_debug = self.imu_sample_count
         
         # Pasar al procesador
@@ -96,6 +96,18 @@ class Observer:
             print(f"[MAGNETO] Mag: [{mag[0]:.6f}, {mag[1]:.6f}, {mag[2]:.6f}] Tesla")
             heading = self.motion_processor.orientation.heading
             print(f"[MAGNETO] Current heading: {heading:.1f}°")
+
+            # ===== AÑADE ESTO - TEST DE EJES =====
+            mag_x, mag_y, mag_z = mag
+            combo1 = (np.degrees(np.arctan2(mag_y, mag_x)) + 360) % 360  # Original
+            combo2 = (np.degrees(np.arctan2(mag_x, mag_z)) + 360) % 360  # X,Z  
+            combo3 = (np.degrees(np.arctan2(mag_y, mag_z)) + 360) % 360  # Y,Z
+            
+            print(f"[TEST] Heading X,Y: {combo1:.1f}°")
+            print(f"[TEST] Heading X,Z: {combo2:.1f}°")
+            print(f"[TEST] Heading Y,Z: {combo3:.1f}°")
+            print(f"[TEST] Tu brújula: 206° (SW)")
+            print("")
         
         # Pasar al procesador
         self.motion_processor.update_heading(sample)

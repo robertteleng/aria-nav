@@ -67,7 +67,7 @@ class MotionProcessor:
         
         # Store magnetometer data
         self.magneto_history.append((timestamp, sample.mag_tesla))
-        
+
         # Calculate compass heading
         heading = self._calculate_compass_heading(sample.mag_tesla)
         if heading is not None:

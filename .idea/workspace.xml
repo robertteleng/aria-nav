@@ -6,6 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/observers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/observers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/motion/motion_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/motion/motion_processor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -41,8 +43,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-b598e85cdad2-JavaScript-PY-252.25557.130" />
-        <option value="bundled-python-sdk-1bde30d8e611-7b97d883f26b-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.25557.130" />
+        <option value="bundled-js-predefined-d6986cc7102b-b598e85cdad2-JavaScript-PY-252.25557.178" />
+        <option value="bundled-python-sdk-ce6832f46686-7b97d883f26b-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.25557.178" />
       </set>
     </attachedChunks>
   </component>
@@ -63,6 +65,12 @@
       <workItem from="1756886813651" duration="75000" />
       <workItem from="1756886904727" duration="475000" />
       <workItem from="1756887389394" duration="44000" />
+      <workItem from="1756905016036" duration="587000" />
+      <workItem from="1756907714248" duration="44000" />
+      <workItem from="1756924390270" duration="486000" />
+      <workItem from="1756924909685" duration="7000" />
+      <workItem from="1756924924175" duration="59000" />
+      <workItem from="1756925357597" duration="62000" />
     </task>
     <servers />
   </component>
