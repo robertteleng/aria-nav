@@ -2,12 +2,15 @@ import numpy as np
 import cv2
 import threading
 import time
+import math
 import aria.sdk as aria
 from projectaria_tools.core.sensor_data import MotionData, BarometerData, ImageDataRecord
 
 from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
 from utils.visualization import FrameRenderer
+from utils.orientation_visualizer import add_orientation_overlay
+
 from motion.motion_processor import MotionProcessor
 
 
@@ -73,14 +76,33 @@ class Observer:
         
         # Debug cada 100 muestras para no saturar
         if self.imu_sample_count - self._last_imu_debug >= 100:
-            print(f"[IMU] Received {len(samples)} samples from IMU {imu_idx}")
             if samples:
                 sample = samples[0]
-                accel = sample.accel_msec2
                 gyro = sample.gyro_radsec
-                # print(f"[IMU] Accel: [{accel[0]:.2f}, {accel[1]:.2f}, {accel[2]:.2f}] m/s²")
-                # print(f"[IMU] Gyro: [{gyro[0]:.3f}, {gyro[1]:.3f}, {gyro[2]:.3f}] rad/s")
-            self._last_imu_debug = self.imu_sample_count
+                
+                # Test sistemático de ejes
+                gyro_x, gyro_y, gyro_z = gyro
+                
+                print(f"[IMU-2] Gyro RAW: X={gyro_x:.3f}, Y={gyro_y:.3f}, Z={gyro_z:.3f}")
+                
+                # Identificar eje dominante
+                abs_values = [abs(gyro_x), abs(gyro_y), abs(gyro_z)]
+                max_idx = abs_values.index(max(abs_values))
+                max_value = [gyro_x, gyro_y, gyro_z][max_idx]
+                
+                if max(abs_values) > 0.2:  # Rotación significativa
+                    axis_names = ["X", "Y", "Z"]
+                    direction = "+" if max_value > 0 else "-"
+                    
+                    print(f"[IMU-2] ROTACIÓN: Eje {axis_names[max_idx]}{direction} = {max_value:.3f}")
+                    print(f"[IMU-2] AHORA haz un movimiento específico y anota:")
+                    print(f"[IMU-2] - NO (izq/der): ¿Qué eje se activa?")
+                    print(f"[IMU-2] - SÍ (arriba/abajo): ¿Qué eje se activa?") 
+                    print(f"[IMU-2] - Inclinar (lateral): ¿Qué eje se activa?")
+                else:
+                    print(f"[IMU-2] Quieto")
+                
+                print("")
         
         # Pasar al procesador
         self.motion_processor.update_motion(samples, imu_idx)
@@ -144,6 +166,14 @@ class Observer:
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
                     frame, detections, self.audio_system
                 )
+
+                # Panel de orientación
+                annotated_frame = add_orientation_overlay(
+                annotated_frame, 
+                self.motion_processor,
+                show_panel=True
+            )
+
                 self.current_frame = annotated_frame
                 
             except Exception as e:

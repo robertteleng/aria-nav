@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import math
 from collections import deque
 from typing import Optional
 from projectaria_tools.core.sensor_data import MotionData
@@ -7,7 +8,7 @@ from projectaria_tools.core.sensor_data import MotionData
 from motion.orientation_state import OrientationState
 
 class MotionProcessor:
-    """Process IMU and magnetometer data for spatial orientation."""
+    """Simple yaw tracking with automatic magnetometer correction"""
     
     def __init__(self, history_size=20):
         # Current orientation state
@@ -17,189 +18,294 @@ class MotionProcessor:
             last_updated=time.time()
         )
         
-        # Data buffers for smoothing
+        # Data buffers
         self.accel_history = deque(maxlen=history_size)
         self.gyro_history = deque(maxlen=history_size)
         self.magneto_history = deque(maxlen=history_size)
         
-        # Calibration and filtering
-        self.magneto_calibration = None
-        self.gravity_filter = np.array([0.0, 0.0, -9.81])  # Initial gravity estimate
-        self.alpha = 0.8  # Low-pass filter coefficient
+        # ===== YAW TRACKING SIMPLE =====
+        self.yaw_angle = 0.0  # Radianes, integrado del giroscopio
+        self.yaw_zero = 0.0   # Baseline de calibración
+        self._prev_timestamp = None
         
-        # Movement detection
-        self.movement_threshold = 1.5  # m/s² for walking detection
+        # ===== CORRECCIÓN AUTOMÁTICA CON MAGNETÓMETRO =====
+        self._correction_counter = 0
+        self._auto_calibrated = False
+        self.correction_interval = 200  # Cada N muestras (~5 segundos a 100Hz)
+        
+        # ===== DETECCIÓN DE MOVIMIENTO SIMPLE =====
+        self.accel_magnitudes = deque(maxlen=10)
+        self.movement_variance = 0.0
+        self.movement_threshold = 0.5  # Varianza threshold
+        
+        # Movement detection thresholds
         self.stationary_time = 0.0
         
-        print("[INFO] IMU processor initialized (ready for Day 4)")
+        print("[INFO] MotionProcessor - Yaw simple con corrección automática magnetómetro")
+        print(f"[INFO] Corrección cada {self.correction_interval} muestras")
     
     def update_motion(self, samples, imu_idx: int) -> None:
-        """
-        Process IMU samples (accelerometer + gyroscope)
-        
-        Args:
-            samples: List of MotionData from Aria SDK
-            imu_idx: IMU index (0 or 1 for dual IMUs)
-        """
-        # TODO: Day 4 implementation
+        """Yaw del giroscopio con corrección automática por magnetómetro"""
         for sample in samples:
-            timestamp = sample.capture_timestamp_ns * 1e-9
+            timestamp_ns = sample.capture_timestamp_ns
+            timestamp_s = timestamp_ns * 1e-9
+            accel = sample.accel_msec2
+            gyro = sample.gyro_radsec
             
             # Store raw data
-            self.accel_history.append((timestamp, sample.accel_msec2))
-            self.gyro_history.append((timestamp, sample.gyro_radsec))
+            self.accel_history.append((timestamp_s, accel))
+            self.gyro_history.append((timestamp_s, gyro))
             
-            # Process accelerometer for movement detection
-            self._detect_movement(sample.accel_msec2, timestamp)
+            # ===== 1. INTEGRAR YAW DEL GIROSCOPIO =====
+            if self._prev_timestamp is not None:
+                dt = timestamp_s - self._prev_timestamp
+                if 0 < dt < 0.1:  # Filtrar timestamps razonables
+                    yaw_rate = gyro[0]  # Eje X confirmado para yaw
+                    self.yaw_angle += yaw_rate * dt
+                    # Mantener en rango [-π, π]
+                    self.yaw_angle = ((self.yaw_angle + math.pi) % (2 * math.pi)) - math.pi
             
-            # Process gyroscope for head orientation  
-            self._update_head_orientation(sample.gyro_radsec, timestamp)
+            self._prev_timestamp = timestamp_s
+            
+            # ===== 2. CORRECCIÓN AUTOMÁTICA CON MAGNETÓMETRO =====
+            self._correction_counter += 1
+            
+            if (self._correction_counter % self.correction_interval == 0 and 
+                hasattr(self.orientation, 'heading') and self.orientation.heading != 0):
+                
+                self._auto_correct_with_magnetometer()
+            
+            # ===== 3. DETECCIÓN DE MOVIMIENTO CON VARIANZA =====
+            self._detect_movement_variance(accel)
+            
+            # ===== 4. ACTUALIZAR ESTADO =====
+            # Convertir yaw calibrado a grados para el estado
+            yaw_calibrated_rad = self._wrap_pi(self.yaw_angle - self.yaw_zero)
+            self.orientation.yaw = math.degrees(yaw_calibrated_rad)
+            self.orientation.last_updated = timestamp_s
+            
+            # Debug cada 200 muestras
+            if self._correction_counter % 200 == 0:
+                print(f"[YAW] Gyro: {math.degrees(self.yaw_angle):.1f}° "
+                      f"Calibrado: {self.orientation.yaw:.1f}° "
+                      f"Mag: {getattr(self.orientation, 'heading', 0):.1f}° "
+                      f"Moving: {self.orientation.is_moving}")
     
     def update_heading(self, sample: MotionData) -> None:
-        """
-        Process magnetometer sample for compass heading
-        
-        Args:
-            sample: MotionData with magnetometer reading
-        """
-        # TODO: Day 4 implementation
+        """Procesar magnetómetro para heading de referencia"""
         timestamp = sample.capture_timestamp_ns * 1e-9
         
         # Store magnetometer data
         self.magneto_history.append((timestamp, sample.mag_tesla))
-
+        
         # Calculate compass heading
         heading = self._calculate_compass_heading(sample.mag_tesla)
         if heading is not None:
-            self.orientation.heading = heading
+            # Aplicar suavizado al heading del magnetómetro
+            if hasattr(self.orientation, 'heading') and self.orientation.heading != 0.0:
+                heading_diff = heading - self.orientation.heading
+                
+                # Handle 360° -> 0° wrap
+                if heading_diff > 180:
+                    heading_diff -= 360
+                elif heading_diff < -180:
+                    heading_diff += 360
+                
+                # Smooth transition
+                self.orientation.heading += 0.1 * heading_diff
+                self.orientation.heading = (self.orientation.heading + 360) % 360
+            else:
+                self.orientation.heading = heading
+                # Inicialización automática del yaw con magnetómetro
+                if not self._auto_calibrated:
+                    self._initialize_yaw_with_magnetometer(heading)
+            
             self.orientation.last_updated = timestamp
     
-    def _detect_movement(self, accel_data, timestamp: float) -> None:
-        """Detect if user is walking based on accelerometer patterns"""
-        # TODO: Day 4 implementation
-        # Basic movement detection using acceleration magnitude
-        accel_magnitude = np.linalg.norm(accel_data)
-        
-        # Simple threshold-based detection (placeholder)
-        if accel_magnitude > self.movement_threshold:
-            self.orientation.is_moving = True
-            self.stationary_time = 0.0
-        else:
-            self.stationary_time += 0.033  # Assume ~30fps IMU
-            if self.stationary_time > 1.0:  # Stationary for 1+ seconds
-                self.orientation.is_moving = False
-    
-    def _update_head_orientation(self, gyro_data, timestamp: float) -> None:
-        """Update head orientation from gyroscope"""
-        # TODO: Day 4 implementation
-        # Integrate gyroscope for pitch/yaw/roll
-        dt = 0.033  # Approximate time step
-        
-        # Simple integration (placeholder - needs proper quaternion math)
-        self.orientation.pitch += gyro_data[0] * dt
-        self.orientation.yaw += gyro_data[1] * dt  
-        self.orientation.roll += gyro_data[2] * dt
-    
-    def _calculate_compass_heading(self, mag_data) -> Optional[float]:
-        """
-        Calculate compass heading from magnetometer reading
-        
-        Returns:
-            Heading in degrees (0° = North, 90° = East)
-        """
-        # TODO: Day 4 implementation
+    def _auto_correct_with_magnetometer(self):
+        """Corrección automática del drift del giroscopio usando magnetómetro"""
         try:
-            # Basic 2D compass calculation (ignores tilt compensation)
-            mag_x, mag_y, mag_z = mag_data
+            mag_heading_deg = self.orientation.heading
+            mag_yaw_rad = math.radians(mag_heading_deg)
+            gyro_yaw_rad = self.yaw_angle
             
-            # Calculate heading from X,Y components
-            heading_rad = np.arctan2(mag_y, mag_x)
-            heading_deg = np.degrees(heading_rad)
+            # Calcular diferencia entre magnetómetro y giroscopio
+            diff = mag_yaw_rad - gyro_yaw_rad
             
-            # Normalize to 0-360°
-            if heading_deg < 0:
-                heading_deg += 360
-                
-            return heading_deg
+            # Manejar wrap-around (-π to π)
+            if diff > math.pi:
+                diff -= 2 * math.pi
+            elif diff < -math.pi:
+                diff += 2 * math.pi
+            
+            # Aplicar corrección gradual (20% de la diferencia)
+            correction_factor = 0.2
+            correction = diff * correction_factor
+            self.yaw_angle += correction
+            
+            # Logging solo para correcciones significativas
+            if abs(correction) > math.radians(2):  # > 2 grados
+                print(f"[AUTO-CORRECT] Gyro drift corregido: {math.degrees(correction):.1f}° "
+                      f"(Mag: {mag_heading_deg:.1f}° vs Gyro: {math.degrees(gyro_yaw_rad):.1f}°)")
             
         except Exception as e:
-            print(f"[WARN] Compass calculation failed: {e}")
+            print(f"[AUTO-CORRECT] Error en corrección: {e}")
+    
+    def _initialize_yaw_with_magnetometer(self, mag_heading_deg):
+        """Inicializar yaw del giroscopio con magnetómetro en el arranque"""
+        self.yaw_angle = math.radians(mag_heading_deg)
+        self.yaw_zero = self.yaw_angle  # Establecer como referencia inicial
+        self._auto_calibrated = True
+        print(f"[INIT] Yaw inicializado con magnetómetro: {mag_heading_deg:.1f}°")
+    
+    def _detect_movement_variance(self, accel):
+        """Detección de movimiento usando varianza de magnitudes de aceleración"""
+        # Calcular magnitud de aceleración
+        accel_magnitude = math.sqrt(accel[0]**2 + accel[1]**2 + accel[2]**2)
+        self.accel_magnitudes.append(accel_magnitude)
+        
+        # Calcular varianza cuando tenemos suficientes muestras
+        if len(self.accel_magnitudes) >= 5:
+            recent_magnitudes = list(self.accel_magnitudes)[-5:]
+            mean_magnitude = sum(recent_magnitudes) / len(recent_magnitudes)
+            variance = sum((m - mean_magnitude)**2 for m in recent_magnitudes) / len(recent_magnitudes)
+            
+            self.movement_variance = variance
+            
+            # Determinar si está en movimiento
+            was_moving = self.orientation.is_moving
+            self.orientation.is_moving = variance > self.movement_threshold
+            
+            # Log cambios de estado
+            if was_moving != self.orientation.is_moving:
+                state = "CAMINANDO" if self.orientation.is_moving else "QUIETO"
+                print(f"[MOVEMENT] Usuario {state} (varianza: {variance:.3f})")
+            
+            self.orientation.movement_speed = variance
+    
+    def _calculate_compass_heading(self, mag_data):
+        """Cálculo básico de heading compass"""
+        try:
+            mag_x, mag_y, mag_z = mag_data
+            
+            # Heading usando X,Y (plano horizontal)
+            heading_rad = math.atan2(mag_z, -mag_x) # atan2(Este, Norte)
+            heading_deg = math.degrees(heading_rad)
+            
+            # Normalizar a 0-360°
+            heading_deg = (heading_deg + 360) % 360
+            
+            return heading_deg
+        except Exception as e:
+            print(f"[COMPASS] Error calculando heading: {e}")
             return None
     
-    def get_relative_direction(self, object_center_x: float, frame_width: int) -> str:
-        """
-        Convert frame coordinates to user-relative directions
-        
-        Args:
-            object_center_x: X coordinate of object in frame
-            frame_width: Width of frame for normalization
-            
-        Returns:
-            Relative direction string
-        """
-        # TODO: Day 4 implementation with actual heading
-        # For now, return simple frame-relative directions
-        
-        left_boundary = frame_width * 0.33
-        right_boundary = frame_width * 0.67
-        
-        if object_center_x < left_boundary:
-            return "to your left"
-        elif object_center_x > right_boundary:
-            return "to your right"  
+    @staticmethod
+    def _wrap_pi(angle):
+        """Normalizar ángulo a rango [-π, π]"""
+        return (angle + math.pi) % (2 * math.pi) - math.pi
+    
+    def get_contextual_direction(self, object_center_x, frame_width):
+        """Generar dirección contextual usando yaw corregido"""
+        # Determinar zona básica en frame
+        if object_center_x < frame_width * 0.33:
+            zone_offset = -45  # Izquierda
+        elif object_center_x > frame_width * 0.67:
+            zone_offset = 45   # Derecha
         else:
-            return "directly ahead"
+            zone_offset = 0    # Centro
+        
+        # Calcular heading absoluto del objeto
+        user_heading = getattr(self.orientation, 'heading', 0.0)
+        object_heading = (user_heading + zone_offset) % 360
+        
+        # Convertir a dirección natural en español
+        directions = [
+            "frente a ti",           # 0°
+            "adelante a la derecha", # 45°
+            "a tu derecha",          # 90°
+            "atrás a la derecha",    # 135°
+            "detrás de ti",          # 180°
+            "atrás a la izquierda",  # 225°
+            "a tu izquierda",        # 270°
+            "adelante a la izquierda" # 315°
+        ]
+        
+        idx = int((object_heading + 22.5) / 45) % 8
+        return directions[idx]
+    
+    def get_yaw_degrees(self):
+        """Obtener yaw actual en grados (calibrado)"""
+        yaw_cal = self._wrap_pi(self.yaw_angle - self.yaw_zero)
+        return math.degrees(yaw_cal)
+    
+    def get_absolute_heading(self):
+        """Obtener heading absoluto del magnetómetro"""
+        return getattr(self.orientation, 'heading', 0.0)
+    
+    def force_recalibration(self):
+        """Forzar recalibración con magnetómetro actual"""
+        if hasattr(self.orientation, 'heading') and self.orientation.heading != 0:
+            self._initialize_yaw_with_magnetometer(self.orientation.heading)
+        else:
+            print("[RECAL] No hay datos de magnetómetro para recalibrar")
+    
+    # ===== MÉTODOS DE COMPATIBILIDAD =====
+    
+    def get_relative_direction(self, object_center_x: float, frame_width: int) -> str:
+        """Compatibilidad con sistema existente"""
+        return self.get_contextual_direction(object_center_x, frame_width)
     
     def get_movement_context(self) -> str:
-        """Get current movement context for audio commands"""
+        """Contexto de movimiento para comandos de audio"""
         if self.orientation.is_moving:
-            return "while walking"
+            return "mientras caminas"
         else:
-            return "while stationary"
-    
-    def get_compass_direction(self, relative_direction: str) -> str:
-        """
-        Convert relative direction to absolute compass direction
-        
-        Args:
-            relative_direction: "left", "right", "ahead"
-            
-        Returns:
-            Compass direction like "north", "southeast"
-        """
-        # TODO: Day 4 implementation
-        # This will use self.orientation.heading to convert
-        # relative directions to absolute compass bearings
-        
-        # Placeholder: return relative for now
-        return relative_direction
-    
-    def calibrate_magnetometer(self, duration_seconds=10):
-        """
-        Perform magnetometer calibration by collecting data
-        while user rotates in place
-        """
-        # TODO: Day 4 implementation
-        print(f"[INFO] Magnetometer calibration needed ({duration_seconds}s)")
-        print("[INFO] Slowly turn in a full circle to calibrate compass")
-        # Collect min/max values for each axis during rotation
-        # Calculate offset and scale factors
-        pass
+            return ""
     
     def reset_orientation(self):
-        """Reset orientation to initial state"""
+        """Reset completo del sistema de orientación"""
+        print("[RESET] Reiniciando sistema de orientación...")
+        
+        self.yaw_angle = 0.0
+        self.yaw_zero = 0.0
+        self._prev_timestamp = None
+        self._correction_counter = 0
+        self._auto_calibrated = False
+        
         self.orientation.heading = 0.0
-        self.orientation.pitch = 0.0
         self.orientation.yaw = 0.0
-        self.orientation.roll = 0.0
         self.orientation.is_moving = False
-        self.orientation.last_updated = time.time()
+        self.movement_variance = 0.0
         
-        # Clear history buffers
+        # Clear buffers
         self.accel_history.clear()
-        self.gyro_history.clear() 
+        self.gyro_history.clear()
         self.magneto_history.clear()
+        self.accel_magnitudes.clear()
         
-        print("[INFO] Orientation reset to defaults")
+        print("[RESET] Sistema listo para nueva inicialización con magnetómetro")
 
-
+    def test_all_magnetometer_combinations(self, mag_data):
+        """Test todas las combinaciones de ejes para encontrar la correcta"""
+        mag_x, mag_y, mag_z = mag_data
+        
+        combinations = [
+            ("X,Y", math.atan2(mag_y, mag_x)),
+            ("Y,X", math.atan2(mag_x, mag_y)),
+            ("X,Z", math.atan2(mag_z, mag_x)),
+            ("Z,X", math.atan2(mag_x, mag_z)),
+            ("Y,Z", math.atan2(mag_z, mag_y)),
+            ("Z,Y", math.atan2(mag_y, mag_z)),
+            ("-X,Y", math.atan2(mag_y, -mag_x)),
+            ("X,-Y", math.atan2(-mag_y, mag_x)),
+            ("-X,Z", math.atan2(mag_z, -mag_x)),
+            ("Z,-X", math.atan2(-mag_x, mag_z)),
+        ]
+        
+        print(f"\n[MAG-TEST] Valores raw: X={mag_x:.1f}, Y={mag_y:.1f}, Z={mag_z:.1f}")
+        for name, heading_rad in combinations:
+            heading_deg = (math.degrees(heading_rad) + 360) % 360
+            print(f"[MAG-TEST] {name:>4}: {heading_deg:6.1f}°")
+        print("[MAG-TEST] Tu brújula marca: ¿cuántos grados?")
+        print("")

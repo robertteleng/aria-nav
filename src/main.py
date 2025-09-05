@@ -67,7 +67,28 @@ def main():
             elif key == ord('t'):
                 print("[INFO] Testing audio system...")
                 observer.test_audio()
-        
+            elif key == ord('r'):  # Force recalibration
+                observer.motion_processor.force_recalibration()
+            elif key == ord('y'):  # Show yaw info
+                yaw = observer.motion_processor.get_yaw_degrees()
+                heading = observer.motion_processor.get_absolute_heading()
+                print(f"[YAW-INFO] Gyro yaw: {yaw:.1f}° | Mag heading: {heading:.1f}°")
+            elif key == ord('m'):  # Test magnetometer combinations
+                if observer.motion_processor.magneto_history:
+                    last_mag_data = observer.motion_processor.magneto_history[-1][1]
+                    observer.motion_processor.test_all_magnetometer_combinations(last_mag_data)
+                    print("INSTRUCCIONES:")
+                    print("1. Apunta las gafas al NORTE según tu brújula física")
+                    print("2. Presiona 'm' para ver todas las combinaciones")
+                    print("3. Busca la combinación que dé ~0° (o ~360°)")
+                    print("4. Esa será la combinación correcta para tu hardware")
+
+            elif key == ord('h'):  # Show current heading
+                if observer.motion_processor.magneto_history:
+                    last_mag_data = observer.motion_processor.magneto_history[-1][1]
+                    heading = observer.motion_processor._calculate_compass_heading(last_mag_data)
+                    print(f"[HEADING] Magnetómetro da: {heading:.1f}°")
+                    print(f"[HEADING] Con tu brújula debería ser: ¿cuántos grados?")
         # Final statistics
         observer.print_stats()
         

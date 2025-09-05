@@ -7,6 +7,7 @@
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/observers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/observers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/motion/motion_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/motion/motion_processor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -71,6 +72,11 @@
       <workItem from="1756924909685" duration="7000" />
       <workItem from="1756924924175" duration="59000" />
       <workItem from="1756925357597" duration="62000" />
+      <workItem from="1756971411132" duration="337000" />
+      <workItem from="1756992686282" duration="204000" />
+      <workItem from="1757062617360" duration="120000" />
+      <workItem from="1757062754014" duration="147000" />
+      <workItem from="1757093634446" duration="10000" />
     </task>
     <servers />
   </component>
