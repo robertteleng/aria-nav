@@ -67,6 +67,9 @@ def main():
             elif key == ord('t'):
                 print("[INFO] Testing audio system...")
                 observer.test_audio()
+            elif key == ord('d'):
+                print("[INFO] Toggling depth view...")
+                # Opcional: implementar toggle de vista de profundidad
             
         # Final statistics
         observer.print_stats()

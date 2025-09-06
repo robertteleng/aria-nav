@@ -29,7 +29,7 @@ class FrameRenderer:
         }
     
     def draw_navigation_overlay(self, frame: np.array, detections: List[dict], 
-                              audio_system) -> np.array:
+                          audio_system, depth_map: np.array = None) -> np.array:
         """Draw complete navigation overlay on frame"""
         height, width = frame.shape[:2]
         annotated_frame = frame.copy()
@@ -42,8 +42,13 @@ class FrameRenderer:
         
         # Draw system status
         self._draw_system_status(annotated_frame, audio_system, width, height)
+
+        # Draw depth overlay if available
+        if depth_map is not None:
+            self._draw_depth_overlay(annotated_frame, depth_map, width, height)
         
         return annotated_frame
+        
     
     def _draw_zone_grid(self, frame: np.array, width: int, height: int):
         """Draw 4-quadrant grid overlay"""
@@ -141,3 +146,26 @@ class FrameRenderer:
             # Fallback if audio_system has issues
             cv2.putText(frame, "Audio: Unknown", (10, height - 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+            
+    # # Añadir nuevo método al final de la clase:
+    def _draw_depth_overlay(self, frame: np.array, depth_map: np.array, width: int, height: int):
+        """Draw depth information overlay in top-right corner"""
+        try:
+            # Small depth preview en esquina superior derecha
+            depth_small = cv2.resize(depth_map, (120, 90))
+            depth_colored = cv2.applyColorMap(depth_small, cv2.COLORMAP_JET)
+            
+            # Posición en esquina superior derecha
+            start_x = width - 130
+            start_y = 10
+            end_x = width - 10
+            end_y = 100
+            
+            # Ensure we don't go out of bounds
+            if start_x > 0 and start_y >= 0 and end_x <= width and end_y <= height:
+                frame[start_y:end_y, start_x:end_x] = depth_colored
+                cv2.putText(frame, "Depth", (start_x, start_y - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            
+        except Exception as e:
+            pass  # Fail silently if there are issues with depth overlay

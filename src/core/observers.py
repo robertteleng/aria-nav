@@ -9,6 +9,8 @@ from projectaria_tools.core.sensor_data import ImageDataRecord
 from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
 from utils.visualization import FrameRenderer
+from vision.depth_estimator import DepthEstimator
+
 
 
 class Observer:
@@ -22,6 +24,9 @@ class Observer:
         self.yolo_processor = YoloProcessor()
         self.audio_system = AudioSystem()
         self.frame_renderer = FrameRenderer()
+
+        self.depth_estimator = DepthEstimator()
+        self.current_depth_map = None
 
         # Contadores para debug
         self.imu_sample_count = 0
@@ -85,15 +90,21 @@ class Observer:
                 continue
             
             try:
-                # Vision processing
-                detections = self.yolo_processor.process_frame(frame)
+                # Depth estimation (si está habilitado)
+                depth_map = None
+                if self.depth_estimator.model is not None:
+                    depth_map = self.depth_estimator.estimate_depth(frame)
+                    self.current_depth_map = depth_map
+                
+                # Vision processing (pasando depth_map)
+                detections = self.yolo_processor.process_frame(frame, depth_map)
                 
                 # Audio processing  
                 self.audio_system.process_detections(detections)
                 
                 # Visual overlay
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                    frame, detections, self.audio_system
+                frame, detections, self.audio_system, depth_map
                 )
             
                 self.current_frame = annotated_frame
@@ -105,6 +116,11 @@ class Observer:
     def get_latest_frame(self):
         """Get most recent processed frame"""
         return self.current_frame
+    
+    # Añadir método para obtener depth map:
+    def get_latest_depth(self):
+        """Get most recent depth map"""
+        return self.current_depth_map
     
     def test_audio(self):
         """Test audio system - triggered by 't' key"""

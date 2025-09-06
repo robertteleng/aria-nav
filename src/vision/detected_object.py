@@ -13,3 +13,4 @@ class DetectedObject:
     zone: str
     distance_bucket: str
     relevance_score: float
+    depth_value: float = 0.5  # AÑADIR ESTA LÍNEA (0=lejos, 1=cerca)

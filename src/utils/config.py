@@ -31,3 +31,14 @@ class Config:
     DETECTION_HISTORY_SIZE = 8
     CONSISTENCY_THRESHOLD = 2
     DEBUG_FRAME_INTERVAL = 100
+
+    # MiDaS depth estimation
+    # Distance estimation strategy
+    DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
+    MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
+    MIDAS_DEVICE = "cpu"         # Evitar problemas MPS
+    DEPTH_ENABLED = True         # Flag para activar/desactivar
+    
+    # Distance calculation with depth
+    DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
+    DEPTH_MEDIUM_THRESHOLD = 0.4  # Profundidad normalizada para "medio"

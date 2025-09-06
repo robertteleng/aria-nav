@@ -1,7 +1,12 @@
 import numpy as np
 from ultralytics import YOLO
-from typing import List
+from typing import List, Tuple
 from vision.detected_object import DetectedObject
+from vision.depth_estimator import DepthEstimator
+
+from utils.config import Config
+
+
 
 class YoloProcessor:
     """YOLO-based object detection optimized for navigation"""
@@ -25,9 +30,11 @@ class YoloProcessor:
         }
         
         self.detection_count = 0
+        # self.depth_estimator = DepthEstimator()
+
         print("[INFO] ✓ YOLOv11 processor initialized")
     
-    def process_frame(self, frame: np.array) -> List[dict]:
+    def process_frame(self, frame: np.array, depth_map: np.array = None) -> List[dict]:
         """
         Process frame through YOLO and return structured detections
         
@@ -39,7 +46,11 @@ class YoloProcessor:
             results = self.model(frame, device=self.device, verbose=False)
             
             # Convert to structured objects
-            detected_objects = self._analyze_detections(results, frame.shape[1])
+            # detected_objects = self._analyze_detections(results, frame.shape[1])
+
+            # depth_map = self.depth_estimator.estimate_depth(frame)
+            detected_objects = self._analyze_detections(results, frame.shape[1], depth_map)
+
             
             # Convert to simple dictionaries for other modules
             detections = []
@@ -60,7 +71,7 @@ class YoloProcessor:
             print(f"[WARN] YOLO processing failed: {e}")
             return []
     
-    def _analyze_detections(self, yolo_results, frame_width: int) -> List[DetectedObject]:
+    def _analyze_detections(self, yolo_results, frame_width: int, depth_map: np.array = None) -> List[DetectedObject]:
         """Convert raw YOLO output to structured detection objects"""
         objects = []
         
@@ -87,6 +98,14 @@ class YoloProcessor:
             
             # Zone classification
             zone = self._classify_zone(center_x, center_y, frame_width)
+
+            # CAMBIAR ESTA PARTE - Distance estimation:
+            bbox = (int(x1), int(y1), int(x2), int(y2))
+            depth_value = 0.5  # Default
+            
+            if depth_map is not None:
+                # Solo usar el depth_map que ya tenemos, NO crear nuevo estimator
+                depth_value = self._calculate_depth_from_map(depth_map, bbox)
             
             # Distance estimation
             distance_bucket = self._estimate_distance(area, frame_width)
@@ -99,7 +118,14 @@ class YoloProcessor:
             # Filter 3: Minimum relevance threshold
             if relevance_score < 0.6:
                 continue
-            
+
+            # # ANTES de crear DetectedObject, añadir:
+            # depth_value = 0.5  # Default
+            # if depth_map is not None and self.depth_estimator.model is not None:
+            #     depth_value = self.depth_estimator.get_object_depth(depth_map, (int(x1), int(y1), int(x2), int(y2)))
+            #     # Actualizar distance_bucket con profundidad
+            #     distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
+
             obj = DetectedObject(
                 name=self.navigation_objects[class_name]['name'],
                 confidence=float(confidence),
@@ -109,7 +135,8 @@ class YoloProcessor:
                 area=area,
                 zone=zone,
                 distance_bucket=distance_bucket,
-                relevance_score=relevance_score
+                relevance_score=relevance_score,
+                depth_value=depth_value
             )
             
             objects.append(obj)
@@ -145,3 +172,73 @@ class YoloProcessor:
             return "medium"
         else:
             return "far"
+        
+    def _estimate_distance_with_depth(self, area: float, frame_width: int, depth_value: float) -> str:
+        """Enhanced distance estimation with selectable strategy"""
+        
+        # AQUÍ ESTÁ LA LÓGICA DE ELECCIÓN QUE FALTABA
+        if Config.DISTANCE_METHOD == "depth_only":
+            # Solo usar MiDaS
+            if depth_value > Config.DEPTH_CLOSE_THRESHOLD:
+                return "very close"
+            elif depth_value > Config.DEPTH_MEDIUM_THRESHOLD:
+                return "close"
+            else:
+                return "far"
+        
+        elif Config.DISTANCE_METHOD == "area_only":
+            # Solo usar área (tu método original)
+            return self._estimate_distance(area, frame_width)
+        
+        elif Config.DISTANCE_METHOD == "hybrid":
+            # Combinar ambos métodos
+            depth_category = self._depth_to_category(depth_value)
+            area_category = self._estimate_distance(area, frame_width)
+            
+            # MiDaS tiene prioridad para objetos muy cercanos
+            if depth_category == "very close":
+                return "very close"
+            elif depth_category == "close" or area_category == "very close":
+                return "close"
+            elif area_category == "close":
+                return "close"
+            else:
+                return "far"
+        
+        else:
+            # Fallback por defecto
+            return self._estimate_distance(area, frame_width)
+
+    def _depth_to_category(self, depth_value: float) -> str:
+        """Helper: convert depth value to distance category"""
+                
+        if depth_value > Config.DEPTH_CLOSE_THRESHOLD:
+            return "very close"
+        elif depth_value > Config.DEPTH_MEDIUM_THRESHOLD:
+            return "close"
+        else:
+            return "far"
+        
+
+    # Añadir este método al final de la clase YoloProcessor:
+    def _calculate_depth_from_map(self, depth_map: np.ndarray, bbox: Tuple[int, int, int, int]) -> float:
+        """Calculate average depth for an object bbox directly from depth map"""
+        try:
+            x1, y1, x2, y2 = map(int, bbox)
+            h, w = depth_map.shape
+            
+            # Clamp coordinates
+            x1, x2 = max(0, x1), min(w-1, x2)
+            y1, y2 = max(0, y1), min(h-1, y2)
+            
+            if x2 <= x1 or y2 <= y1:
+                return 0.5
+            
+            # Extract ROI and calculate mean
+            roi = depth_map[y1:y2, x1:x2]
+            mean_depth = np.mean(roi) / 255.0
+            
+            return 1.0 - mean_depth  # Invert: 1=close, 0=far
+            
+        except Exception:
+            return 0.5
