@@ -5,10 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/projectaria_navigation.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/projectaria_navigation.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/core/observers.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/observers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/motion/motion_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/motion/motion_processor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,7 +29,7 @@
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;feature/motion&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;feature/depth&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/robertorojosahuquillo/projectaria_navigation&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
@@ -77,6 +75,8 @@
       <workItem from="1757062617360" duration="120000" />
       <workItem from="1757062754014" duration="147000" />
       <workItem from="1757093634446" duration="10000" />
+      <workItem from="1757182173177" duration="50000" />
+      <workItem from="1757182242571" duration="331000" />
     </task>
     <servers />
   </component>
