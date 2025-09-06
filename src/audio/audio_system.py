@@ -71,6 +71,7 @@ class AudioSystem:
     def _generate_command(self, detection: dict) -> Optional[str]:
         """Generate simple directional command"""
         zone_mapping = {
+            'center': 'center',
             'top_left': 'upper left',
             'top_right': 'upper right', 
             'bottom_left': 'lower left',

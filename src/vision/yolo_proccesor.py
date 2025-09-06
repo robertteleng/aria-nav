@@ -147,9 +147,28 @@ class YoloProcessor:
         return objects[:1]
     
     def _classify_zone(self, center_x: float, center_y: float, frame_width: int) -> str:
-        """Classify object position into spatial zones"""
+        """Classify object position into spatial zones (4 quadrants + optional center)"""
+        from utils.config import Config
+        
         frame_height = int(frame_width * 0.75)  # Assume 4:3 aspect ratio
         
+        # Si usamos el sistema de 5 zonas
+        if Config.ZONE_SYSTEM == "five_zones":
+            # Definir zona central
+            center_margin_x = frame_width * Config.CENTER_ZONE_WIDTH_RATIO
+            center_margin_y = frame_height * Config.CENTER_ZONE_HEIGHT_RATIO
+            
+            center_left = frame_width/2 - center_margin_x/2
+            center_right = frame_width/2 + center_margin_x/2
+            center_top = frame_height/2 - center_margin_y/2
+            center_bottom = frame_height/2 + center_margin_y/2
+            
+            # Verificar si está en zona central
+            if (center_left <= center_x <= center_right and 
+                center_top <= center_y <= center_bottom):
+                return "center"
+        
+        # Si no está en centro, usar cuadrantes tradicionales
         mid_x = frame_width / 2
         mid_y = frame_height / 2
         

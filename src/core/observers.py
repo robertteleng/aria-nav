@@ -2,7 +2,6 @@ import numpy as np
 import cv2
 import threading
 import time
-import math
 import aria.sdk as aria
 from projectaria_tools.core.sensor_data import ImageDataRecord
 
@@ -10,8 +9,6 @@ from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
 from utils.visualization import FrameRenderer
 from vision.depth_estimator import DepthEstimator
-
-
 
 class Observer:
     """
@@ -28,10 +25,6 @@ class Observer:
         self.depth_estimator = DepthEstimator()
         self.current_depth_map = None
 
-        # Contadores para debug
-        self.imu_sample_count = 0
-        self.magneto_sample_count = 0
-        self._last_imu_debug = 0
         
         # Frame processing
         self.current_frame = None
@@ -90,12 +83,28 @@ class Observer:
                 continue
             
             try:
-                # Depth estimation (si está habilitado)
+                # # Depth estimation (si está habilitado)
+                # depth_map = None
+                # if self.depth_estimator.model is not None:
+                #     depth_map = self.depth_estimator.estimate_depth(frame)
+                #     self.current_depth_map = depth_map
+            
+                # THROTTLING: Procesar depth cada 5 frames para mejor performance
                 depth_map = None
                 if self.depth_estimator.model is not None:
-                    depth_map = self.depth_estimator.estimate_depth(frame)
-                    self.current_depth_map = depth_map
-                
+                    if not hasattr(self, 'depth_frame_skip'):
+                        self.depth_frame_skip = 5
+                        self.cached_depth_map = None
+                    
+                    if self.frame_count % self.depth_frame_skip == 0:
+                        # Procesar depth cada 5 frames
+                        depth_map = self.depth_estimator.estimate_depth(frame)
+                        self.cached_depth_map = depth_map
+                        self.current_depth_map = depth_map
+                    else:
+                        # Usar depth map cacheado
+                        depth_map = self.cached_depth_map
+
                 # Vision processing (pasando depth_map)
                 detections = self.yolo_processor.process_frame(frame, depth_map)
                 

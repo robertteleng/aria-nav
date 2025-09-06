@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """MiDaS depth estimation module"""
 
 import torch

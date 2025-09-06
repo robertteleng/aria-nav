@@ -5,7 +5,7 @@ class Config:
     
     # Video processing
     TARGET_FPS = 30
-    YOLO_MODEL = "yolo11n.pt"
+    YOLO_MODEL = "yolo12n.pt"
     YOLO_CONFIDENCE = 0.6
     YOLO_DEVICE = "cpu"  # Avoid MPS bug
     
@@ -42,3 +42,9 @@ class Config:
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
     DEPTH_MEDIUM_THRESHOLD = 0.4  # Profundidad normalizada para "medio"
+
+    # Spatial zone configuration - Day 5
+    ZONE_SYSTEM = "five_zones"  # "four_quadrants" or "five_zones"
+    CENTER_ZONE_WIDTH_RATIO = 0.4  # 40% del ancho total
+    CENTER_ZONE_HEIGHT_RATIO = 0.25  # 25% del alto total
+    CENTER_ZONE_PRIORITY_BOOST = 1.5  # Multiplicador de prioridad para zona central
