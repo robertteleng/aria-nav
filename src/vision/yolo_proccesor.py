@@ -99,17 +99,18 @@ class YoloProcessor:
             # Zone classification
             zone = self._classify_zone(center_x, center_y, frame_width)
 
-            # CAMBIAR ESTA PARTE - Distance estimation:
+            # Distance estimation:
             bbox = (int(x1), int(y1), int(x2), int(y2))
             depth_value = 0.5  # Default
             
             if depth_map is not None:
                 # Solo usar el depth_map que ya tenemos, NO crear nuevo estimator
                 depth_value = self._calculate_depth_from_map(depth_map, bbox)
-            
+                print(f"[DEBUG] Object: {class_name}, Depth: {depth_value:.2f}")  # AÑADIR ESTO
+
             # Distance estimation
-            distance_bucket = self._estimate_distance(area, frame_width)
-            
+            distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
+
             # Relevance scoring
             base_priority = self.navigation_objects[class_name]['priority']
             size_factor = min(area / (frame_width * 300), 1.0)
@@ -176,15 +177,20 @@ class YoloProcessor:
     def _estimate_distance_with_depth(self, area: float, frame_width: int, depth_value: float) -> str:
         """Enhanced distance estimation with selectable strategy"""
         
+        print(f"[DEBUG] Config method: {Config.DISTANCE_METHOD}, Depth: {depth_value:.2f}")
+
         # AQUÍ ESTÁ LA LÓGICA DE ELECCIÓN QUE FALTABA
         if Config.DISTANCE_METHOD == "depth_only":
             # Solo usar MiDaS
             if depth_value > Config.DEPTH_CLOSE_THRESHOLD:
-                return "very close"
+                result = "very close"
             elif depth_value > Config.DEPTH_MEDIUM_THRESHOLD:
-                return "close"
+                result = "close"
             else:
-                return "far"
+                result = "far"
+            
+            print(f"[DEBUG] Depth method result: {result}")
+            return result
         
         elif Config.DISTANCE_METHOD == "area_only":
             # Solo usar área (tu método original)
@@ -211,7 +217,7 @@ class YoloProcessor:
 
     def _depth_to_category(self, depth_value: float) -> str:
         """Helper: convert depth value to distance category"""
-                
+
         if depth_value > Config.DEPTH_CLOSE_THRESHOLD:
             return "very close"
         elif depth_value > Config.DEPTH_MEDIUM_THRESHOLD:

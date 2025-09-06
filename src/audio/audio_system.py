@@ -58,12 +58,14 @@ class AudioSystem:
         if not detections:
             return
         
-        # Take most relevant detection
         detection = detections[0]
+        print(f"[AUDIO DEBUG] Detection: {detection}")
         
-        # Generate and speak command if conditions are met
         command = self._generate_command(detection)
+        print(f"[AUDIO DEBUG] Generated command: '{command}'")
+        
         if command and self._should_announce(command):
+            print(f"[AUDIO DEBUG] Sending to TTS: '{command}'")
             self.speak_async(command)
     
     def _generate_command(self, detection: dict) -> Optional[str]:
@@ -76,7 +78,13 @@ class AudioSystem:
         }
         
         zone_text = zone_mapping.get(detection['zone'], 'center')
-        return f"{detection['name']} {zone_text}"
+        distance = detection.get('distance', '')
+        
+        # AÑADIR LA DISTANCIA AL MENSAJE:
+        if distance:
+            return f"{detection['name']} {distance} {zone_text}"
+        else:
+            return f"{detection['name']} {zone_text}"
     
     def _should_announce(self, phrase: str) -> bool:
         """Decide if we should speak now based on cooldown and phrase changes"""
