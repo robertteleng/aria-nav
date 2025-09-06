@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Navigation system for blind users using Meta Aria glasses
-TFM - Day 3: Refactored modular architecture
-
-Date: 2025-09-01  
-Version: 3.0 - Clean modular architecture
+Author: Roberto Rojas Sahuquillo
+Date: 2025-09  
+Version: 0.50 - Modular architecture with improved audio and visualization
 """
 
 import cv2
@@ -17,8 +16,7 @@ from core.observers import Observer
 def main():
     """Clean entry point orchestrating all components"""
     print("=" * 60)
-    print("TFM - Navigation system for blind users")
-    print("Day 3: Modular architecture with IMU ready")
+    print("ARIA project: Navigation system for blind users")
     print("=" * 60)
     
     # Setup clean exit handler

@@ -9,6 +9,7 @@ from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
 from utils.visualization import FrameRenderer
 from vision.depth_estimator import DepthEstimator
+from vision.image_enhancer import ImageEnhancer
 
 class Observer:
     """
@@ -24,6 +25,9 @@ class Observer:
 
         self.depth_estimator = DepthEstimator()
         self.current_depth_map = None
+
+        # Añadir esta línea después del depth_estimator:
+        self.image_enhancer = ImageEnhancer()
 
         
         # Frame processing
@@ -83,6 +87,16 @@ class Observer:
                 continue
             
             try:
+                # if not hasattr(self, 'enhancement_test_done'):
+                #     print("[TEST] Testing image enhancer...")
+                #     print(f"  - Enabled: {hasattr(self, 'image_enhancer')}")
+                #     if hasattr(self, 'image_enhancer'):
+                #         print(f"  - Auto: {self.image_enhancer.auto_enhancement}")
+                #         print(f"  - Threshold: {self.image_enhancer.low_light_threshold}")
+                #     self.enhancement_test_done = True
+                # Enhancement para condiciones de poca luz
+                enhanced_frame = self.image_enhancer.enhance_frame(frame)
+
                 # # Depth estimation (si está habilitado)
                 # depth_map = None
                 # if self.depth_estimator.model is not None:
@@ -98,7 +112,7 @@ class Observer:
                     
                     if self.frame_count % self.depth_frame_skip == 0:
                         # Procesar depth cada 5 frames
-                        depth_map = self.depth_estimator.estimate_depth(frame)
+                        depth_map = self.depth_estimator.estimate_depth(enhanced_frame)
                         self.cached_depth_map = depth_map
                         self.current_depth_map = depth_map
                     else:
@@ -106,14 +120,14 @@ class Observer:
                         depth_map = self.cached_depth_map
 
                 # Vision processing (pasando depth_map)
-                detections = self.yolo_processor.process_frame(frame, depth_map)
-                
-                # Audio processing  
+                detections = self.yolo_processor.process_frame(enhanced_frame, depth_map)
+
+                # Audio processing
                 self.audio_system.process_detections(detections)
                 
                 # Visual overlay
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                frame, detections, self.audio_system, depth_map
+                enhanced_frame, detections, self.audio_system, depth_map
                 )
             
                 self.current_frame = annotated_frame
