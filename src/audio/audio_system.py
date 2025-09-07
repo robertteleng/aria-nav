@@ -53,19 +53,35 @@ class AudioSystem:
         self.frame_width = width
         self.frame_height = height
     
-    def process_detections(self, detections: List[dict]) -> None:
-        """Process detections and generate audio commands"""
+    def process_detections(self, detections: List[dict], motion_state: str = "stationary") -> None:
+        """Process detections and generate adaptive audio commands based on motion"""
         if not detections:
             return
         
-        detection = detections[0]
-        print(f"[AUDIO DEBUG] Detection: {detection}")
+        # NUEVO: Configuración adaptativa según movimiento
+        if motion_state == "walking":
+            # Más frecuente cuando caminas (navegación activa)
+            self.repeat_cooldown = 1.5  # segundos
+            max_objects = 1  # Solo objeto más importante
+            prefix = "[WALKING]"
+        else:
+            # Menos frecuente cuando parado (exploración)
+            self.repeat_cooldown = 3.0  # segundos  
+            max_objects = 2  # Hasta 2 objetos
+            prefix = "[STATIONARY]"
         
+        # Filtrar objetos según estado de movimiento
+        relevant_detections = detections[:max_objects]
+        
+        # Generar comando (usar primer objeto por ahora)
+        detection = relevant_detections[0]
+        print(f"[AUDIO DEBUG] {prefix} Detection: {detection}")
+    
         command = self._generate_command(detection)
-        print(f"[AUDIO DEBUG] Generated command: '{command}'")
+        print(f"[AUDIO DEBUG] {prefix} Generated command: '{command}'")
         
         if command and self._should_announce(command):
-            print(f"[AUDIO DEBUG] Sending to TTS: '{command}'")
+            print(f"[AUDIO DEBUG] {prefix} Sending to TTS: '{command}'")
             self.speak_async(command)
     
     def _generate_command(self, detection: dict) -> Optional[str]:

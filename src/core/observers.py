@@ -3,7 +3,8 @@ import cv2
 import threading
 import time
 import aria.sdk as aria
-from projectaria_tools.core.sensor_data import ImageDataRecord
+from projectaria_tools.core.sensor_data import ImageDataRecord, MotionData
+from typing import Sequence
 
 from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
@@ -67,6 +68,32 @@ class Observer:
             
             if self.frame_count % 100 == 0:
                 print(f"[DEBUG] RGB frames processed: {self.frame_count}")
+
+    def on_imu_received(self, samples: Sequence[MotionData], imu_idx: int) -> None:
+        """Motion Detection - Detectar parado vs caminando"""
+        sample = samples[0]
+        accelerometer = sample.accel_msec2
+        timestamp = sample.capture_timestamp_ns
+        
+        # Calcular magnitud
+        magnitude = (accelerometer[0]**2 + accelerometer[1]**2 + accelerometer[2]**2)**0.5
+        
+        # NUEVO: Motion Detection Logic
+        if not hasattr(self, 'motion_detector'):
+            from imu.motion_detector import SimpleMotionDetector
+            self.motion_detector = SimpleMotionDetector()
+        
+        # Enviar datos al detector (solo IMU0 para simplicidad)
+        if imu_idx == 0:  # Solo usar un IMU
+            motion_state = self.motion_detector.update(magnitude, timestamp)
+            
+            # Debug motion state cada ~3 segundos
+            if not hasattr(self, 'imu_count'):
+                self.imu_count = 0
+            self.imu_count += 1
+                
+            if self.imu_count % 300 == 0:
+                print(f"[MOTION DEBUG] Magnitude: {magnitude:.3f} m/s² - State: {motion_state}")
     
     
     def on_streaming_client_failure(self, reason, message: str) -> None:
@@ -122,9 +149,12 @@ class Observer:
                 # Vision processing (pasando depth_map)
                 detections = self.yolo_processor.process_frame(enhanced_frame, depth_map)
 
-                # Audio processing
-                self.audio_system.process_detections(detections)
+                # Obtener motion state actual
+                motion_state = getattr(self.motion_detector, 'last_motion_state', 'stationary')
                 
+                # Audio processing
+                self.audio_system.process_detections(detections, motion_state)
+
                 # Visual overlay
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
                 enhanced_frame, detections, self.audio_system, depth_map
