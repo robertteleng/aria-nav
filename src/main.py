@@ -9,7 +9,6 @@ import cv2
 from utils.ctrl_handler import CtrlCHandler
 from core.device_manager import DeviceManager
 from core.observer import Observer
-from utils.rerun_dashboard import RerunDashboard
 
 
 def main():
@@ -24,7 +23,7 @@ def main():
     # Initialize dashboard flag (Observer will own the dashboard instance)
     enable_dashboard = input("Habilitar dashboard Rerun? (y/n): ").lower() == 'y'
     if enable_dashboard:
-        print("[MAIN] Dashboard Rerun activado (gestionado por Observer)")
+        print("[MAIN] Dashboard OpenCV activado (gestionado por Observer)")
     
     # Core components
     device_manager = None
@@ -63,11 +62,19 @@ def main():
                 
                 frames_displayed += 1
                 
-                if frames_displayed % 200 == 0:
-                    print(f"[INFO] Frames displayed: {frames_displayed}")
+                # if frames_displayed % 200 == 0:
+                #     print(f"[INFO] Frames displayed: {frames_displayed}")
             
-            # Handle keyboard input
-            key = cv2.waitKey(1) & 0xFF
+            # Refrescar dashboard en hilo principal (macOS requiere main-thread para GUI)
+            if enable_dashboard and getattr(observer, 'dashboard', None):
+                key = observer.dashboard.update_all()
+                if key == ord('q'):
+                    print("[INFO] 'q' detected in dashboard, closing application...")
+                    break
+                # No llamar a waitKey dos veces cuando dashboard activo
+                key = 255
+            else:
+                key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 print("[INFO] 'q' detected, closing application...")
                 break

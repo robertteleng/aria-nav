@@ -5,67 +5,58 @@ from typing import Dict, List, Optional
 
 
 class OpenCVDashboard:
-    """Dashboard simple con múltiples ventanas OpenCV"""
-    
-    def __init__(self):
+    """
+    Dashboard OpenCV en UNA sola ventana con cuadrícula 2x3.
+
+    Disposición (2 filas x 3 columnas):
+      [RGB+YOLO] [Depth] [SLAM1|SLAM2]
+      [Logs]     [Metrics] [Ayuda]
+    """
+
+    def __init__(self, cell_size=(512, 384), window_name="ARIA Dashboard (OpenCV)"):
         self.start_time = time.time()
         self.frame_count = 0
         self.last_fps_update = time.time()
         self.current_fps = 0.0
         self.audio_commands_sent = 0
         self.total_detections = 0
-        
-        # Configurar ventanas
-        self._setup_windows()
-        
-        print("[DASHBOARD] OpenCV Dashboard inicializado")
-        print("Ventanas: RGB+YOLO | Depth | SLAM1 | SLAM2 | Metrics | Logs")
-    
-    def _setup_windows(self):
-        """Configurar ventanas con posiciones específicas"""
-        # Ventana principal RGB
-        cv2.namedWindow("RGB + YOLO", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("RGB + YOLO", 640, 480)
-        cv2.moveWindow("RGB + YOLO", 50, 50)
-        
-        # Depth map
-        cv2.namedWindow("Depth Map", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Depth Map", 480, 360)
-        cv2.moveWindow("Depth Map", 720, 50)
-        
-        # SLAM cámaras
-        cv2.namedWindow("SLAM1", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("SLAM1", 400, 300)
-        cv2.moveWindow("SLAM1", 1230, 50)
-        
-        cv2.namedWindow("SLAM2", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("SLAM2", 400, 300)
-        cv2.moveWindow("SLAM2", 1230, 380)
-        
-        # Métricas como imagen
-        cv2.namedWindow("Performance", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Performance", 400, 200)
-        cv2.moveWindow("Performance", 50, 560)
-        
-        # Logs como imagen
-        cv2.namedWindow("System Logs", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("System Logs", 600, 200)
-        cv2.moveWindow("System Logs", 470, 560)
+
+        # Configuración de la cuadrícula
+        self.cols = 3
+        self.rows = 2
+        self.cell_w, self.cell_h = int(cell_size[0]), int(cell_size[1])
+        self.canvas_w = self.cols * self.cell_w
+        self.canvas_h = self.rows * self.cell_h
+        self.window_name = window_name
+
+        # Buffers de cada panel
+        self.rgb_img = None
+        self.depth_img = None
+        self.slam1_img = None
+        self.slam2_img = None
+        self.metrics_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+        self.logs_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+
+        # Ventana única
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.window_name, self.canvas_w, self.canvas_h)
+
+        print("[DASHBOARD] OpenCV Dashboard en 1 ventana (2x3) listo")
     
     def log_rgb_frame(self, frame: np.ndarray):
         """Mostrar RGB + YOLO en ventana principal"""
         if frame is not None:
-            cv2.imshow("RGB + YOLO", frame)
+            self.rgb_img = self._resize_keep(frame, self.cell_w, self.cell_h)
             self.frame_count += 1
     
     def log_depth_map(self, depth_data: np.ndarray):
         """Mostrar depth map coloreado"""
         if depth_data is None:
             # Crear imagen vacía
-            empty = np.zeros((360, 480, 3), dtype=np.uint8)
-            cv2.putText(empty, "No Depth Data", (150, 180), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv2.imshow("Depth Map", empty)
+            empty = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+            cv2.putText(empty, "No Depth Data", (int(self.cell_w*0.25), self.cell_h//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            self.depth_img = empty
             return
         
         # Normalizar y aplicar colormap
@@ -80,25 +71,23 @@ class OpenCVDashboard:
         cv2.putText(depth_colored, f"Max: {max_dist:.1f}m", (10, 60), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
-        cv2.imshow("Depth Map", depth_colored)
+        self.depth_img = self._resize_keep(depth_colored, self.cell_w, self.cell_h)
     
     def log_slam1_frame(self, slam1_frame: np.ndarray):
         """Mostrar SLAM1"""
         if slam1_frame is not None:
-            # Añadir título
             frame_copy = slam1_frame.copy()
-            cv2.putText(frame_copy, "SLAM1 (Left)", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.imshow("SLAM1", frame_copy)
+            cv2.putText(frame_copy, "SLAM1 (Left)", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            self.slam1_img = self._resize_keep(frame_copy, self.cell_w//2, self.cell_h)
     
     def log_slam2_frame(self, slam2_frame: np.ndarray):
         """Mostrar SLAM2"""
         if slam2_frame is not None:
-            # Añadir título
             frame_copy = slam2_frame.copy()
-            cv2.putText(frame_copy, "SLAM2 (Right)", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.imshow("SLAM2", frame_copy)
+            cv2.putText(frame_copy, "SLAM2 (Right)", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            self.slam2_img = self._resize_keep(frame_copy, self.cell_w//2, self.cell_h)
     
     def log_performance_metrics(self):
         """Crear imagen con métricas de performance"""
@@ -111,7 +100,7 @@ class OpenCVDashboard:
             self.last_fps_update = current_time
         
         # Crear imagen de métricas
-        metrics_img = np.zeros((200, 400, 3), dtype=np.uint8)
+        metrics_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
         
         # Título
         cv2.putText(metrics_img, "PERFORMANCE METRICS", (10, 30), 
@@ -127,11 +116,10 @@ class OpenCVDashboard:
         ]
         
         for i, metric in enumerate(metrics):
-            y_pos = 70 + i * 30
-            cv2.putText(metrics_img, metric, (10, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        
-        cv2.imshow("Performance", metrics_img)
+            y_pos = 70 + i * 40
+            cv2.putText(metrics_img, metric, (10, y_pos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        self.metrics_img = metrics_img
     
     def log_system_message(self, message: str, level: str = "INFO"):
         """Añadir mensaje a buffer de logs (simplificado)"""
@@ -147,7 +135,7 @@ class OpenCVDashboard:
             self.log_buffer.pop(0)
         
         # Crear imagen con logs
-        logs_img = np.zeros((200, 600, 3), dtype=np.uint8)
+        logs_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
         
         # Título
         cv2.putText(logs_img, "SYSTEM LOGS", (10, 25), 
@@ -166,10 +154,9 @@ class OpenCVDashboard:
             
             # Truncar mensaje si es muy largo
             display_msg = log_msg[:70] + "..." if len(log_msg) > 70 else log_msg
-            cv2.putText(logs_img, display_msg, (10, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-        
-        cv2.imshow("System Logs", logs_img)
+            cv2.putText(logs_img, display_msg, (10, y_pos),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        self.logs_img = logs_img
     
     def log_detections(self, detections: List[Dict], frame_shape: tuple):
         """Procesar detecciones para métricas"""
@@ -193,13 +180,61 @@ class OpenCVDashboard:
         self.log_system_message(f"MOTION: {motion_state.upper()} (mag: {imu_magnitude:.2f})", "IMU")
     
     def update_all(self):
-        """Actualizar todas las ventanas - llamar periódicamente"""
-        # Actualizar métricas
-        self.log_performance_metrics()
-        
-        # Procesar eventos OpenCV
-        key = cv2.waitKey(1) & 0xFF
-        return key
+        """Componer la cuadrícula y refrescar la ventana única."""
+        # Componer canvas
+        canvas = np.zeros((self.canvas_h, self.canvas_w, 3), dtype=np.uint8)
+
+        # Celda (0,0) RGB
+        if self.rgb_img is not None:
+            canvas[0:self.cell_h, 0:self.cell_w] = self._pad_to_cell(self.rgb_img)
+        else:
+            self._put_label(canvas, (0, 0), "RGB + YOLO")
+
+        # Celda (0,1) Depth
+        if self.depth_img is not None:
+            canvas[0:self.cell_h, self.cell_w:2*self.cell_w] = self._pad_to_cell(self.depth_img)
+        else:
+            self._put_label(canvas, (0, 1), "Depth Map")
+
+        # Celda (0,2) SLAM compositado (dos mitades)
+        slam_cell = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+        if self.slam1_img is not None:
+            slam_cell[:, 0:self.cell_w//2] = self._pad_to_size(self.slam1_img, self.cell_h, self.cell_w//2)
+        if self.slam2_img is not None:
+            slam_cell[:, self.cell_w//2:self.cell_w] = self._pad_to_size(self.slam2_img, self.cell_h, self.cell_w//2)
+        if self.slam1_img is None and self.slam2_img is None:
+            cv2.putText(slam_cell, "SLAM1 | SLAM2", (20, self.cell_h//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+        canvas[0:self.cell_h, 2*self.cell_w:3*self.cell_w] = slam_cell
+
+        # Fila 2: Logs y Métricas
+        canvas[self.cell_h:2*self.cell_h, 0:self.cell_w] = self.logs_img
+        canvas[self.cell_h:2*self.cell_h, self.cell_w:2*self.cell_w] = self.metrics_img
+
+        # Celda (1,2) Ayuda
+        help_cell = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+        help_lines = [
+            "ARIA OpenCV Dashboard",
+            "q: salir  |  Ventana unica",
+            f"FPS: {self.current_fps:.1f}",
+        ]
+        for i, line in enumerate(help_lines):
+            cv2.putText(help_cell, line, (10, 40 + i*40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+        canvas[self.cell_h:2*self.cell_h, 2*self.cell_w:3*self.cell_w] = help_cell
+
+        # Líneas de la cuadrícula
+        for c in range(1, self.cols):
+            x = c * self.cell_w
+            cv2.line(canvas, (x, 0), (x, self.canvas_h), (50, 50, 50), 1)
+        for r in range(1, self.rows):
+            y = r * self.cell_h
+            cv2.line(canvas, (0, y), (self.canvas_w, y), (50, 50, 50), 1)
+
+        # Mostrar
+        cv2.imshow(self.window_name, canvas)
+        self.log_performance_metrics()  # actualiza FPS/uptime
+        return cv2.waitKey(1) & 0xFF
     
     def shutdown(self):
         """Cerrar todas las ventanas"""
@@ -207,36 +242,29 @@ class OpenCVDashboard:
         self.log_system_message(f"Sistema cerrándose - Sesión: {duration:.1f}min", "SYSTEM")
         
         print(f"[DASHBOARD] OpenCV Session: {duration:.1f}min, Commands: {self.audio_commands_sent}, Detections: {self.total_detections}")
-        
         cv2.destroyAllWindows()
 
+    # --------- helpers internos ---------
+    def _resize_keep(self, img, target_w, target_h):
+        h, w = img.shape[:2]
+        scale = min(target_w / w, target_h / h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-# INTEGRACIÓN EN TU OBSERVER EXISTENTE
-"""
-Para usar este dashboard en tu Observer, solo cambiar:
+    def _pad_to_cell(self, img):
+        return self._pad_to_size(img, self.cell_h, self.cell_w)
 
-# En __init__:
-from utils.opencv_dashboard import OpenCVDashboard
-self.dashboard = OpenCVDashboard() if enable_dashboard else None
+    @staticmethod
+    def _pad_to_size(img, target_h, target_w):
+        h, w = img.shape[:2]
+        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        y = (target_h - h) // 2
+        x = (target_w - w) // 2
+        canvas[y:y+h, x:x+w] = img[: target_h - y, : target_w - x]
+        return canvas
 
-# En _processing_loop(), cambiar las llamadas de dashboard por:
-if self.dashboard:
-    if 'rgb' in processed_frames:
-        rgb_with_overlay = self.frame_renderer.draw_navigation_overlay(...)
-        self.dashboard.log_rgb_frame(rgb_with_overlay)
-        self.dashboard.log_detections(rgb_detections, processed_frames['rgb'].shape)
-    
-    if 'slam1' in processed_frames:
-        self.dashboard.log_slam1_frame(processed_frames['slam1'])
-    
-    if 'slam2' in processed_frames:
-        self.dashboard.log_slam2_frame(processed_frames['slam2'])
-    
-    if depth_map is not None:
-        self.dashboard.log_depth_map(depth_map)
-    
-    # Actualizar cada frame
-    key = self.dashboard.update_all()
-    if key == ord('q'):
-        break
-"""
+    def _put_label(self, canvas, cell_pos, text):
+        r, c = cell_pos
+        x0, y0 = c * self.cell_w, r * self.cell_h
+        cv2.putText(canvas, text, (x0 + 20, y0 + self.cell_h // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 180, 180), 2)

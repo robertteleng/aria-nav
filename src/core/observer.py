@@ -8,14 +8,10 @@ from typing import Sequence, Dict
 
 from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
+from utils.visualization import FrameRenderer
 from vision.depth_estimator import DepthEstimator
 from vision.image_enhancer import ImageEnhancer
-
-# Añadir dashboard
-from utils.visualization import FrameRenderer
-
 from utils.opencv_dashboard import OpenCVDashboard
-from utils.rerun_dashboard import RerunDashboard
 
 
 class Observer:
@@ -176,7 +172,7 @@ class Observer:
             
             # Skip if no new frames
             if not frames:
-                time.sleep(0.003)
+                time.sleep(0.01)
                 continue
                 
             try:
@@ -208,7 +204,7 @@ class Observer:
                 
                 # Store current frames
                 self.current_frames.update(processed_frames)
-                
+
                 # Enviar frames al dashboard
                 if self.dashboard:
                     # Panel 1: RGB + YOLO (arriba-izquierda)
