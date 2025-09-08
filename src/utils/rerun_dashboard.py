@@ -6,153 +6,333 @@ from typing import Dict, List, Optional
 
 
 class RerunDashboard:
-    """Dashboard simple para TFM - Solo lo esencial"""
-    
-    def __init__(self, app_id: str = "aria_navigation_tfm"):
+    """Dashboard 2x3 fijo para TFM Aria (compatible con rerun-sdk 0.24.x con fallback).
+
+    Layout objetivo (2x3):
+        RGB+YOLO | Depth Map | SLAM1+SLAM2
+        Logs     | Metrics   | Acceleration Graph
+
+    Notas de compatibilidad:
+    - Intenta configurar el layout fijo con la API moderna de 0.24.x: rr.blueprint + contenedores.
+    - Si algunos contenedores no existen en tu build, hace fallback a auto-layout, pero
+      mantiene los mismos 'orígenes' (paths) para que el viewer muestre todos los paneles.
+    - SLAM1+SLAM2 se renderiza como una única imagen compuesta (side-by-side) para
+      asegurar que se vean a la vez en el mismo Spatial2DView.
+    - El panel Acceleration usa rr.Scalars para traza temporal.
+    """
+
+    def __init__(self, app_id: str = "aria_navigation_tfm", slam_mode: str = "side_by_side"):
+        # Inicia la app y lanza el viewer embebido (spawn=True) — 0.24.x
         rr.init(app_id, spawn=True)
-        
+
         self.start_time = time.time()
         self.frame_count = 0
         self.last_fps_update = time.time()
         self.current_fps = 0.0
         self.audio_commands_sent = 0
         self.total_detections = 0
-        
-        print("[DASHBOARD] Rerun dashboard initialized")
-        
+        self.frame_index = 0
+        # Modo de visualización SLAM: "side_by_side" (por defecto) o "overlay"
+        self.slam_mode = slam_mode if slam_mode in ("side_by_side", "overlay") else "side_by_side"
+
+        # --- Intento de layout 2x3 fijo con API moderna ---
+        try:
+            # Intento 1: contenedores Vertical/Horizontal para 2x3 fijo
+            blueprint = rr.blueprint(
+                rr.Vertical(
+                    rr.Horizontal(
+                        rr.Spatial2DView(origin="panels/camera_rgb", name="RGB + YOLO"),
+                        rr.Spatial2DView(origin="panels/depth_map", name="Depth Map"),
+                        rr.Spatial2DView(origin="panels/slam", name="SLAM1+SLAM2"),
+                        name="Top Row",
+                    ),
+                    rr.Horizontal(
+                        rr.TextLogView(origin="panels/system_logs", name="Logs"),
+                        rr.TimeSeriesView(origin="panels/metrics", name="Metrics"),
+                        rr.TimeSeriesView(origin="panels/acceleration", name="Acceleration"),
+                        name="Bottom Row",
+                    ),
+                    name="TFM Navigation Dashboard (2x3)",
+                )
+            )
+            rr.send_blueprint(blueprint)
+        except AttributeError as e:
+            # Intento 2: blueprint plano (sin contenedores). El viewer suele generar grid automáticamente.
+            try:
+                flat = rr.blueprint(
+                    rr.Spatial2DView(origin="panels/camera_rgb", name="RGB + YOLO"),
+                    rr.Spatial2DView(origin="panels/depth_map", name="Depth Map"),
+                    rr.Spatial2DView(origin="panels/slam", name="SLAM1+SLAM2"),
+                    rr.TextLogView(origin="panels/system_logs", name="Logs"),
+                    rr.TimeSeriesView(origin="panels/metrics", name="Metrics"),
+                    rr.TimeSeriesView(origin="panels/acceleration", name="Acceleration"),
+                )
+                rr.send_blueprint(flat)
+                print("[DEBUG] Applied flat blueprint (no containers).")
+            except Exception as e2:
+                print(f"[DEBUG] Flat blueprint also failed ({e2}). Using auto layout.")
+        except Exception as e:
+            print(f"[DEBUG] Could not set blueprint layout ({e}). Using auto layout.")
+
+        print("[DASHBOARD] Layout 2x3 listo:")
+        print("  panels/camera_rgb: RGB + YOLO detecciones")
+        print("  panels/depth_map: Depth Map")
+        print("  panels/slam: SLAM1+SLAM2 (composición)")
+        print("  panels/system_logs: Logs del sistema")
+        print("  panels/metrics: Métricas (Scalars)")
+        print("  panels/acceleration: Aceleración (Scalars)")
+
+    # ---------------------- UTILIDADES ----------------------
+    def _ts(self) -> float:
+        ts = time.time() - self.start_time
+        rr.set_time_seconds("timeline", ts)
+        return ts
+
+    def _advance_frame_time(self):
+        # Avanza un índice de frame entero para que todos los logs del mismo ciclo compartan timestamp
+        self.frame_index += 1
+        rr.set_time_sequence("frame", self.frame_index)
+        # Sincroniza también el tiempo en segundos para el snapshot del frame
+        self._ts()
+
+    @staticmethod
+    def _ensure_rgb(img: np.ndarray) -> np.ndarray:
+        if img is None:
+            return img
+        if img.ndim == 3 and img.shape[2] == 3:
+            # Asumimos BGR (OpenCV) → RGB
+            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return img
+
+    @staticmethod
+    def _stack_horizontal(img_left: Optional[np.ndarray], img_right: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if img_left is None and img_right is None:
+            return None
+        if img_left is None:
+            return img_right
+        if img_right is None:
+            return img_left
+        # Igualar alturas para apilado limpio
+        h1, w1 = img_left.shape[:2]
+        h2, w2 = img_right.shape[:2]
+        target_h = min(h1, h2)
+
+        def resize_h(img, h):
+            ih, iw = img.shape[:2]
+            if ih == h:
+                return img
+            new_w = int(iw * (h / ih))
+            return cv2.resize(img, (new_w, h), interpolation=cv2.INTER_AREA)
+
+        left_r = resize_h(img_left, target_h)
+        right_r = resize_h(img_right, target_h)
+        return np.hstack([left_r, right_r])
+
+    # ---------------------- LOGGING PANELES ----------------------
     def log_rgb_frame(self, frame: np.ndarray):
-        """Log RGB frame principal"""
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
-        # Convertir BGR a RGB
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        else:
-            frame_rgb = frame
-            
-        rr.log("camera/rgb", rr.Image(frame_rgb))
+        self._advance_frame_time()
+        rr.log("panels/camera_rgb/image", rr.Image(self._ensure_rgb(frame)))
         self.frame_count += 1
-        
-    def log_detections(self, detections: List[Dict], frame_shape: tuple):
-        """Log detecciones YOLO"""
-        if not detections:
+
+    def log_detections(self, *args, **kwargs):
+        """Registra cajas 2D sobre la imagen RGB.
+
+        Compatibilidad de firma:
+        - log_detections(detections)
+        - log_detections(frame, detections)
+        - log_detections(detections=detections)
+
+        Acepta listas de dicts, arrays Nx4/Nx5, o listas de filas.
+        Ignora el frame si viene en la primera posición.
+        """
+        detections = None
+
+        # kwargs explícitos
+        if 'detections' in kwargs:
+            detections = kwargs.get('detections')
+        else:
+            # args posicionales: [detections] o [frame, detections]
+            if len(args) == 1:
+                detections = args[0]
+            elif len(args) >= 2:
+                detections = args[1]
+
+        # Normaliza y valida
+        try:
+            boxes, labels, colors, n = self._normalize_dets(detections)
+        except Exception as e:
+            self.log_system_message(f"DETECTIONS PARSE ERROR: {e}", level="ERROR")
             return
-            
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
-        boxes = []
-        labels = []
-        colors = []
-        
-        for detection in detections:
-            bbox = detection['bbox']
-            
-            # Box formato [x, y, width, height]
-            box = [
-                float(bbox[0]), float(bbox[1]),
-                float(bbox[2] - bbox[0]), float(bbox[3] - bbox[1])
-            ]
-            boxes.append(box)
-            
-            name = detection.get('name', 'unknown')
-            zone = detection.get('zone', 'unknown')
-            confidence = detection.get('confidence', 0.0)
-            
-            label = f"{name.upper()}\n({zone})\nConf: {confidence:.2f}"
-            labels.append(label)
-            
-            # Color por prioridad
-            if name in ['person', 'car', 'truck']:
-                color = [255, 0, 0]  # Rojo
-            elif name in ['bicycle', 'motorcycle']:
-                color = [255, 255, 0]  # Amarillo
+        if n == 0:
+            return
+
+        rr.log(
+            "panels/camera_rgb/dets",
+            rr.Boxes2D(array=boxes, array_format=rr.Box2DFormat.XYWH, labels=labels, colors=colors),
+        )
+        self.total_detections += n
+        for label in labels[:2]:
+            self.log_system_message(f"DETECT: {label.splitlines()[0]}", level="DETECT")
+
+    def _normalize_dets(self, detections) -> tuple:
+        """Convierte detecciones en (boxes_xywh, labels, colors, count).
+
+        Admite:
+        - None, 0, int → 0 dets
+        - lista de dicts con claves: 'bbox'(x1,y1,x2,y2) o 'xyxy' o 'xywh'
+        - lista/np.ndarray de filas [x1,y1,x2,y2,(conf),(cls_id)]
+        - dict con clave 'detections' (envoltorio)
+        """
+        if detections is None:
+            return [], [], [], 0
+        # ints o np.int → sin dets (tratamos cualquier int como contador, no como lista)
+        if isinstance(detections, (int, np.integer)):
+            return [], [], [], 0
+        # Envoltorio {'detections': [...]}
+        if isinstance(detections, dict) and 'detections' in detections:
+            detections = detections['detections']
+
+        # ndarray → filas
+        if isinstance(detections, np.ndarray):
+            det_list = detections.tolist()
+        else:
+            det_list = detections
+
+        if not isinstance(det_list, (list, tuple)):
+            return [], [], [], 0
+
+        boxes, labels, colors = [], [], []
+
+        def to_xywh_from_xyxy(row):
+            x1, y1, x2, y2 = map(float, row[:4])
+            return [x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)]
+
+        for det in det_list:
+            if det is None:
+                continue
+            # dict con campos conocidos
+            if isinstance(det, dict):
+                if 'bbox' in det and isinstance(det['bbox'], (list, tuple, np.ndarray)) and len(det['bbox']) >= 4:
+                    xywh = to_xywh_from_xyxy(det['bbox'])
+                elif 'xyxy' in det and isinstance(det['xyxy'], (list, tuple, np.ndarray)) and len(det['xyxy']) >= 4:
+                    xywh = to_xywh_from_xyxy(det['xyxy'])
+                elif 'xywh' in det and isinstance(det['xywh'], (list, tuple, np.ndarray)) and len(det['xywh']) >= 4:
+                    x, y, w, h = det['xywh'][:4]
+                    xywh = [float(x), float(y), float(w), float(h)]
+                else:
+                    continue
+                name = str(det.get('name', det.get('class', 'object'))).upper()
+                zone = str(det.get('zone', ''))
+                conf = float(det.get('confidence', det.get('conf', 0.0)))
+                pri = int(det.get('priority', 0))
+            # fila tipo [x1,y1,x2,y2,(conf),(cls)]
+            elif isinstance(det, (list, tuple, np.ndarray)) and len(det) >= 4:
+                xywh = to_xywh_from_xyxy(det)
+                conf = float(det[4]) if len(det) >= 5 else 0.0
+                cls_name = str(det[5]) if len(det) >= 6 else 'object'
+                name, zone, pri = cls_name.upper(), '', 0
             else:
-                color = [0, 255, 0]  # Verde
+                continue
+
+            label = f"{name}\n{zone} | P{pri}\nConf: {conf:.2f}" if zone else f"{name}\nP{pri}\nConf: {conf:.2f}"
+            if pri >= 8:
+                color = [255, 0, 0]
+            elif pri >= 5:
+                color = [255, 165, 0]
+            else:
+                color = [0, 255, 0]
+            boxes.append(xywh)
+            labels.append(label)
             colors.append(color)
-        
-        rr.log("detections/objects", rr.Boxes2D(
-            array=boxes,
-            array_format=rr.Box2DFormat.XYWH,
-            labels=labels,
-            colors=colors
-        ))
-        
-        self.total_detections += len(detections)
-        
-    def log_performance_metrics(self):
-        """Log métricas básicas"""
-        timestamp = time.time() - self.start_time
-        current_time = time.time()
-        
-        # Calcular FPS
-        if current_time - self.last_fps_update >= 1.0:
-            elapsed = current_time - self.last_fps_update
-            self.current_fps = self.frame_count / elapsed if elapsed > 0 else 0
-            self.frame_count = 0
-            self.last_fps_update = current_time
-        
-        rr.set_time_seconds("timeline", timestamp)
-        
-        # Log métricas como texto en lugar de Scalar
-        rr.log("metrics/info", rr.TextLog(f"FPS: {self.current_fps:.1f} | Uptime: {timestamp/60.0:.1f}min | Detections: {self.total_detections} | Audio: {self.audio_commands_sent}"))
-            
-    def log_audio_command(self, command: str, priority: int = 5):
-        """Log comando de audio"""
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
-        self.audio_commands_sent += 1
-        
-        # Log como texto
-        full_command = f"[P{priority}] {command}"
-        rr.log("audio/commands", rr.TextLog(full_command))
-        
-    def log_depth_map(self, depth_data: np.ndarray):
-        """Log mapa de profundidad"""
+
+        return boxes, labels, colors, len(boxes)
+
+    def log_depth_map(self, depth_data: Optional[np.ndarray]):
         if depth_data is None:
             return
-            
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
+        # rr.DepthImage espera float32 y escala opcional en metros
         if depth_data.dtype != np.float32:
             depth_data = depth_data.astype(np.float32)
-            
         depth_clipped = np.clip(depth_data, 0.1, 10.0)
-        rr.log("camera/depth", rr.DepthImage(depth_clipped, meter=1.0))
-        
-    def log_motion_state(self, motion_state: str, imu_magnitude: float):
-        """Log estado de movimiento"""
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
-        state_text = f"MOTION: {motion_state.upper()}"
-        rr.log("motion/state", rr.TextLog(state_text))
-        
-        try:
-            rr.log("motion/magnitude", rr.Scalar(imu_magnitude))
-        except:
-            pass
+        rr.log("panels/depth_map/image", rr.DepthImage(depth_clipped, meter=1.0))
 
-    def log_slam_frames(self, slam1_frame=None, slam2_frame=None):
-        """Log SLAM camera frames"""
-        timestamp = time.time() - self.start_time
-        rr.set_time_seconds("timeline", timestamp)
-        
+    def log_slam1_frame(self, slam1_frame: Optional[np.ndarray]):
+        if slam1_frame is None:
+            return
+        # Guardamos para composición en slam combined
+        self._last_slam1 = slam1_frame
+        self._compose_and_log_slam()
+
+    def log_slam2_frame(self, slam2_frame: Optional[np.ndarray]):
+        if slam2_frame is None:
+            return
+        # Guardamos para composición en slam combined
+        self._last_slam2 = slam2_frame
+        self._compose_and_log_slam()
+
+    # Compat: permitir log combinado explícito
+    def log_slam_frames(self, slam1_frame: Optional[np.ndarray] = None, slam2_frame: Optional[np.ndarray] = None):
         if slam1_frame is not None:
-            # Convertir a RGB si es grayscale
-            if len(slam1_frame.shape) == 2:
-                slam1_frame = cv2.cvtColor(slam1_frame, cv2.COLOR_GRAY2RGB)
-            rr.log("camera/slam1", rr.Image(slam1_frame))
-        
+            self._last_slam1 = slam1_frame
         if slam2_frame is not None:
-            if len(slam2_frame.shape) == 2:
-                slam2_frame = cv2.cvtColor(slam2_frame, cv2.COLOR_GRAY2RGB)
-            rr.log("camera/slam2", rr.Image(slam2_frame))
-                
+            self._last_slam2 = slam2_frame
+        self._compose_and_log_slam()
+
+    def _compose_and_log_slam(self):
+        # Render SLAM1+SLAM2 según modo seleccionado
+        img1 = getattr(self, "_last_slam1", None)
+        img2 = getattr(self, "_last_slam2", None)
+        if img1 is None and img2 is None:
+            return
+        if self.slam_mode == "overlay":
+            if img1 is not None:
+                rr.log("panels/slam/slam1", rr.Image(self._ensure_rgb(img1)))
+            if img2 is not None:
+                rr.log("panels/slam/slam2", rr.Image(self._ensure_rgb(img2)))
+        else:
+            stacked = self._stack_horizontal(self._ensure_rgb(img1), self._ensure_rgb(img2))
+            rr.log("panels/slam/image", rr.Image(stacked))
+
+    def set_slam_mode(self, mode: str):
+        """Cambia el modo de SLAM en caliente: 'side_by_side' o 'overlay'."""
+        if mode in ("side_by_side", "overlay"):
+            self.slam_mode = mode
+
+    def log_system_message(self, message: str, level: str = "INFO"):
+        rr.log("panels/system_logs", rr.TextLog(f"[{level}] {message}"))
+
+    # Métricas en Panel 5 (TimeSeriesView)
+    def log_performance_metrics(self):
+        # No movemos el tiempo aquí; compartirá snapshot con el último frame
+        ts = time.time() - self.start_time
+        now = time.time()
+        if now - self.last_fps_update >= 1.0:
+            elapsed = now - self.last_fps_update
+            self.current_fps = self.frame_count / elapsed if elapsed > 0 else 0.0
+            self.frame_count = 0
+            self.last_fps_update = now
+        # Series temporales
+        rr.log("panels/metrics/fps", rr.Scalars(self.current_fps))
+        rr.log("panels/metrics/detections", rr.Scalars(float(self.total_detections)))
+        rr.log("panels/metrics/audio_commands", rr.Scalars(float(self.audio_commands_sent)))
+        rr.log("panels/metrics/uptime", rr.Scalars(ts))
+
+    # Panel 6: Aceleración (magnitud IMU)
+    def log_acceleration_magnitude(self, accel_mag: float):
+        rr.log("panels/acceleration/mag", rr.Scalars(float(accel_mag)))
+
+    # Utilidades adicionales
+    def log_audio_command(self, command: str, priority: int = 5):
+        self.audio_commands_sent += 1
+        self.log_system_message(f"AUDIO [P{priority}]: {command}", "AUDIO")
+
+    def log_motion_state(self, motion_state: str, imu_magnitude: float):
+        self.log_system_message(f"MOTION: {motion_state.upper()} (mag: {imu_magnitude:.2f})", "IMU")
+        self.log_acceleration_magnitude(imu_magnitude)
+
     def shutdown(self):
-        """Shutdown con resumen básico"""
         duration = (time.time() - self.start_time) / 60.0
-        print(f"[DASHBOARD] Session: {duration:.1f}min, Commands: {self.audio_commands_sent}, Detections: {self.total_detections}")
+        self.log_system_message(f"Sistema cerrándose - Sesión: {duration:.1f}min", "SYSTEM")
+        print(
+            f"[DASHBOARD] Session: {duration:.1f}min, Commands: {self.audio_commands_sent}, Detections: {self.total_detections}"
+        )

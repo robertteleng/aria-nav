@@ -21,13 +21,10 @@ def main():
     # Setup clean exit handler
     ctrl_handler = CtrlCHandler()
 
-    # Initialize dashboard
-    dashboard = None
+    # Initialize dashboard flag (Observer will own the dashboard instance)
     enable_dashboard = input("Habilitar dashboard Rerun? (y/n): ").lower() == 'y'
-    
     if enable_dashboard:
-        dashboard = RerunDashboard()
-        print("[MAIN] Dashboard Rerun activado")
+        print("[MAIN] Dashboard Rerun activado (gestionado por Observer)")
     
     # Core components
     device_manager = None
@@ -40,7 +37,8 @@ def main():
         rgb_calib = device_manager.start_streaming()
         
         # 2. Observer setup with all modules integrated
-        observer = Observer(rgb_calib=rgb_calib)
+        # Pass user's choice so only one dashboard gets created (inside Observer)
+        observer = Observer(rgb_calib=rgb_calib, enable_dashboard=enable_dashboard)
         device_manager.register_observer(observer)
         device_manager.subscribe()
         
@@ -59,39 +57,8 @@ def main():
             current_frame = observer.get_latest_frame()
             
             if current_frame is not None:
-                # Dashboard logging
-                if dashboard:
-                    dashboard.log_rgb_frame(current_frame)
-
-                    # Log SLAM frames
-                    slam_frames = observer.get_all_frames()
-                    if 'slam1' in slam_frames or 'slam2' in slam_frames:
-                        dashboard.log_slam_frames(
-                            slam1_frame=slam_frames.get('slam1'),
-                            slam2_frame=slam_frames.get('slam2')
-    )
-                    dashboard.log_performance_metrics()
-                    
-                    # Log detections
-                    detections = observer.get_latest_detections()
-                    if detections:
-                        print(f"[DEBUG] {len(detections)} detections found")
-                        dashboard.log_detections(detections, current_frame.shape)
-                    else:
-                        print("[DEBUG] No detections found")
-                    
-                    # Log depth map
-                    depth_map = observer.get_latest_depth_map()
-                    if depth_map is not None:
-                        dashboard.log_depth_map(depth_map)
-                    
-                    # Log motion state
-                    motion_state = observer.get_motion_state()
-                    if motion_state:
-                        dashboard.log_motion_state(motion_state['state'], motion_state['magnitude'])
-                
                 # OpenCV display (only if no dashboard)
-                else:
+                if not enable_dashboard:
                     cv2.imshow(window_name, current_frame)
                 
                 frames_displayed += 1
@@ -107,8 +74,6 @@ def main():
             elif key == ord('t'):
                 print("[INFO] Testing audio system...")
                 observer.test_audio()
-                if dashboard:
-                    dashboard.log_audio_command("Test audio command", priority=5)
         
         # Final statistics
         observer.print_stats()
@@ -129,8 +94,7 @@ def main():
         if device_manager:
             device_manager.cleanup()
         
-        if dashboard:
-            dashboard.shutdown()
+        # Dashboard is owned and closed by Observer
         
         cv2.destroyAllWindows()
         print("[INFO] Program finished successfully")
