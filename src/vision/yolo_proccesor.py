@@ -65,6 +65,8 @@ class YoloProcessor:
                 })
             
             self.detection_count += len(detections)
+            # Guardar detecciones más recientes
+            self.latest_detections = detections
             return detections
             
         except Exception as e:

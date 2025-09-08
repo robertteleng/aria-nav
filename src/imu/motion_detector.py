@@ -14,6 +14,8 @@ class SimpleMotionDetector:
         
     def update(self, magnitude: float, timestamp_ns: int) -> MotionState:
         """Actualiza estado de movimiento basado en variación de aceleración"""
+
+        self.last_magnitude = magnitude
         self.magnitude_history.append(magnitude)
         
         if len(self.magnitude_history) < 10:  # Necesitamos historia mínima

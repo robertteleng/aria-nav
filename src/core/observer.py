@@ -170,10 +170,29 @@ class Observer:
         """Get most recent processed frame"""
         return self.current_frame
     
-    # Añadir método para obtener depth map:
-    def get_latest_depth(self):
-        """Get most recent depth map"""
+
+    def get_latest_detections(self):
+        """Get most recent YOLO detections for dashboard"""
+        return getattr(self.yolo_processor, 'latest_detections', [])
+
+    def get_latest_depth_map(self):
+        """Get most recent depth map for dashboard"""
         return self.current_depth_map
+    
+    #     # Añadir método para obtener depth map:
+    # def get_latest_depth(self):
+    #     """Get most recent depth map"""
+    #     return self.current_depth_map
+    
+
+    def get_motion_state(self):
+        """Get current motion state and magnitude for dashboard"""
+        if hasattr(self, 'motion_detector'):
+            return {
+                'state': self.motion_detector.last_motion_state,
+                'magnitude': getattr(self.motion_detector, 'last_magnitude', 9.8)
+            }
+        return None
     
     def test_audio(self):
         """Test audio system - triggered by 't' key"""
