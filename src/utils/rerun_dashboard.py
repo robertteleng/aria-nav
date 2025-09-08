@@ -1,106 +1,92 @@
 import rerun as rr
 import numpy as np
 import time
-from typing import Dict, List, Any, Optional
+import cv2
+from typing import Dict, List, Optional
+
 
 class RerunDashboard:
-    """Professional dashboard para TFM presentation"""
+    """Dashboard simple para TFM - Solo lo esencial"""
     
     def __init__(self, app_id: str = "aria_navigation_tfm"):
-        """Initialize Rerun dashboard"""
         rr.init(app_id, spawn=True)
         
-        # Performance tracking
         self.start_time = time.time()
         self.frame_count = 0
         self.last_fps_update = time.time()
         self.current_fps = 0.0
+        self.audio_commands_sent = 0
+        self.total_detections = 0
         
         print("[DASHBOARD] Rerun dashboard initialized")
-        print("[DASHBOARD] Opening browser...")
         
-    def log_rgb_frame(self, frame: np.ndarray, timestamp: Optional[float] = None):
-        """Log RGB frame con timestamp"""
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
-        rr.set_time_seconds("timeline", timestamp)
-        rr.log("camera/rgb", rr.Image(frame))
-        
-    def log_depth_map(self, depth_map: np.ndarray, timestamp: Optional[float] = None):
-        """Log depth map visualization"""
-        if depth_map is None:
-            return
-            
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
+    def log_rgb_frame(self, frame: np.ndarray):
+        """Log RGB frame principal"""
+        timestamp = time.time() - self.start_time
         rr.set_time_seconds("timeline", timestamp)
         
-        # Normalize depth para visualización
-        depth_normalized = (depth_map * 255).astype(np.uint8)
-        rr.log("camera/depth", rr.DepthImage(depth_normalized))
+        # Convertir BGR a RGB
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        else:
+            frame_rgb = frame
+            
+        rr.log("camera/rgb", rr.Image(frame_rgb))
+        self.frame_count += 1
         
-    def log_detections(self, detections: List[Dict], frame_shape: tuple, timestamp: Optional[float] = None):
-        """Log YOLO detections como 2D boxes"""
+    def log_detections(self, detections: List[Dict], frame_shape: tuple):
+        """Log detecciones YOLO"""
         if not detections:
             return
             
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
+        timestamp = time.time() - self.start_time
         rr.set_time_seconds("timeline", timestamp)
         
-        # Convertir detections a formato Rerun
         boxes = []
         labels = []
         colors = []
         
         for detection in detections:
-            bbox = detection['bbox']  # [x1, y1, x2, y2]
+            bbox = detection['bbox']
             
-            # Box en formato Rerun [min_x, min_y, width, height]
+            # Box formato [x, y, width, height]
             box = [
-                float(bbox[0]), float(bbox[1]),  # min_x, min_y
-                float(bbox[2] - bbox[0]), float(bbox[3] - bbox[1])  # width, height
+                float(bbox[0]), float(bbox[1]),
+                float(bbox[2] - bbox[0]), float(bbox[3] - bbox[1])
             ]
             boxes.append(box)
             
-            # Label con info completa
             name = detection.get('name', 'unknown')
             zone = detection.get('zone', 'unknown')
-            distance = detection.get('distance', 'unknown')
             confidence = detection.get('confidence', 0.0)
             
-            label = f"{name} ({zone}) {distance} - {confidence:.2f}"
+            label = f"{name.upper()}\n({zone})\nConf: {confidence:.2f}"
             labels.append(label)
             
-            # Color por zona
-            zone_colors = {
-                'center': [255, 0, 0],      # Rojo para centro
-                'upper_left': [255, 255, 0], # Amarillo
-                'upper_right': [255, 165, 0], # Naranja
-                'lower_left': [0, 0, 255],   # Azul
-                'lower_right': [255, 0, 255] # Magenta
-            }
-            color = zone_colors.get(zone, [128, 128, 128])
+            # Color por prioridad
+            if name in ['person', 'car', 'truck']:
+                color = [255, 0, 0]  # Rojo
+            elif name in ['bicycle', 'motorcycle']:
+                color = [255, 255, 0]  # Amarillo
+            else:
+                color = [0, 255, 0]  # Verde
             colors.append(color)
         
-        if boxes:
-            rr.log("detections/boxes", rr.Boxes2D(
-                array=boxes,
-                labels=labels,
-                colors=colors
-            ))
-    
-    def log_performance_metrics(self, timestamp: Optional[float] = None):
-        """Log performance metrics"""
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
-        self.frame_count += 1
+        rr.log("detections/objects", rr.Boxes2D(
+            array=boxes,
+            array_format=rr.Box2DFormat.XYWH,
+            labels=labels,
+            colors=colors
+        ))
+        
+        self.total_detections += len(detections)
+        
+    def log_performance_metrics(self):
+        """Log métricas básicas"""
+        timestamp = time.time() - self.start_time
         current_time = time.time()
         
+        # Calcular FPS
         if current_time - self.last_fps_update >= 1.0:
             elapsed = current_time - self.last_fps_update
             self.current_fps = self.frame_count / elapsed if elapsed > 0 else 0
@@ -108,57 +94,49 @@ class RerunDashboard:
             self.last_fps_update = current_time
         
         rr.set_time_seconds("timeline", timestamp)
-        # API correcta para scalar:
-        rr.log("metrics/fps", rr.Scalar(float(self.current_fps)))
-
-    def log_motion_state(self, motion_state: str, magnitude: float, timestamp: Optional[float] = None):
-        """Log motion detection state"""
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
+        
+        # Log métricas como texto en lugar de Scalar
+        rr.log("metrics/info", rr.TextLog(f"FPS: {self.current_fps:.1f} | Uptime: {timestamp/60.0:.1f}min | Detections: {self.total_detections} | Audio: {self.audio_commands_sent}"))
             
+    def log_audio_command(self, command: str, priority: int = 5):
+        """Log comando de audio"""
+        timestamp = time.time() - self.start_time
         rr.set_time_seconds("timeline", timestamp)
-        # API correcta para texto y scalar:
-        rr.log("motion/state", rr.TextLog(str(motion_state)))
-        rr.log("motion/magnitude", rr.Scalar(float(magnitude)))
-
-    def log_detections(self, detections: List[Dict], frame_shape: tuple, timestamp: Optional[float] = None):
-        """Log YOLO detections como 2D boxes"""
-        if not detections:
+        
+        self.audio_commands_sent += 1
+        
+        # Log como texto
+        full_command = f"[P{priority}] {command}"
+        rr.log("audio/commands", rr.TextLog(full_command))
+        
+    def log_depth_map(self, depth_data: np.ndarray):
+        """Log mapa de profundidad"""
+        if depth_data is None:
             return
             
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
+        timestamp = time.time() - self.start_time
         rr.set_time_seconds("timeline", timestamp)
         
-        boxes = []
-        labels = []
+        if depth_data.dtype != np.float32:
+            depth_data = depth_data.astype(np.float32)
+            
+        depth_clipped = np.clip(depth_data, 0.1, 10.0)
+        rr.log("camera/depth", rr.DepthImage(depth_clipped, meter=1.0))
         
-        for detection in detections:
-            bbox = detection['bbox']
-            box = [float(bbox[0]), float(bbox[1]), float(bbox[2] - bbox[0]), float(bbox[3] - bbox[1])]
-            boxes.append(box)
-            
-            name = detection.get('name', 'unknown')
-            zone = detection.get('zone', 'unknown') 
-            distance = detection.get('distance', 'unknown')
-            confidence = detection.get('confidence', 0.0)
-            
-            label = f"{name} ({zone}) {distance} - {confidence:.2f}"
-            labels.append(label)
-        
-        if boxes:
-            # API correcta con array_format:
-            rr.log("detections/boxes", rr.Boxes2D(
-                array=boxes,
-                array_format=rr.Box2DFormat.XYWH,
-                labels=labels
-            ))
-
-    def log_audio_command(self, command: str, timestamp: Optional[float] = None):
-        """Log audio commands sent to TTS"""
-        if timestamp is None:
-            timestamp = time.time() - self.start_time
-            
+    def log_motion_state(self, motion_state: str, imu_magnitude: float):
+        """Log estado de movimiento"""
+        timestamp = time.time() - self.start_time
         rr.set_time_seconds("timeline", timestamp)
-        rr.log("audio/commands", rr.TextLog(str(command)))
+        
+        state_text = f"MOTION: {motion_state.upper()}"
+        rr.log("motion/state", rr.TextLog(state_text))
+        
+        try:
+            rr.log("motion/magnitude", rr.Scalar(imu_magnitude))
+        except:
+            pass
+            
+    def shutdown(self):
+        """Shutdown con resumen básico"""
+        duration = (time.time() - self.start_time) / 60.0
+        print(f"[DASHBOARD] Session: {duration:.1f}min, Commands: {self.audio_commands_sent}, Detections: {self.total_detections}")

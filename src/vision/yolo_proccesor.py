@@ -16,6 +16,8 @@ class YoloProcessor:
         self.model = YOLO('yolo12n.pt')
         self.device = 'cpu'  # Avoid MPS NMS bug
         self.model.to(self.device)
+
+        self.latest_detections = []  # Store latest detections for external access
         
         # Navigation-relevant objects with priorities
         self.navigation_objects = {
