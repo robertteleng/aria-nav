@@ -62,6 +62,14 @@ def main():
                 # Dashboard logging
                 if dashboard:
                     dashboard.log_rgb_frame(current_frame)
+
+                    # Log SLAM frames
+                    slam_frames = observer.get_all_frames()
+                    if 'slam1' in slam_frames or 'slam2' in slam_frames:
+                        dashboard.log_slam_frames(
+                            slam1_frame=slam_frames.get('slam1'),
+                            slam2_frame=slam_frames.get('slam2')
+    )
                     dashboard.log_performance_metrics()
                     
                     # Log detections

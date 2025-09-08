@@ -135,7 +135,23 @@ class RerunDashboard:
             rr.log("motion/magnitude", rr.Scalar(imu_magnitude))
         except:
             pass
-            
+
+    def log_slam_frames(self, slam1_frame=None, slam2_frame=None):
+        """Log SLAM camera frames"""
+        timestamp = time.time() - self.start_time
+        rr.set_time_seconds("timeline", timestamp)
+        
+        if slam1_frame is not None:
+            # Convertir a RGB si es grayscale
+            if len(slam1_frame.shape) == 2:
+                slam1_frame = cv2.cvtColor(slam1_frame, cv2.COLOR_GRAY2RGB)
+            rr.log("camera/slam1", rr.Image(slam1_frame))
+        
+        if slam2_frame is not None:
+            if len(slam2_frame.shape) == 2:
+                slam2_frame = cv2.cvtColor(slam2_frame, cv2.COLOR_GRAY2RGB)
+            rr.log("camera/slam2", rr.Image(slam2_frame))
+                
     def shutdown(self):
         """Shutdown con resumen básico"""
         duration = (time.time() - self.start_time) / 60.0
