@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from ultralytics import YOLO
 from typing import List, Tuple
 from vision.detected_object import DetectedObject
@@ -13,9 +14,18 @@ class YoloProcessor:
     
     def __init__(self):
         print("[INFO] Loading YOLO model...")
+        try:
+            torch.set_num_threads(2)
+        except Exception:
+            pass
+        # Modelo nano en CPU; limitar resolución para ganar FPS
         self.model = YOLO('yolo12n.pt')
         self.device = 'cpu'  # Avoid MPS NMS bug
         self.model.to(self.device)
+        try:
+            self.model.fuse()  # ligera mejora en CPU
+        except Exception:
+            pass
 
         self.latest_detections = []  # Store latest detections for external access
         
@@ -44,8 +54,17 @@ class YoloProcessor:
             List of detection dictionaries for audio and visualization
         """
         try:
-            # Run YOLO inference
-            results = self.model(frame, device=self.device, verbose=False)
+            # Run YOLO inference a baja resolución para CPU
+            results = self.model.predict(
+                source=frame,
+                device=self.device,
+                imgsz=416,
+                conf=Config.YOLO_CONFIDENCE,
+                iou=0.5,
+                max_det=20,
+                verbose=False,
+                stream=False,
+            )
             
             # Convert to structured objects
             # detected_objects = self._analyze_detections(results, frame.shape[1])
@@ -110,7 +129,6 @@ class YoloProcessor:
             if depth_map is not None:
                 # Solo usar el depth_map que ya tenemos, NO crear nuevo estimator
                 depth_value = self._calculate_depth_from_map(depth_map, bbox)
-                print(f"[DEBUG] Object: {class_name}, Depth: {depth_value:.2f}")  # AÑADIR ESTO
 
             # Distance estimation
             distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
@@ -200,9 +218,7 @@ class YoloProcessor:
     def _estimate_distance_with_depth(self, area: float, frame_width: int, depth_value: float) -> str:
         """Enhanced distance estimation with selectable strategy"""
         
-        print(f"[DEBUG] Config method: {Config.DISTANCE_METHOD}, Depth: {depth_value:.2f}")
-
-        # AQUÍ ESTÁ LA LÓGICA DE ELECCIÓN QUE FALTABA
+        # Selección de estrategia
         if Config.DISTANCE_METHOD == "depth_only":
             # Solo usar MiDaS
             if depth_value > Config.DEPTH_CLOSE_THRESHOLD:
@@ -212,7 +228,6 @@ class YoloProcessor:
             else:
                 result = "far"
             
-            print(f"[DEBUG] Depth method result: {result}")
             return result
         
         elif Config.DISTANCE_METHOD == "area_only":

@@ -7,8 +7,9 @@
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/observer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/observer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/rerun_dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/rerun_dashboard.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/opencv_dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/opencv_dashboard.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/yolo_proccesor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/vision/yolo_proccesor.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -84,6 +85,8 @@
       <workItem from="1757316837684" duration="160000" />
       <workItem from="1757317016030" duration="19000" />
       <workItem from="1757321649083" duration="102000" />
+      <workItem from="1757329883143" duration="4000" />
+      <workItem from="1757330217849" duration="14000" />
     </task>
     <servers />
   </component>

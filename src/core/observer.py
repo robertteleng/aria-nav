@@ -17,7 +17,7 @@ from utils.opencv_dashboard import OpenCVDashboard
 class Observer:
     """
     Enhanced observer with multi-camera capture: RGB + SLAM1 + SLAM2
-    + Rerun Dashboard integration
+    + OpenCV Dashboard optimizado
     """
     
     def __init__(self, rgb_calib=None, enable_dashboard=True):
@@ -29,7 +29,6 @@ class Observer:
         self.image_enhancer = ImageEnhancer()
         
         # Dashboard integration
-        # self.dashboard = RerunDashboard() if enable_dashboard else None
         self.dashboard = OpenCVDashboard() if enable_dashboard else None
 
         if self.dashboard:
@@ -109,13 +108,9 @@ class Observer:
 
     def _process_rgb_image(self, image: np.array) -> np.array:
         """Process RGB camera image (center view)"""
-        # Fix color channels
-        if len(image.shape) == 3 and image.shape[2] == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Rotate for correct orientation
-        rotated_image = np.rot90(image, -1)
-        return np.ascontiguousarray(rotated_image)
+        # Rotar de forma eficiente; mantener BGR (Ultralytics acepta BGR)
+        rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        return rotated
     
     def _process_slam_image(self, image: np.array) -> np.array:
         """Process SLAM camera images (left/right peripheral)"""
@@ -124,8 +119,8 @@ class Observer:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
             
         # Rotate SLAM images (same as RGB for consistency)
-        rotated_image = np.rot90(image, -1)
-        return np.ascontiguousarray(rotated_image)
+        rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        return rotated
 
     def on_imu_received(self, samples: Sequence[MotionData], imu_idx: int) -> None:
         """Motion Detection - unchanged pero con log al dashboard"""
@@ -158,7 +153,7 @@ class Observer:
             self.dashboard.log_system_message(f"Streaming error: {message}", "ERROR")
     
     def _processing_loop(self):
-        """Multi-camera processing - YOLO on each camera separately + Dashboard logging"""
+        """Multi-camera processing optimizado + Dashboard logging"""
         frame_counter = 0
         
         while not self._stop:
@@ -176,38 +171,27 @@ class Observer:
                 continue
                 
             try:
-                # Process each camera independently
+                # Procesamiento optimizado: YOLO solo en RGB; SLAM sin YOLO
                 processed_frames = {}
-                
+
                 for camera, frame in frames.items():
-                    # Apply image enhancement
-                    enhanced_frame = self.image_enhancer.enhance_frame(frame)
-                    processed_frames[camera] = enhanced_frame
-                    
-                    # Run YOLO detection on each camera separately
-                    detections = self.yolo_processor.process_frame(enhanced_frame, None)
-                    
-                    # Store detections per camera (for debugging/analysis)
-                    self.camera_detections[camera] = detections
-                    
-                    # Debug: print detections per camera
-                    if detections:
-                        print(f"[{camera.upper()}] Detected {len(detections)} objects: {[d['name'] for d in detections]}")
-                        if self.dashboard:
-                            for det in detections[:2]:  # Top 2 por cámara
-                                name = det.get('name', 'unknown')
-                                zone = det.get('zone', 'unknown')
-                                priority = det.get('priority', 0)
-                                self.dashboard.log_system_message(
-                                    f"{camera.upper()}: {name} en {zone} (P{priority})", "DETECT"
-                                )
+                    if camera == 'rgb':
+                        enhanced = self.image_enhancer.enhance_frame(frame)
+                        processed_frames[camera] = enhanced
+                        detections = self.yolo_processor.process_frame(enhanced, None)
+                        self.camera_detections[camera] = detections
+                    else:
+                        processed_frames[camera] = frame
+                        self.camera_detections[camera] = []
                 
                 # Store current frames
                 self.current_frames.update(processed_frames)
 
-                # Enviar frames al dashboard
+                # Dashboard updates optimizados - solo cada N frames
+                frame_counter += 1
+                
                 if self.dashboard:
-                    # Panel 1: RGB + YOLO (arriba-izquierda)
+                    # RGB + detecciones cada frame
                     if 'rgb' in processed_frames:
                         rgb_detections = self.camera_detections.get('rgb', [])
                         # Aplicar overlay primero
@@ -217,26 +201,26 @@ class Observer:
                         self.dashboard.log_rgb_frame(rgb_with_overlay)
                         self.dashboard.log_detections(rgb_detections, processed_frames['rgb'].shape)
                     
-                    # Panel 3: SLAM1 (arriba-derecha)
-                    if 'slam1' in processed_frames:
-                        self.dashboard.log_slam1_frame(processed_frames['slam1'])
-                    
-                    # Panel 6: SLAM2 (abajo-derecha)
-                    if 'slam2' in processed_frames:
-                        self.dashboard.log_slam2_frame(processed_frames['slam2'])
+                    # SLAM frames cada 5 frames (menos críticos)
+                    if frame_counter % 5 == 0:
+                        if 'slam1' in processed_frames:
+                            self.dashboard.log_slam1_frame(processed_frames['slam1'])
+                        if 'slam2' in processed_frames:
+                            self.dashboard.log_slam2_frame(processed_frames['slam2'])
 
-                # Depth estimation (only on RGB)
+                # Depth estimation (only on RGB) - se ejecuta solo si está habilitado en Config
                 depth_map = None
                 if 'rgb' in frames and self.depth_estimator.model is not None:
                     if not hasattr(self, 'depth_frame_skip'):
-                        self.depth_frame_skip = 5
+                        self.depth_frame_skip = 10
                         self.cached_depth_map = None
                     
                     if self.frame_counts['rgb'] % self.depth_frame_skip == 0:
                         depth_map = self.depth_estimator.estimate_depth(processed_frames['rgb'])
                         self.cached_depth_map = depth_map
                         self.current_depth_map = depth_map
-                        if self.dashboard:
+                        # Enviar depth al dashboard cada 10 frames
+                        if self.dashboard and frame_counter % 10 == 0:
                             self.dashboard.log_depth_map(depth_map)
                     else:
                         depth_map = self.cached_depth_map
@@ -270,10 +254,13 @@ class Observer:
                 # Store final result
                 self.current_frame = annotated_frame
                 
-                # Actualizar métricas del dashboard cada 30 frames
-                frame_counter += 1
-                if self.dashboard and frame_counter % 30 == 0:
-                    self.dashboard.log_performance_metrics()
+                # Dashboard update optimizado - cada 3 frames
+                if self.dashboard and frame_counter % 3 == 0:
+                    key = self.dashboard.update_all()
+                    if key == ord('q'):
+                        print("[INFO] 'q' pressed - stopping system")
+                        self._stop = True
+                        break
                 
             except Exception as e:
                 print(f"[WARN] Multi-camera processing failed: {e}")

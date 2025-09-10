@@ -180,7 +180,23 @@ class OpenCVDashboard:
         self.log_system_message(f"MOTION: {motion_state.upper()} (mag: {imu_magnitude:.2f})", "IMU")
     
     def update_all(self):
-        """Componer la cuadrícula y refrescar la ventana única."""
+        """Update optimizado - solo recomponer cuando sea necesario"""
+        if not hasattr(self, 'update_counter'):
+            self.update_counter = 0
+        
+        self.update_counter += 1
+        
+        # Solo recomponer canvas cada 3 frames (reduce carga)
+        if self.update_counter % 3 == 0:
+            self._compose_canvas()
+        # Actualizar métricas cada 30 frames (~1 segundo)
+        if self.update_counter % 30 == 0:
+            self.log_performance_metrics()
+
+        return cv2.waitKey(1) & 0xFF
+
+    def _compose_canvas(self):
+        """Componer la cuadrícula y refrescar la ventana única - optimizada"""
         # Componer canvas
         canvas = np.zeros((self.canvas_h, self.canvas_w, 3), dtype=np.uint8)
 
@@ -231,11 +247,8 @@ class OpenCVDashboard:
             y = r * self.cell_h
             cv2.line(canvas, (0, y), (self.canvas_w, y), (50, 50, 50), 1)
 
-        # Mostrar
         cv2.imshow(self.window_name, canvas)
-        self.log_performance_metrics()  # actualiza FPS/uptime
-        return cv2.waitKey(1) & 0xFF
-    
+        return canvas
     def shutdown(self):
         """Cerrar todas las ventanas"""
         duration = (time.time() - self.start_time) / 60.0

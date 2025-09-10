@@ -6,7 +6,7 @@ class Config:
     # Video processing
     TARGET_FPS = 30
     YOLO_MODEL = "yolo12n.pt"
-    YOLO_CONFIDENCE = 0.6
+    YOLO_CONFIDENCE = 0.45
     YOLO_DEVICE = "cpu"  # Avoid MPS bug
     
     # Audio system
@@ -37,7 +37,7 @@ class Config:
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
     MIDAS_DEVICE = "cpu"         # Evitar problemas MPS
-    DEPTH_ENABLED = True         # Flag para activar/desactivar
+    DEPTH_ENABLED = False        # DESACTIVADO por rendimiento (CPU-only)
     
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
