@@ -12,3 +12,4 @@ venv/
 *.bag
 *.vrs
 *.pt
+*.xml
