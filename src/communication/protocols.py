@@ -19,6 +19,35 @@ import cv2
 
 
 # =================================================================
+# IMAGE (DE)CODING HELPERS
+# =================================================================
+
+def _encode_image(image: np.ndarray, codec: str, quality: int = 85) -> bytes:
+    """
+    Encode an image using the specified codec.
+    Supported: 'jpg'/'jpeg' (lossy), 'png' (lossless).
+    """
+    if codec.lower() in ("jpg", "jpeg"):
+        ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+    elif codec.lower() == "png":
+        ok, buf = cv2.imencode(".png", image)
+    else:
+        raise MessageSerializationError(f"Unsupported codec: {codec}")
+    if not ok or buf is None:
+        raise MessageSerializationError(f"Image encode failed for codec={codec}")
+    return buf.tobytes()
+
+
+def _decode_image(data: bytes) -> np.ndarray:
+    """Decode bytes into a BGR uint8 image (contiguous)."""
+    arr = np.frombuffer(data, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise MessageSerializationError("Image decode failed")
+    return np.ascontiguousarray(img)
+
+
+# =================================================================
 # CORE MESSAGE STRUCTURES
 # =================================================================
 
@@ -44,9 +73,8 @@ class FrameMessage:
 
     def to_bytes(self) -> bytes:
         """Serializar mensaje a bytes para envío por socket"""
-        # Encode frame como JPG para comprensión
-        _, buffer = cv2.imencode('.jpg', self.frame_data)
-        frame_bytes = buffer.tobytes()
+        codec = getattr(CommunicationConfig, "DEFAULT_FRAME_CODEC", "jpg")
+        frame_bytes = _encode_image(self.frame_data, codec, getattr(CommunicationConfig, "JPEG_QUALITY", 85))
         
         # Crear header con metadata
         header = {
@@ -55,13 +83,13 @@ class FrameMessage:
             'frame_shape': self.frame_shape,
             'sequence_id': self.sequence_id,
             'frame_size': len(frame_bytes),
+            'codec': codec,
             'metadata': self.metadata or {}
         }
         
         # Combinar header + frame
         header_json = json.dumps(header).encode('utf-8')
         header_size = len(header_json).to_bytes(4, byteorder='big')
-        
         return header_size + header_json + frame_bytes
 
     @classmethod
@@ -77,9 +105,8 @@ class FrameMessage:
         # Leer frame data
         frame_bytes = data[4+header_size:4+header_size+header['frame_size']]
         
-        # Decode frame
-        frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
-        frame_data = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+        # Decode frame (codec stored for future extensions; imdecode auto-detects container)
+        frame_data = _decode_image(frame_bytes)
         
         return cls(
             timestamp=header['timestamp'],
@@ -115,16 +142,15 @@ class ProcessedMessage:
 
     def to_bytes(self) -> bytes:
         """Serializar mensaje procesado a bytes"""
-        # Encode dashboard frame
-        _, buffer = cv2.imencode('.jpg', self.dashboard_frame, 
-                                [cv2.IMWRITE_JPEG_QUALITY, 85])
-        frame_bytes = buffer.tobytes()
+        codec = getattr(CommunicationConfig, "DEFAULT_PROCESSED_CODEC", "jpg")
+        frame_bytes = _encode_image(self.dashboard_frame, codec, getattr(CommunicationConfig, "JPEG_QUALITY", 85))
         
         # Crear header
         header = {
             'timestamp': self.timestamp,
             'sequence_id': self.sequence_id,
             'frame_size': len(frame_bytes),
+            'codec': codec,
             'detections': self.detections,
             'audio_command': self.audio_command,
             'performance_metrics': self.performance_metrics or {},
@@ -133,7 +159,6 @@ class ProcessedMessage:
         
         header_json = json.dumps(header).encode('utf-8')
         header_size = len(header_json).to_bytes(4, byteorder='big')
-        
         return header_size + header_json + frame_bytes
 
     @classmethod
@@ -144,8 +169,7 @@ class ProcessedMessage:
         header = json.loads(header_json.decode('utf-8'))
         
         frame_bytes = data[4+header_size:4+header_size+header['frame_size']]
-        frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
-        dashboard_frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+        dashboard_frame = _decode_image(frame_bytes)
         
         return cls(
             timestamp=header['timestamp'],
@@ -167,7 +191,7 @@ class CommunicationConfig:
     
     # Network configuration
     JETSON_IP = "192.168.8.204"
-    FRAME_PORT = 5555      # Puerto para envío frames Mac → Jetson
+    FRAME_PORT = 5555       # Puerto para envío frames Mac → Jetson
     DASHBOARD_PORT = 5556   # Puerto para dashboard Jetson → Mac
     
     # Message configuration
@@ -175,13 +199,17 @@ class CommunicationConfig:
     SOCKET_TIMEOUT = 5.0  # 5 segundos timeout
     RECONNECT_DELAY = 1.0  # 1 segundo entre reintentos conexión
     
-    # Performance configuration
-    MAX_FRAME_QUEUE = 3    # Buffer máximo frames en cola
-    JPEG_QUALITY = 85      # Calidad compresión (balance size/quality)
-    MAX_FPS = 30          # FPS máximo objetivo
-    
+    # Performance / encoding configuration
+    MAX_FRAME_QUEUE = 3     # Buffer máximo frames en cola
+    JPEG_QUALITY = 85       # Calidad compresión (balance size/quality)
+    MAX_FPS = 30            # FPS máximo objetivo
+
+    # Default codecs (prod = jpg; tests can override to 'png' lossless)
+    DEFAULT_FRAME_CODEC = "jpg"
+    DEFAULT_PROCESSED_CODEC = "jpg"
+
     # Error handling
-    MAX_RETRIES = 3        # Reintentos máximos para envío
+    MAX_RETRIES = 3         # Reintentos máximos para envío
     HEARTBEAT_INTERVAL = 10.0  # Segundos entre heartbeats
 
 
@@ -284,44 +312,56 @@ class MessageValidationError(CommunicationError):
 def test_message_serialization():
     """Test básico de serialización/deserialización"""
     print("Testing message serialization...")
-    
-    # Test FrameMessage
-    test_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-    frame_msg = MessageUtils.create_frame_message(
-        test_frame, 
-        camera_id="rgb",
-        metadata={"test": True}
-    )
-    
-    # Serialize and deserialize
-    frame_bytes = frame_msg.to_bytes()
-    reconstructed = FrameMessage.from_bytes(frame_bytes)
-    
-    assert frame_msg.camera_id == reconstructed.camera_id
-    assert frame_msg.sequence_id == reconstructed.sequence_id
-    assert np.array_equal(frame_msg.frame_data, reconstructed.frame_data)
-    print("✅ FrameMessage serialization test passed")
-    
-    # Test ProcessedMessage
-    detections = [{"name": "person", "bbox": [100, 100, 200, 200]}]
-    processed_msg = MessageUtils.create_processed_message(
-        test_frame,
-        detections,
-        frame_msg.sequence_id,
-        time.time() - 0.1,  # 100ms processing time
-        "persona al centro"
-    )
-    
-    processed_bytes = processed_msg.to_bytes()
-    reconstructed_processed = ProcessedMessage.from_bytes(processed_bytes)
-    
-    assert processed_msg.sequence_id == reconstructed_processed.sequence_id
-    assert processed_msg.detections == reconstructed_processed.detections
-    assert processed_msg.audio_command == reconstructed_processed.audio_command
-    print("✅ ProcessedMessage serialization test passed")
-    
-    print(f"Frame message size: {len(frame_bytes)} bytes")
-    print(f"Processed message size: {len(processed_bytes)} bytes")
+
+    # Fuerza lossless en test para igualdad byte-a-byte
+    prev_frame_codec = getattr(CommunicationConfig, "DEFAULT_FRAME_CODEC", "jpg")
+    prev_proc_codec = getattr(CommunicationConfig, "DEFAULT_PROCESSED_CODEC", "jpg")
+    try:
+        CommunicationConfig.DEFAULT_FRAME_CODEC = "png"
+        CommunicationConfig.DEFAULT_PROCESSED_CODEC = "png"
+
+        # Test FrameMessage
+        test_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        frame_msg = MessageUtils.create_frame_message(
+            test_frame, 
+            camera_id="rgb",
+            metadata={"test": True}
+        )
+        
+        # Serialize and deserialize
+        frame_bytes = frame_msg.to_bytes()
+        reconstructed = FrameMessage.from_bytes(frame_bytes)
+        
+        assert frame_msg.camera_id == reconstructed.camera_id
+        assert frame_msg.sequence_id == reconstructed.sequence_id
+        assert np.array_equal(frame_msg.frame_data, reconstructed.frame_data), "Frame data mismatch (lossless expected)"
+        print("✅ FrameMessage serialization test passed")
+        
+        # Test ProcessedMessage
+        detections = [{"name": "person", "bbox": [100, 100, 200, 200]}]
+        processed_msg = MessageUtils.create_processed_message(
+            test_frame,
+            detections,
+            frame_msg.sequence_id,
+            time.time() - 0.1,  # 100ms processing time
+            "persona al centro"
+        )
+        
+        processed_bytes = processed_msg.to_bytes()
+        reconstructed_processed = ProcessedMessage.from_bytes(processed_bytes)
+        
+        assert processed_msg.sequence_id == reconstructed_processed.sequence_id
+        assert processed_msg.detections == reconstructed_processed.detections
+        assert processed_msg.audio_command == reconstructed_processed.audio_command
+        assert np.array_equal(processed_msg.dashboard_frame, reconstructed_processed.dashboard_frame), "Dashboard frame mismatch (lossless expected)"
+        print("✅ ProcessedMessage serialization test passed")
+        
+        print(f"Frame message size: {len(frame_bytes)} bytes")
+        print(f"Processed message size: {len(processed_bytes)} bytes")
+    finally:
+        # Restaurar codecs por defecto (producción)
+        CommunicationConfig.DEFAULT_FRAME_CODEC = prev_frame_codec
+        CommunicationConfig.DEFAULT_PROCESSED_CODEC = prev_proc_codec
 
 
 if __name__ == "__main__":
@@ -331,4 +371,4 @@ if __name__ == "__main__":
     print(f"  - Jetson IP: {CommunicationConfig.JETSON_IP}")
     print(f"  - Frame port: {CommunicationConfig.FRAME_PORT}")
     print(f"  - Dashboard port: {CommunicationConfig.DASHBOARD_PORT}")
-    print(f"  - Max message size: {CommunicationConfig.MAX_MESSAGE_SIZE // 1024 // 1024}MB
+    print(f"  - Max message size: {CommunicationConfig.MAX_MESSAGE_SIZE // 1024 // 1024}MB")
