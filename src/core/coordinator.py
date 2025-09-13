@@ -327,6 +327,14 @@ class Coordinator:
         
         if self.dashboard:
             self.dashboard.cleanup()
+            
+        if self.frame_renderer:
+            # FrameRenderer normalmente no necesita cleanup específico
+            pass
+            
+        if self.image_enhancer:
+            # ImageEnhancer normalmente no necesita cleanup específico  
+            pass
         
         print("✓ Coordinator limpiado")
 

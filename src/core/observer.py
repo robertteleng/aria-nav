@@ -6,11 +6,11 @@ import aria.sdk as aria
 from projectaria_tools.core.sensor_data import ImageDataRecord, MotionData
 from typing import Sequence, Dict
 
-from vision.yolo_proccesor import YoloProcessor
-from audio.audio_system import AudioSystem
-from utils.visualization import FrameRenderer
+# from vision.yolo_proccesor import YoloProcessor
+# from audio.audio_system import AudioSystem
+# from utils.fram_renderer import FrameRenderer
 from vision.depth_estimator import DepthEstimator
-from vision.image_enhancer import ImageEnhancer
+# from vision.image_enhancer import ImageEnhancer
 from utils.opencv_dashboard import OpenCVDashboard
 
 
@@ -27,10 +27,7 @@ class Observer:
         # Core processing components
         self.coordinator = build_navigation_system(enable_dashboard=False)
 
-
-        self.frame_renderer = FrameRenderer()
         self.depth_estimator = DepthEstimator()
-        self.image_enhancer = ImageEnhancer()
         
         # Dashboard integration
         self.dashboard = OpenCVDashboard() if enable_dashboard else None
@@ -180,8 +177,8 @@ class Observer:
 
                 for camera, frame in frames.items():
                     if camera == 'rgb':
-                        enhanced = self.image_enhancer.enhance_frame(frame)
-                        annotated_frame = self.coordinator.process_frame(enhanced)
+                        # enhanced = self.image_enhancer.enhance_frame(frame)
+                        annotated_frame = self.coordinator.process_frame(frame)
                         processed_frames[camera] = annotated_frame
                         self.camera_detections[camera] = self.coordinator.current_detections
                     else:
