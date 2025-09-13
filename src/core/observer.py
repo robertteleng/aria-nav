@@ -14,6 +14,9 @@ from vision.image_enhancer import ImageEnhancer
 from utils.opencv_dashboard import OpenCVDashboard
 
 
+from core.builder import build_navigation_system
+
+
 class Observer:
     """
     Enhanced observer with multi-camera capture: RGB + SLAM1 + SLAM2
@@ -22,8 +25,9 @@ class Observer:
     
     def __init__(self, rgb_calib=None, enable_dashboard=True):
         # Core processing components
-        self.yolo_processor = YoloProcessor()
-        self.audio_system = AudioSystem()
+        self.coordinator = build_navigation_system(enable_dashboard=False)
+
+
         self.frame_renderer = FrameRenderer()
         self.depth_estimator = DepthEstimator()
         self.image_enhancer = ImageEnhancer()
@@ -177,9 +181,9 @@ class Observer:
                 for camera, frame in frames.items():
                     if camera == 'rgb':
                         enhanced = self.image_enhancer.enhance_frame(frame)
-                        processed_frames[camera] = enhanced
-                        detections = self.yolo_processor.process_frame(enhanced, None)
-                        self.camera_detections[camera] = detections
+                        annotated_frame = self.coordinator.process_frame(enhanced)
+                        processed_frames[camera] = annotated_frame
+                        self.camera_detections[camera] = self.coordinator.current_detections
                     else:
                         processed_frames[camera] = frame
                         self.camera_detections[camera] = []
@@ -225,28 +229,11 @@ class Observer:
                     else:
                         depth_map = self.cached_depth_map
 
-                # Audio processing: Use ONLY RGB detections for now (unchanged behavior)
-                rgb_detections = self.camera_detections.get('rgb', [])
-                motion_state = getattr(self.motion_detector, 'last_motion_state', 'stationary')
                 
-                # Capturar comandos de audio antes de procesarlos
-                audio_commands_before = len(self.audio_system.audio_queue)
-                self.audio_system.process_detections(rgb_detections, motion_state)
-                audio_commands_after = len(self.audio_system.audio_queue)
-                
-                # Si se añadieron comandos, logear al dashboard
-                if self.dashboard and audio_commands_after > audio_commands_before:
-                    # Obtener último comando añadido
-                    if hasattr(self.audio_system, 'last_command_sent'):
-                        self.dashboard.log_audio_command(self.audio_system.last_command_sent, 5)
 
                 # Visual overlay: Use RGB as main display + add camera info
                 if 'rgb' in processed_frames:
-                    annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                        processed_frames['rgb'], rgb_detections, self.audio_system, depth_map
-                    )
-                    # Add multi-camera indicators
-                    annotated_frame = self._add_camera_info_overlay(annotated_frame)
+                    annotated_frame = self._add_camera_info_overlay(processed_frames['rgb'])
                 else:
                     # Fallback to any available frame
                     annotated_frame = list(processed_frames.values())[0]
@@ -334,7 +321,7 @@ class Observer:
     def test_audio(self):
         """Test audio system"""
         try:
-            self.audio_system.speak_force("audio test")
+            self.coordinator.audio_system.speak_force("audio test")
             if self.dashboard:
                 self.dashboard.log_audio_command("Sistema de audio test", 1)
         except Exception as e:
@@ -348,9 +335,12 @@ class Observer:
         print(f"  - RGB frames: {self.frame_counts['rgb']}")
         print(f"  - SLAM1 frames: {self.frame_counts['slam1']}")
         print(f"  - SLAM2 frames: {self.frame_counts['slam2']}")
-        print(f"  - YOLO detections: {self.yolo_processor.detection_count}")
-        print(f"  - Audio commands: {len(self.audio_system.audio_queue)}")
-        
+
+        yolo_count = getattr(self.coordinator.yolo_processor, 'detection_count', 0)
+        audio_queue = getattr(self.coordinator.audio_system, 'audio_queue', [])
+        print(f"  - YOLO detections: {yolo_count}")
+        print(f"  - Audio commands: {len(audio_queue)}")
+
         if self.dashboard:
             stats_msg = f"RGB:{self.frame_counts['rgb']} SLAM1:{self.frame_counts['slam1']} SLAM2:{self.frame_counts['slam2']} YOLO:{self.yolo_processor.detection_count}"
             self.dashboard.log_system_message(f"Stats: {stats_msg}", "STATS")
@@ -374,7 +364,7 @@ class Observer:
             pass
         
         try:
-            self.audio_system.close()
+            self.coordinator.cleanup()
         except Exception:
             pass
         
