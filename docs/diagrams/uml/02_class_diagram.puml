@@ -1,0 +1,104 @@
+@startuml Diagrama_Clases_Post_MiDaS
+!theme plain
+title Estructura de Clases - Post MiDaS Integration
+
+class AriaObserver {
+    -current_frame: np.array
+    -frame_count: int
+    -yolo_processor: YOLOProcessor
+    -midas_processor: MiDaSProcessor
+    -distance_analyzer: DistanceAnalyzer
+    +on_image_received(image, record)
+    +get_latest_frame()
+    +process_dual_pipeline(frame)
+}
+
+class YOLOProcessor {
+    -model: YOLO
+    -device: str
+    -confidence_threshold: float
+    +load_model(model_path)
+    +detect_objects(frame)
+    +filter_detections(detections)
+    +get_bounding_boxes()
+}
+
+class MiDaSProcessor {
+    -model: MiDaS
+    -transform: Compose
+    -device: str
+    +load_midas_model()
+    +estimate_depth(frame)
+    +normalize_depth_map(depth)
+    +get_depth_at_point(x, y)
+}
+
+class DistanceAnalyzer {
+    -depth_scale_factor: float
+    -calibration_params: dict
+    +calculate_metric_distance(bbox, depth_map)
+    +bbox_to_depth_region(bbox)
+    +depth_to_meters(depth_value)
+    +validate_distance(distance)
+}
+
+class ObjectPrioritizer {
+    -priority_weights: dict
+    -distance_thresholds: dict
+    +prioritize_with_distance(detections, distances)
+    +calculate_urgency_score(obj, distance)
+    +apply_distance_modifiers(base_priority, distance)
+    +get_top_priority_objects()
+}
+
+class TTSManager {
+    -engine: pyttsx3.Engine
+    -audio_queue: Queue
+    -cooldown_timer: float
+    +generate_distance_command(obj, distance, zone)
+    +format_metric_message(distance)
+    +queue_spatial_audio(message)
+    +speak_async(text)
+}
+
+class ZoneAnalyzer {
+    -zone_boundaries: list
+    -zone_names: list
+    +analyze_spatial_zones(detections)
+    +get_object_zone(bbox)
+    +calculate_zone_distribution()
+}
+
+' Relationships
+AriaObserver --> YOLOProcessor : uses
+AriaObserver --> MiDaSProcessor : uses
+AriaObserver --> DistanceAnalyzer : uses
+AriaObserver --> ObjectPrioritizer : uses
+AriaObserver --> TTSManager : uses
+
+DistanceAnalyzer --> MiDaSProcessor : gets_depth_from
+ObjectPrioritizer --> DistanceAnalyzer : uses_distances_from
+TTSManager --> ZoneAnalyzer : uses
+
+YOLOProcessor --> ObjectPrioritizer : sends_detections_to
+MiDaSProcessor --> DistanceAnalyzer : sends_depth_to
+
+note top of AriaObserver
+**Central Coordinator**
+Orchestrates dual YOLO+MiDaS pipeline
+with metric distance integration
+end note
+
+note right of DistanceAnalyzer
+**Key Addition Post-MiDaS**
+Converts depth maps to real-world
+metric distances for navigation
+end note
+
+note bottom of ObjectPrioritizer
+**Enhanced Intelligence**
+Priority scoring now includes
+metric distance as major factor
+end note
+
+@enduml

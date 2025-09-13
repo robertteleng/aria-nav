@@ -1,0 +1,52 @@
+@startuml
+package src {
+  class main
+
+  package core {
+    class device_manager
+    class observers
+  }
+  package motion {
+    class motion_processor
+    class orientation_calculator
+    class yaw_fusion_system
+    class orientation_state
+  }
+  package vision {
+    class object_tracker
+    class yolo_proccesor
+    class detected_object
+  }
+  package audio {
+    class audio_system
+  }
+  package utils {
+    class ctrl_handler
+    class orientation_visualizer
+    class config
+    class visualization
+    class yaw_fusion_test
+    class mag_test
+  }
+
+  main --> device_manager
+  main --> motion_processor
+  main --> object_tracker
+  main --> audio_system
+
+  device_manager --> observers
+
+  motion_processor --> orientation_calculator
+  motion_processor --> yaw_fusion_system
+  motion_processor --> orientation_state
+
+  object_tracker --> detected_object
+  object_tracker --> yolo_proccesor
+
+  audio_system --> config
+
+  main --> ctrl_handler
+  main --> config
+  main --> visualization
+}
+@enduml

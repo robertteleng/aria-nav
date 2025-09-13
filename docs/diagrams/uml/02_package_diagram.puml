@@ -1,0 +1,62 @@
+@startuml Diagrama_Paquetes_Post_MiDaS
+!theme plain
+title Arquitectura de Paquetes - Post MiDaS Integration
+skinparam packageStyle rectangle
+
+package "aria-navigation-tfm" {
+    
+    package "core" as core {
+        [observers.py]
+        [connection_manager.py]
+        [ctrl_handler.py]
+    }
+    
+    package "vision" as vision {
+        [yolo_processor.py]
+        [midas_processor.py]
+        [depth_calculator.py]
+        [zone_analyzer.py]
+    }
+    
+    package "audio" as audio {
+        [tts_manager.py]
+        [message_queue.py]
+        [spatial_audio.py]
+    }
+    
+    package "intelligence" as intel {
+        [object_prioritizer.py]
+        [distance_analyzer.py]
+        [context_manager.py]
+    }
+    
+    package "utils" as utils {
+        [config.py]
+        [visualizer.py]
+        [performance_monitor.py]
+    }
+}
+
+' Dependencies
+core --> vision : "RGB Stream"
+vision --> intel : "Detections + Depth"
+intel --> audio : "Prioritized Commands"
+audio --> core : "Audio Feedback"
+utils --> core : "Configuration"
+utils --> vision : "Visualization"
+
+note right of vision
+  **Dual Processing Pipeline**
+  - YOLO: Object Detection
+  - MiDaS: Depth Estimation
+  - Integration: Metric distances
+end note
+
+note left of intel
+  **Enhanced Intelligence**
+  - Distance-aware prioritization
+  - Metric spatial analysis
+  - Context-based decisions
+end note
+
+@enduml

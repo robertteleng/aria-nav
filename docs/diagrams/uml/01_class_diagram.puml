@@ -1,0 +1,99 @@
+@startuml class_diagram
+title Diagrama de Clases Detallado - Componentes Principales
+
+class Observer {
+    -yolo_processor: YoloProcessor
+    -audio_system: AudioSystem
+    -frame_renderer: FrameRenderer
+    -current_frame: np.array
+    -frame_count: int
+    -_lock: threading.Lock
+    -_latest_raw: np.array
+    -_stop: bool
+    -_processing_thread: Thread
+    --
+    +__init__(rgb_calib=None)
+    +on_image_received(image, record)
+    +_processing_loop()
+    +get_latest_frame(): np.array
+    +test_audio()
+    +print_stats()
+    +stop()
+}
+
+class YoloProcessor {
+    -model: YOLO
+    -device: str
+    -navigation_objects: dict
+    -detection_count: int
+    --
+    +__init__()
+    +process_frame(frame): List[dict]
+    -_analyze_detections(results, width): List[DetectedObject]
+    -_classify_zone(x, y, width): str
+    -_estimate_distance(area, width): str
+}
+
+class AudioSystem {
+    -audio_queue: deque
+    -last_announcement_time: float
+    -announcement_cooldown: float
+    -repeat_cooldown: float
+    -last_phrase: str
+    -tts_speaking: bool
+    -frame_width: int
+    -frame_height: int
+    --
+    +__init__()
+    +update_frame_dimensions(width, height)
+    +process_detections(detections)
+    +speak_async(message)
+    +speak_force(message)
+    -_should_announce(phrase): bool
+    -_generate_command(detection): str
+}
+
+class FrameRenderer {
+    -quadrant_colors: dict
+    -zone_titles: dict
+    --
+    +__init__()
+    +draw_navigation_overlay(frame, detections, audio): np.array
+    -_draw_zone_grid(frame, width, height)
+    -_draw_detections(frame, detections)
+    -_draw_system_status(frame, audio, width, height)
+}
+
+class DeviceManager {
+    -device_client: aria.DeviceClient
+    -device: aria.Device
+    -streaming_manager
+    -streaming_client
+    --
+    +__init__()
+    +connect()
+    +start_streaming(): rgb_calib
+    +register_observer(observer)
+    +subscribe()
+    +cleanup()
+}
+
+class DetectedObject {
+    +name: str
+    +confidence: float
+    +bbox: Tuple[int, int, int, int]
+    +center_x: float
+    +center_y: float
+    +area: float
+    +zone: str
+    +distance_bucket: str
+    +relevance_score: float
+}
+
+Observer *-- YoloProcessor
+Observer *-- AudioSystem
+Observer *-- FrameRenderer
+YoloProcessor ..> DetectedObject : creates
+DeviceManager --> Observer : registers
+
+@enduml

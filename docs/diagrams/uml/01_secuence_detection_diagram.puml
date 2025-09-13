@@ -1,0 +1,41 @@
+@startuml sequence_yolo_detection
+title Secuencia de Detección YOLO
+
+participant "Observer" as Obs
+participant "YoloProcessor" as YOLO
+participant "YOLO Model" as Model
+participant "DetectedObject" as DetObj
+
+Obs -> YOLO: process_frame(rotated_frame)
+activate YOLO
+
+YOLO -> Model: inference(frame, device='cpu')
+activate Model
+Model -> YOLO: raw_results
+deactivate Model
+
+YOLO -> YOLO: _analyze_detections(results, frame_width)
+
+loop For each detection in results
+    YOLO -> YOLO: get class_name from model.names
+    
+    alt Navigation object AND confidence > 0.6
+        YOLO -> YOLO: calculate center_x, center_y, area
+        YOLO -> YOLO: _classify_zone(center_x, center_y, width)
+        YOLO -> YOLO: _estimate_distance(area, width)
+        YOLO -> YOLO: calculate relevance_score
+        
+        alt relevance_score > 0.6
+            YOLO -> DetObj: create DetectedObject
+            YOLO -> YOLO: add to objects list
+        end
+    end
+end
+
+YOLO -> YOLO: sort by relevance_score (desc)
+YOLO -> YOLO: take top 1 detection only
+
+YOLO -> Obs: return [detection_dict]
+deactivate YOLO
+
+@enduml

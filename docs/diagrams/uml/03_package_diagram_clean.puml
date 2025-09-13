@@ -1,0 +1,98 @@
+@startuml Diagrama_Paquetes_Clean_Architecture
+!theme plain
+title Arquitectura de Paquetes - Clean Architecture + Builder Pattern
+skinparam packageStyle rectangle
+
+package "aria-navigation-tfm" {
+    
+    package "presentation" <<UI Layer>> {
+        package "dashboards" {
+            [opencv_dashboard.py]
+            [rerun_dashboard.py]
+        }
+        package "renderers" {
+            [frame_renderer.py]
+        }
+    }
+    
+    package "core" <<Business Logic>> {
+        [observer.py]
+        
+        package "hardware" {
+            [device_manager.py]
+        }
+        
+        package "vision" {
+            [yolo_processor.py]
+            [image_enhancer.py]
+            [depth_estimator.py]
+            [detected_object.py]
+        }
+        
+        package "audio" {
+            [audio_system.py]
+        }
+        
+        package "navigation" {
+            [coordinator.py]
+            [simple_builder.py]
+        }
+    }
+    
+    package "utils" <<Cross-cutting>> {
+        [config.py]
+        [ctrl_handler.py]
+    }
+}
+
+' Dependencies following Clean Architecture principles
+observer.py --> hardware : "SDK Interface"
+observer.py --> navigation : "Uses Coordinator"
+observer.py --> dashboards : "UI Updates"
+
+hardware --> observer.py : "Streams Data"
+
+navigation --> vision : "Object Detection"
+navigation --> audio : "Audio Commands"
+navigation --> renderers : "Frame Rendering"
+
+simple_builder.py --> vision : "Creates Components"
+simple_builder.py --> audio : "Creates Components"
+simple_builder.py --> renderers : "Creates Components"
+simple_builder.py --> coordinator.py : "Assembles System"
+
+utils --> core : "Configuration"
+utils --> presentation : "Configuration"
+
+note right of presentation
+**UI Layer**
+- Dashboards for visualization
+- Frame rendering and overlays
+- User interaction handling
+- No business logic
+end note
+
+note left of core
+**Business Logic Layer**
+- Hardware abstraction
+- Navigation algorithms
+- Vision processing
+- Audio generation
+- Dependency injection
+end note
+
+note bottom of utils
+**Cross-cutting Concerns**
+- Configuration management
+- System utilities
+- Shared across all layers
+end note
+
+note top of navigation
+**Factory Pattern**
+Builder creates and wires
+all system components with
+proper dependency injection
+end note
+
+@enduml

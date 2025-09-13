@@ -1,0 +1,43 @@
+
+
+@startuml sequence_audio_processing
+title Secuencia de Procesamiento de Audio
+
+participant "Observer" as Obs
+participant "AudioSystem" as Audio
+participant "TTS" as TTS
+participant "User" as User
+
+Obs -> Audio: process_detections([detection1, detection2])
+activate Audio
+
+Audio -> Audio: take most relevant detection
+Audio -> Audio: _generate_command(detection)
+
+note right: Generate: "person upper left"
+
+Audio -> Audio: _should_announce(command)
+
+alt Different phrase OR cooldown passed
+    Audio -> Audio: speak_async(command)
+    Audio -> Audio: update last_phrase
+    Audio -> Audio: update last_announcement_time
+    
+    par Background TTS Thread
+        Audio -> TTS: subprocess.Popen(["say", "-r", rate, command])
+        activate TTS
+        TTS --> User: Audio Output
+        Audio -> Audio: set tts_speaking = True
+        Audio -> Audio: sleep(estimated_duration)
+        Audio -> Audio: set tts_speaking = False
+        deactivate TTS
+    end
+    
+else Same phrase AND within cooldown
+    Audio -> Audio: skip announcement
+    note right: Prevent spam
+end
+
+deactivate Audio
+
+@enduml

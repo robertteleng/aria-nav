@@ -1,0 +1,181 @@
+@startuml Diagrama_Clases_Clean_Architecture
+!theme plain
+title Diagrama de Clases - Clean Architecture + Builder Pattern
+
+package "presentation" {
+    class OpenCVDashboard {
+        -window_name: str
+        -window_size: tuple
+        +log_rgb_frame(frame)
+        +log_detections(detections)
+        +log_system_message(msg)
+        +update_all()
+    }
+    
+    class FrameRenderer {
+        -quadrant_colors: dict
+        -zone_titles: dict
+        +draw_navigation_overlay(frame, detections, audio_system)
+        +_draw_zone_grid(frame, width, height)
+        +_draw_detections(frame, detections)
+        +_draw_system_status(frame, audio_system)
+    }
+}
+
+package "core" {
+    class Observer {
+        -current_frames: dict
+        -camera_detections: dict
+        -coordinator: SimpleCoordinatorWithDeps
+        -dashboard: OpenCVDashboard
+        +on_image_received(image, record)
+        +on_imu_received(samples, imu_idx)
+        +_processing_loop()
+        +get_latest_frame()
+    }
+    
+    package "hardware" {
+        class DeviceManager {
+            -device_client: DeviceClient
+            -streaming_manager: StreamingManager
+            +connect()
+            +start_streaming()
+            +register_observer(observer)
+            +cleanup()
+        }
+    }
+    
+    package "vision" {
+        class YoloProcessor {
+            -model: YOLO
+            -device: str
+            -navigation_objects: dict
+            +process_frame(frame, depth_map)
+            +_analyze_detections(yolo_results, frame_width)
+            +_classify_zone(center_x, center_y, frame_width)
+            +_estimate_distance_with_depth(area, frame_width, depth_value)
+        }
+        
+        class ImageEnhancer {
+            -clahe: CLAHE
+            -auto_enhancement: bool
+            -low_light_threshold: float
+            +enhance_frame(frame)
+            +_detect_low_light(frame)
+        }
+        
+        class DepthEstimator {
+            -model: MiDaS
+            -transform: Compose
+            +estimate_depth(frame)
+            +get_object_depth(depth_map, bbox)
+        }
+        
+        class DetectedObject {
+            +name: str
+            +confidence: float
+            +bbox: tuple
+            +zone: str
+            +distance_bucket: str
+            +relevance_score: float
+            +depth_value: float
+        }
+    }
+    
+    package "audio" {
+        class AudioSystem {
+            -audio_queue: deque
+            -tts_speaking: bool
+            -announcement_cooldown: float
+            -frame_width: int
+            +process_detections(detections, motion_state)
+            +speak_async(message)
+            +_generate_command(detection)
+            +_should_announce(phrase)
+        }
+    }
+    
+    package "navigation" {
+        class SimpleCoordinatorWithDeps {
+            -yolo_processor: YoloProcessor
+            -audio_system: AudioSystem
+            -frame_renderer: FrameRenderer
+            -image_enhancer: ImageEnhancer
+            -frames_processed: int
+            -current_detections: list
+            +process_frame(frame)
+            +_analyze_navigation_objects(detections)
+            +_generate_audio_commands(navigation_objects)
+        }
+        
+        class SimpleBuilder {
+            +build_yolo_processor()
+            +build_audio_system()
+            +build_frame_renderer()
+            +build_image_enhancer()
+            +build_coordinator(yolo, audio, renderer, enhancer)
+            +build_full_system(enable_dashboard)
+        }
+    }
+}
+
+package "utils" {
+    class Config {
+        +YOLO_MODEL: str
+        +YOLO_CONFIDENCE: float
+        +TTS_RATE: int
+        +AUDIO_COOLDOWN: float
+        +LOW_LIGHT_ENHANCEMENT: bool
+        +ZONE_SYSTEM: str
+    }
+    
+    class CtrlCHandler {
+        -should_stop: bool
+        +_signal_handler(sig, frame)
+    }
+}
+
+' Relationships
+Observer --> SimpleCoordinatorWithDeps : uses
+Observer --> OpenCVDashboard : displays_to
+Observer --> DeviceManager : receives_from
+
+SimpleBuilder --> YoloProcessor : creates
+SimpleBuilder --> AudioSystem : creates
+SimpleBuilder --> FrameRenderer : creates
+SimpleBuilder --> ImageEnhancer : creates
+SimpleBuilder --> SimpleCoordinatorWithDeps : creates
+
+SimpleCoordinatorWithDeps --> YoloProcessor : processes_with
+SimpleCoordinatorWithDeps --> AudioSystem : commands_via
+SimpleCoordinatorWithDeps --> FrameRenderer : renders_with
+SimpleCoordinatorWithDeps --> ImageEnhancer : enhances_with
+
+YoloProcessor --> DetectedObject : creates
+YoloProcessor --> Config : reads_from
+AudioSystem --> Config : reads_from
+ImageEnhancer --> Config : reads_from
+FrameRenderer --> Config : reads_from
+
+DeviceManager --> Observer : streams_to
+
+note top of SimpleBuilder
+**Factory Pattern**
+Centralizes creation of all
+navigation system components
+with dependency injection
+end note
+
+note right of SimpleCoordinatorWithDeps
+**Coordinator Pattern**
+Orchestrates complete navigation
+pipeline: Enhancement → YOLO → Audio → Rendering
+end note
+
+note left of Observer
+**Presentation Coordinator**
+Manages multicamera streams
+and UI coordination
+end note
+
+@enduml

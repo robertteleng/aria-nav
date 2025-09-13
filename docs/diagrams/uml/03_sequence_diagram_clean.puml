@@ -1,0 +1,82 @@
+@startuml Diagrama_Secuencia_Clean_Architecture
+!theme plain
+title Flujo de Procesamiento - Clean Architecture + Builder Pattern
+
+actor Usuario
+participant "DeviceManager" as Device
+participant "Observer" as Observer
+participant "SimpleBuilder" as Builder
+participant "Coordinator" as Coord
+participant "ImageEnhancer" as Enhancer
+participant "YoloProcessor" as YOLO
+participant "AudioSystem" as Audio
+participant "FrameRenderer" as Renderer
+participant "OpenCVDashboard" as Dashboard
+
+Usuario -> Device : Connect Aria glasses
+Device -> Device : Setup streaming
+
+note over Builder
+**System Initialization Phase**
+Builder creates all components
+with dependency injection
+end note
+
+Observer -> Builder : build_navigation_system()
+Builder -> Enhancer : create()
+Builder -> YOLO : create()
+Builder -> Audio : create()
+Builder -> Renderer : create()
+Builder -> Coord : create(enhancer, yolo, audio, renderer)
+Builder -> Observer : return coordinator
+
+Device -> Observer : Stream RGB frame (60fps)
+
+note over Observer, Coord
+**Processing Phase**
+Complete navigation pipeline
+orchestrated by Coordinator
+end note
+
+Observer -> Coord : process_frame(rgb_frame)
+
+Coord -> Enhancer : enhance_frame(frame)
+Enhancer -> Enhancer : Apply low-light enhancement
+Enhancer -> Coord : enhanced_frame
+
+Coord -> YOLO : detect_objects(enhanced_frame)
+YOLO -> YOLO : YOLOv12n detection + spatial analysis
+YOLO -> Coord : detections[bbox, class, zone, distance]
+
+Coord -> Coord : _analyze_navigation_objects(detections)
+Coord -> Coord : _generate_audio_commands(nav_objects)
+
+Coord -> Audio : speak_async(command) [if cooldown OK]
+Audio -> Audio : TTS processing
+Audio -> Usuario : "persona cerca zona centro"
+
+Coord -> Renderer : draw_navigation_overlay(frame, nav_objects)
+Renderer -> Renderer : Draw zones + bboxes + status
+Renderer -> Coord : annotated_frame
+
+Coord -> Observer : return annotated_frame
+
+Observer -> Dashboard : log_rgb_frame(annotated_frame)
+Observer -> Dashboard : log_detections(detections)
+Dashboard -> Usuario : Visual feedback
+
+note over Coord
+**Key Innovation:**
+Single coordinator orchestrates
+entire navigation pipeline with
+dependency injection
+end note
+
+note over Observer
+**Clean Separation:**
+Observer handles multicamera
+and UI, Coordinator handles
+navigation business logic
+end note
+
+@enduml

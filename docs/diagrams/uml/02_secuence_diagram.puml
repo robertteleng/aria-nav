@@ -1,0 +1,50 @@
+@startuml Diagrama_Secuencia_Post_MiDaS
+!theme plain
+title Flujo de Procesamiento - Post MiDaS Integration
+
+actor Usuario
+participant "Aria Glasses" as Aria
+participant "AriaObserver" as Observer
+participant "YOLOProcessor" as YOLO
+participant "MiDaSProcessor" as MiDaS
+participant "DistanceAnalyzer" as Distance
+participant "ObjectPrioritizer" as Priority
+participant "TTSManager" as TTS
+
+Usuario -> Aria : Wear glasses
+Aria -> Observer : RGB Frame (640x480, 60fps)
+
+Observer -> YOLO : process_frame(rgb_frame)
+Observer -> MiDaS : estimate_depth(rgb_frame)
+
+YOLO -> YOLO : YOLOv11n detection
+MiDaS -> MiDaS : MiDaS-v3 processing
+
+YOLO -> Observer : detections[bbox, class, conf]
+MiDaS -> Observer : depth_map[480x640]
+
+Observer -> Distance : calculate_distances(detections, depth_map)
+Distance -> Distance : bbox_to_depth_mapping()
+Distance -> Observer : metric_distances[meters]
+
+Observer -> Priority : prioritize_objects(detections, distances)
+Priority -> Priority : distance_aware_scoring()
+Priority -> Observer : prioritized_objects[]
+
+Observer -> TTS : generate_audio_command(prioritized_objects)
+TTS -> TTS : spatial_command_generation()
+TTS -> Usuario : "persona a 2.3 metros zona centro"
+
+note over Observer
+Key Enhancement Post-MiDaS:
+Real metric distances replace
+relative proximity estimation
+end note
+
+note over Priority
+Distance-Aware Intelligence:
+Closer objects have higher priority
+Context-based filtering applied
+end note
+
+@enduml

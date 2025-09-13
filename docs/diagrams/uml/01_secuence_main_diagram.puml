@@ -1,0 +1,66 @@
+@startuml sequence_main_flow
+title Flujo Principal - Detección y Audio
+
+actor User
+participant "DeviceManager" as DM
+participant "Observer" as Obs
+participant "YoloProcessor" as YOLO
+participant "AudioSystem" as Audio
+participant "FrameRenderer" as Render
+
+User -> DM: start system
+activate DM
+
+DM -> DM: connect()
+DM -> DM: start_streaming()
+DM -> Obs: register_observer()
+DM -> DM: subscribe()
+
+loop Every frame (30-60 FPS)
+    DM -> Obs: on_image_received(image, record)
+    activate Obs
+    
+    Obs -> Obs: rotate image (-90°)
+    Obs -> Obs: store in _latest_raw
+    
+    par Async Processing Thread
+        Obs -> Obs: _processing_loop()
+        Obs -> YOLO: process_frame(frame)
+        activate YOLO
+        
+        YOLO -> YOLO: run inference
+        YOLO -> YOLO: filter navigation objects
+        YOLO -> YOLO: classify zones
+        YOLO -> YOLO: estimate distances
+        YOLO -> Obs: return detections[]
+        deactivate YOLO
+        
+        Obs -> Audio: process_detections(detections)
+        activate Audio
+        
+        Audio -> Audio: check cooldown
+        Audio -> Audio: generate command
+        
+        alt Should announce
+            Audio -> Audio: speak_async(command)
+            Audio --> User: "person upper left"
+        end
+        deactivate Audio
+        
+        Obs -> Render: draw_navigation_overlay()
+        activate Render
+        Render -> Render: draw zones, boxes, status
+        Render -> Obs: annotated_frame
+        deactivate Render
+        
+        Obs -> Obs: update current_frame
+    end
+    
+    deactivate Obs
+end
+
+User -> DM: stop system (Ctrl+C)
+DM -> DM: cleanup()
+deactivate DM
+
+@enduml

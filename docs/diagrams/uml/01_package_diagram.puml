@@ -1,0 +1,107 @@
+@startuml package_diagram
+!define COMPONENT
+title Diagrama de Paquetes - Sistema de Navegación para Ciegos
+
+package "Navigation System" {
+    
+    package "Core" {
+        class CtrlCHandler {
+            -should_stop: bool
+            +_signal_handler()
+        }
+        
+        class DeviceManager {
+            -device_client: aria.DeviceClient
+            -streaming_manager
+            -streaming_client
+            +connect()
+            +start_streaming()
+            +register_observer()
+            +cleanup()
+        }
+    }
+    
+    package "Vision" {
+        class YoloProcessor {
+            -model: YOLO
+            -navigation_objects: dict
+            -detection_count: int
+            +process_frame(): List[dict]
+            -_analyze_detections()
+            -_classify_zone()
+            -_estimate_distance()
+        }
+        
+        class DetectedObject {
+            +name: str
+            +confidence: float
+            +bbox: Tuple
+            +zone: str
+            +distance_bucket: str
+            +relevance_score: float
+        }
+        
+        class ObjectTracker {
+            -detection_history: deque
+            -object_paths: dict
+            +update(): List[dict]
+            -_filter_consistent_detections()
+        }
+    }
+    
+    package "Audio" {
+        class AudioSystem {
+            -audio_queue: deque
+            -tts_speaking: bool
+            -last_phrase: str
+            +process_detections()
+            +speak_async()
+            +speak_force()
+            -_should_announce(): bool
+            -_generate_command()
+        }
+    }
+    
+    package "Utils" {
+        class FrameRenderer {
+            -quadrant_colors: dict
+            -zone_titles: dict
+            +draw_navigation_overlay()
+            -_draw_zone_grid()
+            -_draw_detections()
+            -_draw_system_status()
+        }
+        
+        class Config {
+            +TARGET_FPS: int
+            +YOLO_MODEL: str
+            +AUDIO_COOLDOWN: float
+            +ZONE_BOUNDARIES: float
+        }
+    }
+    
+    package "Observers" {
+        class Observer {
+            -yolo_processor: YoloProcessor
+            -audio_system: AudioSystem
+            -frame_renderer: FrameRenderer
+            -current_frame: np.array
+            -_processing_thread: Thread
+            +on_image_received()
+            +_processing_loop()
+            +get_latest_frame()
+        }
+    }
+}
+
+' Relationships
+DeviceManager --> Observer : registers
+Observer --> YoloProcessor : uses
+Observer --> AudioSystem : uses
+Observer --> FrameRenderer : uses
+YoloProcessor --> DetectedObject : creates
+YoloProcessor --> ObjectTracker : uses
+Observer ..> Config : reads
+AudioSystem ..> Config : reads
+
+@enduml
