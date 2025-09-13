@@ -4,17 +4,13 @@ import threading
 import time
 import aria.sdk as aria
 from projectaria_tools.core.sensor_data import ImageDataRecord, MotionData
-from typing import Sequence, Dict
+from typing import Sequence
 
-# from vision.yolo_proccesor import YoloProcessor
-# from audio.audio_system import AudioSystem
-# from utils.fram_renderer import FrameRenderer
+# from presentation.renderers.frame_renderer import FrameRenderer
+from presentation.dashboards.opencv_dashboard import OpenCVDashboard
+from vision.image_enhancer import ImageEnhancer
 from vision.depth_estimator import DepthEstimator
-# from vision.image_enhancer import ImageEnhancer
-from utils.opencv_dashboard import OpenCVDashboard
-
-
-from core.builder import build_navigation_system
+from navigation.simple_builder import build_navigation_system
 
 
 class Observer:

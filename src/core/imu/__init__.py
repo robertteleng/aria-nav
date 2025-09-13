@@ -1,1 +1,1 @@
-"""Audio processing and TTS modules"""
+"""IMU data processing module."""

@@ -5,16 +5,40 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="fa6aeedd-4d83-412f-b8a0-8bd0afee31cc" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/core/hardware/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/core/imu/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mac_panel_receiver.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/mac_panel_receiver.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mac_sender_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/experiments/mac_sender_test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/audio/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/audio/audio_system.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/navigation/builder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/coordinator.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/navigation/coordinator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/device_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/hardware/device_manager.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/observer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/observer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils/opencv_dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/utils/opencv_dashboard.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/vision/yolo_proccesor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/vision/yolo_proccesor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/imu/motion_detector.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/frame_renderer.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/opencv_dashboard.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/utils/rerun_dashboard.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/depth_estimator.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/detected_object.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/image_enhancer.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/object_tracker.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/vision/yolo_proccesor.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -27,22 +51,34 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;feature/peripheral-vision&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/robertorojosahuquillo/projectaria_navigation&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "feature/architecture",
+    "last_opened_file_path": "/Users/robertorojosahuquillo/projectaria_navigation/src/core/imu",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/core/imu" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src/core/hardware" />
+      <recent name="$PROJECT_DIR$/experiments" />
+      <recent name="$PROJECT_DIR$/src" />
+      <recent name="$PROJECT_DIR$/src/core/navigation" />
+      <recent name="$PROJECT_DIR$/src/core" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -87,6 +123,7 @@
       <workItem from="1757321649083" duration="102000" />
       <workItem from="1757329883143" duration="4000" />
       <workItem from="1757330217849" duration="14000" />
+      <workItem from="1757739236830" duration="544000" />
     </task>
     <servers />
   </component>
