@@ -10,7 +10,7 @@ from typing import Sequence
 from presentation.dashboards.opencv_dashboard import OpenCVDashboard
 from vision.image_enhancer import ImageEnhancer
 from vision.depth_estimator import DepthEstimator
-from navigation.simple_builder import build_navigation_system
+from navigation.builder import build_navigation_system
 
 
 class Observer:

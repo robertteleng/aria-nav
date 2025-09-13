@@ -12,7 +12,7 @@ from vision.yolo_proccesor import YoloProcessor
 from audio.audio_system import AudioSystem
 from presentation.renderers.frame_renderer import FrameRenderer
 from vision.image_enhancer import ImageEnhancer
-from core.coordinator import Coordinator
+from navigation.coordinator import Coordinator
 
 class Builder:
     """Builder que crea todas las dependencias del sistema"""

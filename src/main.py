@@ -7,7 +7,7 @@ Version: 0.50 - Clean main with Rerun dashboard
 
 import cv2
 from utils.ctrl_handler import CtrlCHandler
-from hardware.device_manager import DeviceManager
+from core.hardware.device_manager import DeviceManager
 from core.observer import Observer
 
 
