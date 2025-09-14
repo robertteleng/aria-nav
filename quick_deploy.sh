@@ -1,55 +1,58 @@
 #!/bin/bash
 # =================================================================
-# JETSON QUICK DEPLOYMENT SCRIPT - TFM Navigation System  
-# Sync rápido: Solo archivos modificados + restart automático
+# QUICK DEPLOY - Test rápido en Jetson Container
 # =================================================================
 
+echo "🚀 QUICK DEPLOY - Jetson Container Test"
+echo "📱 Ejecutando desde Mac hacia Jetson"
+
 # Configuration
-JETSON_IP="${JETSON_IP:-192.168.8.204}"
-JETSON_USER="${JETSON_USER:-jetson}"
-JETSON_PATH="~/jetson-aria"
-LOCAL_SRC="./src"
+JETSON_USER="jetson"
+JETSON_IP="192.168.8.204"
+PROJECT_DIR="$HOME/aria-navigation"
+CONTAINER_IMAGE="nvcr.io/nvidia/l4t-ml:r36.2.0-py3"
 
-echo "⚡ QUICK DEPLOY - Solo archivos modificados"
-echo "============================================"
-echo "📱 Mac → 🤖 Jetson (Fast Sync)"
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Verificar estructura básica
-if [[ ! -d "src" ]]; then
-    echo "❌ No encontrado src/ - usar ./jetson_deploy.sh primero"
+echo -e "${YELLOW}📁 Project: $PROJECT_DIR${NC}"
+echo -e "${YELLOW}🎯 Target: $JETSON_USER@$JETSON_IP${NC}"
+echo ""
+
+# Check if we're in the right directory and file exists
+if [ ! -f "src/communication/jetson_components_migration.py" ]; then
+    echo -e "${RED}❌ jetson_components_migration.py not found in src/communication/${NC}"
+    echo "💡 Make sure you're in the project root directory (aria-navigation-tfm)"
+    echo "💡 And that src/communication/jetson_components_migration.py exists"
     exit 1
 fi
 
-# Test conexión rápido
-echo "🔍 Testing conexión..."
-if ! ssh -o ConnectTimeout=3 ${JETSON_USER}@${JETSON_IP} "echo OK" > /dev/null 2>&1; then
-    echo "❌ Jetson no accesible"
+# Copy files to Jetson
+echo "📤 Copying files to Jetson..."
+if scp jetson_server.py $JETSON_USER@$JETSON_IP:~/aria-navigation/; then
+    echo -e "${GREEN}✅ Files copied successfully${NC}"
+else
+    echo -e "${RED}❌ Failed to copy files${NC}"
     exit 1
 fi
-echo "✅ Conexión OK"
 
-# Sync solo archivos modificados (rsync incremental)
-echo "📦 Sync incremental..."
-rsync -avz --delete \
-    --exclude="__pycache__" \
-    --exclude="*.pyc" \
-    --itemize-changes \
-    ${LOCAL_SRC}/ ${JETSON_USER}@${JETSON_IP}:${JETSON_PATH}/src/ | grep -E '^[<>cf]' || echo "No changes"
+# Test on Jetson
+echo "🧪 Running test on Jetson container..."
+echo "Command: ssh $JETSON_USER@$JETSON_IP 'cd ~/aria-navigation && docker run --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 jetson_server.py test'"
 
-# Restart jetson_server.py si estaba ejecutándose  
-echo "🔄 Restart automático..."
-ssh ${JETSON_USER}@${JETSON_IP} "
-    cd ${JETSON_PATH}
-    
-    # Kill proceso anterior si existe
-    pkill -f 'python jetson_server.py' || echo 'No proceso anterior'
-    
-    # Wait a moment
-    sleep 1
-    
-    # Test que el código funciona (dentro del container)
-    docker run -it --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace nvcr.io/nvidia/l4t-ml:r36.2.0-py3 python jetson_server.py test && echo '✅ Quick deploy OK' || echo '❌ Deploy failed'
-"
-
-echo "⚡ QUICK DEPLOY COMPLETADO"
-echo "💡 Para restart manual: ssh ${JETSON_USER}@${JETSON_IP} 'cd ${JETSON_PATH} && docker run -it --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace nvcr.io/nvidia/l4t-ml:r36.2.0-py3 python jetson_server.py'"
+if ssh $JETSON_USER@$JETSON_IP "cd ~/aria-navigation && docker run --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 jetson_server.py test"; then
+    echo ""
+    echo -e "${GREEN}✅ QUICK DEPLOY SUCCESSFUL!${NC}"
+    echo "🎯 Jetson container is ready for processing"
+    echo ""
+    echo "Next steps:"
+    echo "1. Start Jetson server: ssh $JETSON_USER@$JETSON_IP 'cd ~/aria-navigation && docker run --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 jetson_server.py run'"
+    echo "2. Run Mac sender to send frames"
+else
+    echo ""
+    echo -e "${RED}❌ QUICK DEPLOY FAILED${NC}"
+    echo "🔍 Check the error messages above"
+fi
