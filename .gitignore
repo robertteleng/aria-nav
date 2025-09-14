@@ -46,9 +46,6 @@ logs/
 *.pt
 
 # ============================
-# Documentación (mantén solo lo necesario)
+# Documentación 
 # ============================
-# Si quieres versionar diagramas .puml y markdown, comenta esta línea:
-# docs/
-docs/generated/
-docs/tmp/
+docs/
