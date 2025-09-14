@@ -18,30 +18,187 @@ import numpy as np
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
+# Add current directory to path for imports
+sys.path.insert(0, '/workspace')
 
-# Import our modules
-from communication.protocols import (
+# Import protocols from same directory
+from protocols import (
     FrameMessage, ProcessedMessage, MessageUtils, CommunicationConfig,
     CommunicationError, NetworkError, MessageValidationError
 )
-from core.navigation.builder import build_navigation_system
-from utils.ctrl_handler import CtrlCHandler
-from utils.config import Config
+
+# Mock imports for missing modules - we'll implement simplified versions
+class Config:
+    """Simplified config for Jetson"""
+    YOLO_MODEL = "yolo11n.pt"
+    YOLO_CONFIDENCE = 0.5
+    TARGET_FPS = 30
+    TTS_RATE = 150
+    AUDIO_COOLDOWN = 2.0
+
+class CtrlCHandler:
+    """Simple Ctrl+C handler"""
+    def __init__(self):
+        self.should_stop = False
+        import signal
+        signal.signal(signal.SIGINT, self._signal_handler)
+    
+    def _signal_handler(self, sig, frame):
+        print("\n[INFO] Interrupt signal detected, closing cleanly...")
+        self.should_stop = True
+
+# Simplified coordinator that we'll implement here
+class SimpleCoordinator:
+    """Simplified coordinator for Jetson"""
+    def __init__(self):
+        self.current_detections = []
+        self.audio_system = SimpleAudioSystem()
+        
+        # Initialize YOLO
+        try:
+            from ultralytics import YOLO
+            self.yolo_model = YOLO(Config.YOLO_MODEL)
+            print("[COORDINATOR] YOLO model loaded")
+        except Exception as e:
+            print(f"[COORDINATOR] Error loading YOLO: {e}")
+            self.yolo_model = None
+    
+    def process_frame(self, frame):
+        """Process frame with YOLO"""
+        if self.yolo_model is None:
+            return frame
+        
+        try:
+            # YOLO inference
+            results = self.yolo_model(
+                frame,
+                conf=Config.YOLO_CONFIDENCE,
+                verbose=False,
+                show=False,
+                save=False
+            )
+            
+            # Process detections
+            detections = []
+            annotated_frame = frame.copy()
+            
+            if len(results) > 0 and results[0].boxes is not None:
+                boxes = results[0].boxes
+                
+                for i in range(len(boxes.xyxy)):
+                    bbox = boxes.xyxy[i].cpu().numpy().astype(int)
+                    confidence = float(boxes.conf[i].cpu().numpy())
+                    class_id = int(boxes.cls[i].cpu().numpy())
+                    class_name = self.yolo_model.names[class_id]
+                    
+                    # Simple detection dict
+                    detection = {
+                        'bbox': tuple(bbox),
+                        'name': class_name,
+                        'confidence': confidence,
+                        'zone': self._get_zone(bbox, frame.shape[1]),
+                        'priority': confidence * 10  # Simple priority
+                    }
+                    detections.append(detection)
+                    
+                    # Draw annotation
+                    x1, y1, x2, y2 = bbox
+                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    label = f"{class_name} {confidence:.2f}"
+                    cv2.putText(annotated_frame, label, (x1, y1-10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            self.current_detections = detections
+            
+            # Process audio
+            self.audio_system.process_detections(detections)
+            
+            return annotated_frame
+            
+        except Exception as e:
+            print(f"[COORDINATOR] Error processing frame: {e}")
+            return frame
+    
+    def _get_zone(self, bbox, frame_width):
+        """Simple zone classification"""
+        x1, y1, x2, y2 = bbox
+        center_x = (x1 + x2) // 2
+        
+        if center_x < frame_width // 3:
+            return 'left'
+        elif center_x < 2 * frame_width // 3:
+            return 'center'
+        else:
+            return 'right'
+    
+    def cleanup(self):
+        """Cleanup resources"""
+        if hasattr(self.audio_system, 'cleanup'):
+            self.audio_system.cleanup()
+
+class SimpleAudioSystem:
+    """Simplified audio system for Jetson"""
+    def __init__(self):
+        self.last_announcement = 0
+        self.last_phrase = None
+        
+        # Spanish translations
+        self.spanish_names = {
+            'person': 'persona', 'car': 'coche', 'truck': 'camión',
+            'bus': 'autobús', 'bicycle': 'bicicleta'
+        }
+        
+        self.zone_names = {
+            'left': 'izquierda', 'center': 'centro', 'right': 'derecha'
+        }
+    
+    def process_detections(self, detections):
+        """Process detections and generate audio commands"""
+        current_time = time.time()
+        
+        if current_time - self.last_announcement < Config.AUDIO_COOLDOWN:
+            return
+        
+        if not detections:
+            return
+        
+        # Get highest priority detection
+        top_detection = max(detections, key=lambda x: x['priority'])
+        
+        if top_detection['priority'] >= 5.0:  # Threshold
+            message = self._generate_message(top_detection)
+            self._speak_async(message)
+            self.last_announcement = current_time
+            self.last_phrase = message
+    
+    def _generate_message(self, detection):
+        """Generate Spanish audio message"""
+        obj_name = self.spanish_names.get(detection['name'], detection['name'])
+        zone_name = self.zone_names.get(detection['zone'], detection['zone'])
+        
+        return f"{obj_name} a la {zone_name}"
+    
+    def _speak_async(self, message):
+        """Speak message using espeak"""
+        try:
+            import subprocess
+            subprocess.Popen(['espeak', '-v', 'es', '-s', str(Config.TTS_RATE), message], 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"[AUDIO] {message}")
+        except Exception as e:
+            print(f"[AUDIO] TTS error: {e}")
+    
+    def cleanup(self):
+        pass
+
+def build_navigation_system(enable_dashboard=False):
+    """Simple builder function"""
+    return SimpleCoordinator()
 
 
 class JetsonServer:
     """
-    Servidor Jetson que procesa frames del Mac usando pipeline existente
-    
-    Responsibilities:
-    - Recibir frames del Mac via socket
-    - Procesar usando Coordinator + Builder existentes
-    - Generar dashboard con overlays y detecciones
-    - Enviar dashboard procesado de vuelta al Mac
-    - Ejecutar comandos de audio localmente
+    Servidor Jetson que procesa frames del Mac usando pipeline simplificado
     """
     
     def __init__(self):
@@ -54,7 +211,7 @@ class JetsonServer:
         self.dashboard_client_socket = None
         self.running = False
         
-        # Processing pipeline (reutilizar arquitectura existente)
+        # Processing pipeline
         self.coordinator = None
         
         # Frame handling
@@ -70,20 +227,13 @@ class JetsonServer:
         print("[JETSON SERVER] Initialized - Ready for distributed processing")
     
     def setup_processing_pipeline(self) -> bool:
-        """Configurar pipeline de procesamiento usando Builder existente"""
+        """Configurar pipeline de procesamiento"""
         try:
             print("[JETSON SERVER] Setting up processing pipeline...")
             
-            # Usar Builder existente para crear pipeline completo
-            # No necesitamos dashboard interno porque generamos uno custom
             self.coordinator = build_navigation_system(enable_dashboard=False)
             
             print("[JETSON SERVER] ✅ Processing pipeline configured")
-            print(f"[JETSON SERVER] Components ready:")
-            print(f"  - YoloProcessor: {hasattr(self.coordinator, 'yolo_processor')}")
-            print(f"  - AudioSystem: {hasattr(self.coordinator, 'audio_system')}")
-            print(f"  - FrameRenderer: {hasattr(self.coordinator, 'frame_renderer')}")
-            
             return True
             
         except Exception as e:
@@ -192,7 +342,7 @@ class JetsonServer:
                     print("[JETSON SERVER] Received invalid frame message")
                     continue
                 
-                # Procesar frame usando pipeline existente
+                # Procesar frame
                 self._process_frame(frame_msg)
                 
                 self.frames_received += 1
@@ -200,34 +350,26 @@ class JetsonServer:
             except Exception as e:
                 print(f"[JETSON SERVER] Error in frame handler: {e}")
                 if self.running:
-                    time.sleep(0.1)  # Brief delay before retry
+                    time.sleep(0.1)
                 break
         
         print("[JETSON SERVER] Frame handler thread stopped")
     
     def _process_frame(self, frame_msg: FrameMessage) -> None:
-        """
-        Procesar frame usando pipeline existente y enviar resultado al Mac
-        
-        PUNTO CLAVE: Aquí reutilizamos tu Coordinator completo
-        """
+        """Procesar frame usando pipeline y enviar resultado al Mac"""
         processing_start = time.time()
         
         try:
-            # Procesar frame usando Coordinator existente
-            # Este es el MISMO proceso_frame de tu Observer original
+            # Procesar frame usando Coordinator
             annotated_frame = self.coordinator.process_frame(frame_msg.frame_data)
             
-            # Obtener detecciones del coordinator para dashboard
+            # Obtener detecciones
             detections = self.coordinator.current_detections
             
-            # Obtener comando de audio si existe
-            audio_command = None
-            if hasattr(self.coordinator.audio_system, 'last_phrase'):
-                if self.coordinator.audio_system.last_phrase:
-                    audio_command = self.coordinator.audio_system.last_phrase
+            # Obtener comando de audio
+            audio_command = getattr(self.coordinator.audio_system, 'last_phrase', None)
             
-            # Crear dashboard mejorado con información adicional
+            # Crear dashboard con información adicional
             dashboard_frame = self._create_dashboard_frame(
                 annotated_frame, detections, frame_msg
             )
@@ -258,12 +400,10 @@ class JetsonServer:
     def _create_dashboard_frame(self, annotated_frame: np.ndarray, 
                               detections: List[Dict], 
                               frame_msg: FrameMessage) -> np.ndarray:
-        """
-        Crear dashboard enriquecido con información del servidor
-        """
+        """Crear dashboard con información del servidor"""
         dashboard = annotated_frame.copy()
         
-        # Añadir información del servidor en la parte superior
+        # Añadir información del servidor
         info_y = 30
         line_height = 25
         
@@ -281,7 +421,7 @@ class JetsonServer:
             cv2.putText(dashboard, info, (10, info_y + i * line_height),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
         
-        # Añadir timestamp del frame original
+        # Añadir latency info
         if frame_msg.metadata and 'mac_timestamp' in frame_msg.metadata:
             mac_time = frame_msg.metadata['mac_timestamp']
             latency_ms = (time.time() - mac_time) * 1000
@@ -312,7 +452,7 @@ class JetsonServer:
     def _stats_thread(self) -> None:
         """Thread para mostrar estadísticas del servidor"""
         while self.running:
-            time.sleep(10)  # Stats cada 10 segundos
+            time.sleep(10)
             
             if self.running and self.processing_times:
                 avg_time = np.mean(self.processing_times) * 1000
@@ -391,20 +531,73 @@ class JetsonServer:
         # Cleanup coordinator
         if self.coordinator:
             try:
-                if hasattr(self.coordinator, 'cleanup'):
-                    self.coordinator.cleanup()
+                self.coordinator.cleanup()
             except Exception:
                 pass
         
         print("[JETSON SERVER] ✅ Stopped successfully")
 
 
+def test_components():
+    """Test de componentes básicos"""
+    print("🧪 Testing components...")
+    
+    results = {}
+    
+    # Test YOLO
+    try:
+        from ultralytics import YOLO
+        model = YOLO('yolo11n.pt')
+        print("✅ YOLO: Available")
+        results['yolo'] = True
+    except Exception as e:
+        print(f"❌ YOLO: {e}")
+        results['yolo'] = False
+    
+    # Test OpenCV
+    try:
+        import cv2
+        print(f"✅ OpenCV: {cv2.__version__}")
+        results['opencv'] = True
+    except Exception as e:
+        print(f"❌ OpenCV: {e}")
+        results['opencv'] = False
+    
+    # Test Audio
+    try:
+        import subprocess
+        subprocess.run(['espeak', '--version'], capture_output=True, timeout=5)
+        print("✅ Audio: espeak available")
+        results['audio'] = True
+    except Exception as e:
+        print(f"❌ Audio: {e}")
+        results['audio'] = False
+    
+    return results
+
+
 def main():
     """Función principal del servidor Jetson"""
     print("=" * 60)
     print("ARIA NAVIGATION - JETSON SERVER (Distributed Mode)")
-    print("Receives frames from Mac, processes with full pipeline")
+    print("Receives frames from Mac, processes with simplified pipeline")
     print("=" * 60)
+    
+    # Parse command line arguments
+    command = sys.argv[1] if len(sys.argv) > 1 else "run"
+    
+    if command == "test":
+        print("🧪 Running component tests...")
+        results = test_components()
+        
+        print("\n📊 Test Results:")
+        for component, result in results.items():
+            status = "✅" if result else "❌"
+            print(f"{status} {component}")
+        
+        all_passed = all(results.values())
+        print(f"\n{'✅ All tests passed!' if all_passed else '❌ Some tests failed'}")
+        return
     
     # Setup clean exit handler
     ctrl_handler = CtrlCHandler()

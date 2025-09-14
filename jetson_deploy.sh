@@ -1,240 +1,142 @@
 #!/bin/bash
-# =================================================================
-# JETSON DEPLOYMENT SCRIPT - TFM Navigation System
-# Migración híbrida: Componentes Core al Jetson Container
-# =================================================================
+# Jetson Deploy - Complete initial setup
 
-echo "🚀 JETSON DEPLOYMENT - TFM Navigation System"
-echo "🎯 Migración componentes Core desde Mac"
-echo "=========================================================="
-
-# =================================================================
-# CONFIGURATION
-# =================================================================
-PROJECT_DIR="$HOME/aria-navigation"
 JETSON_USER="jetson"
 JETSON_IP="192.168.8.204"
 CONTAINER_IMAGE="nvcr.io/nvidia/l4t-ml:r36.2.0-py3"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+echo "🚀 JETSON DEPLOY - Complete initial setup"
 
-echo -e "${BLUE}📁 Project Directory: $PROJECT_DIR${NC}"
-echo -e "${BLUE}🎯 Target Jetson: $JETSON_USER@$JETSON_IP${NC}"
-echo -e "${BLUE}🐳 Container: $CONTAINER_IMAGE${NC}"
-echo ""
-
-# =================================================================
-# FUNCTIONS
-# =================================================================
-
-check_connection() {
-    echo "🔍 Verificando conexión SSH..."
-    if ssh -o ConnectTimeout=5 $JETSON_USER@$JETSON_IP "echo 'SSH OK'" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ SSH connection: OK${NC}"
-        return 0
-    else
-        echo -e "${RED}❌ SSH connection: FAILED${NC}"
-        echo "💡 Verificar:"
-        echo "   - Jetson encendido y conectado a red"
-        echo "   - IP correcta: $JETSON_IP"
-        echo "   - SSH keys configuradas"
-        return 1
-    fi
-}
-
-check_docker_access() {
-    echo "🐳 Verificando acceso a Docker..."
-    if ssh $JETSON_USER@$JETSON_IP "docker --version" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Docker access: OK${NC}"
-        return 0
-    else
-        echo -e "${RED}❌ Docker access: FAILED${NC}"
-        echo "💡 En Jetson ejecutar: sudo usermod -aG docker $JETSON_USER"
-        return 1
-    fi
-}
-
-check_nvidia_runtime() {
-    echo "🎮 Verificando NVIDIA container runtime..."
-    if ssh $JETSON_USER@$JETSON_IP "docker run --rm --runtime nvidia hello-world" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ NVIDIA runtime: OK${NC}"
-        return 0
-    else
-        echo -e "${RED}❌ NVIDIA runtime: FAILED${NC}"
-        echo "💡 Verificar nvidia-container-runtime instalado"
-        return 1
-    fi
-}
-
-check_local_files() {
-    echo "📁 Verificando archivos locales..."
-    
-    if [ ! -f "src/communication/jetson_server.py" ]; then
-        echo -e "${RED}❌ jetson_server.py not found in src/communication/${NC}"
-        return 1
-    fi
-    
-    if [ ! -f "src/communication/protocols.py" ]; then
-        echo -e "${RED}❌ protocols.py not found in src/communication/${NC}"
-        return 1
-    fi
-    
-    echo -e "${GREEN}✅ Required files found${NC}"
-    return 0
-}
-
-setup_jetson_directory() {
-    echo "📂 Configurando directorio en Jetson..."
-    
-    if ssh $JETSON_USER@$JETSON_IP "mkdir -p ~/aria-navigation"; then
-        echo -e "${GREEN}✅ Jetson directory created${NC}"
-        return 0
-    else
-        echo -e "${RED}❌ Failed to create Jetson directory${NC}"
-        return 1
-    fi
-}
-
-copy_files_to_jetson() {
-    echo "📤 Copiando archivos al Jetson..."
-    
-    # Copy main files
-    if scp src/communication/jetson_server.py src/communication/protocols.py $JETSON_USER@$JETSON_IP:~/aria-navigation/; then
-        echo -e "${GREEN}✅ Core files copied${NC}"
-    else
-        echo -e "${RED}❌ Failed to copy core files${NC}"
-        return 1
-    fi
-    
-    # Copy helper script
-    if scp run_jetson_server.sh $JETSON_USER@$JETSON_IP:~/aria-navigation/; then
-        echo -e "${GREEN}✅ Helper script copied${NC}"
-        ssh $JETSON_USER@$JETSON_IP "chmod +x ~/aria-navigation/run_jetson_server.sh"
-    else
-        echo -e "${YELLOW}⚠️ Helper script copy failed (not critical)${NC}"
-    fi
-    
-    return 0
-}
-
-pull_container_image() {
-    echo "🐳 Descargando imagen del container..."
-    
-    if ssh $JETSON_USER@$JETSON_IP "docker pull $CONTAINER_IMAGE" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Container image ready${NC}"
-        return 0
-    else
-        echo -e "${YELLOW}⚠️ Container pull failed - will download on first run${NC}"
-        return 0  # Not critical, will download on first run
-    fi
-}
-
-test_deployment() {
-    echo "🧪 Testing deployment..."
-    
-    if ssh $JETSON_USER@$JETSON_IP "cd ~/aria-navigation && docker run --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 jetson_server.py test"; then
-        echo -e "${GREEN}✅ Deployment test PASSED${NC}"
-        return 0
-    else
-        echo -e "${RED}❌ Deployment test FAILED${NC}"
-        return 1
-    fi
-}
-
-print_usage_instructions() {
-    echo ""
-    echo -e "${YELLOW}🎯 DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
-    echo ""
-    echo "Next steps:"
-    echo ""
-    echo "1. Start Jetson server:"
-    echo "   ssh $JETSON_USER@$JETSON_IP"
-    echo "   cd ~/aria-navigation"
-    echo "   bash run_jetson_server.sh run"
-    echo ""
-    echo "2. Start Mac client (in another terminal):"
-    echo "   cd ~/aria-navigation-tfm"
-    echo "   python3 src/communication/mac_client.py"
-    echo ""
-    echo "3. Monitor system:"
-    echo "   - Jetson will show processing stats"
-    echo "   - Mac will display processed dashboard"
-    echo "   - Audio commands executed on Jetson"
-    echo ""
-}
-
-# =================================================================
-# MAIN DEPLOYMENT FLOW
-# =================================================================
-
-main() {
-    echo "Starting deployment process..."
-    echo ""
-    
-    # Pre-flight checks
-    if ! check_local_files; then
-        echo -e "${RED}❌ Local files missing - aborting${NC}"
-        exit 1
-    fi
-    
-    if ! check_connection; then
-        echo -e "${RED}❌ Cannot connect to Jetson - aborting${NC}"
-        exit 1
-    fi
-    
-    if ! check_docker_access; then
-        echo -e "${RED}❌ Docker not accessible - aborting${NC}"
-        exit 1
-    fi
-    
-    if ! check_nvidia_runtime; then
-        echo -e "${RED}❌ NVIDIA runtime not available - aborting${NC}"
-        exit 1
-    fi
-    
-    # Setup and deployment
-    if ! setup_jetson_directory; then
-        echo -e "${RED}❌ Directory setup failed - aborting${NC}"
-        exit 1
-    fi
-    
-    if ! copy_files_to_jetson; then
-        echo -e "${RED}❌ File copy failed - aborting${NC}"
-        exit 1
-    fi
-    
-    # Optional optimizations
-    pull_container_image
-    
-    # Final test
-    if ! test_deployment; then
-        echo -e "${RED}❌ Deployment test failed - check logs${NC}"
-        exit 1
-    fi
-    
-    # Success
-    print_usage_instructions
-}
-
-# =================================================================
-# SCRIPT EXECUTION
-# =================================================================
-
-# Check if we're in the right directory
-if [ ! -f "src/communication/jetson_server.py" ]; then
-    echo -e "${RED}❌ Run this script from aria-navigation-tfm project root${NC}"
-    echo "💡 Current directory: $(pwd)"
-    echo "💡 Expected: ~/aria-navigation-tfm"
+# Pre-checks
+echo "🔍 Checking SSH connection..."
+if ! ssh -o ConnectTimeout=5 $JETSON_USER@$JETSON_IP "echo 'OK'" > /dev/null 2>&1; then
+    echo "❌ SSH connection failed"
     exit 1
 fi
 
-# Run main deployment
-main
+echo "🐳 Checking Docker + NVIDIA runtime..."
+if ! ssh $JETSON_USER@$JETSON_IP "docker run --rm --runtime nvidia hello-world" > /dev/null 2>&1; then
+    echo "❌ NVIDIA runtime failed"  
+    exit 1
+fi
+
+# Setup directory
+echo "📂 Setting up Jetson directory..."
+ssh $JETSON_USER@$JETSON_IP "mkdir -p ~/aria-navigation"
+
+# Copy complete architecture
+echo "📤 Copying complete architecture..."
+scp -r src/ $JETSON_USER@$JETSON_IP:~/aria-navigation/
+
+echo "📄 Copying root files..."
+scp main.py $JETSON_USER@$JETSON_IP:~/aria-navigation/
+if [ -f "environment.yml" ]; then
+    scp environment.yml $JETSON_USER@$JETSON_IP:~/aria-navigation/
+fi
+
+# Create Jetson server using your architecture
+cat > temp_jetson_server.py << 'EOF'
+#!/usr/bin/env python3
+import sys
+import imagezmq
+import cv2
+from pathlib import Path
+
+sys.path.insert(0, '/workspace/src')
+
+from core.navigation.builder import build_navigation_system
+from utils.ctrl_handler import CtrlCHandler
+
+class JetsonProcessor:
+    def __init__(self):
+        self.coordinator = build_navigation_system(enable_dashboard=False)
+        self.image_hub = imagezmq.ImageHub(open_port="tcp://0.0.0.0:5555")
+        print("Jetson processor ready - using your complete architecture")
+    
+    def run(self):
+        ctrl_handler = CtrlCHandler()
+        while not ctrl_handler.should_stop:
+            try:
+                rpi_name, frame = self.image_hub.recv_image()
+                annotated_frame = self.coordinator.process_frame(frame)
+                self.image_hub.send_reply(b'OK')
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+
+if __name__ == "__main__":
+    processor = JetsonProcessor()
+    processor.run()
+EOF
+
+scp temp_jetson_server.py $JETSON_USER@$JETSON_IP:~/aria-navigation/jetson_server.py
+rm temp_jetson_server.py
+
+# Create Mac sender
+cat > mac_sender.py << 'EOF'
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / 'src'))
+
+import cv2
+import imagezmq
+from core.hardware.device_manager import DeviceManager
+from utils.ctrl_handler import CtrlCHandler
+
+class MacSender:
+    def __init__(self):
+        self.sender = imagezmq.ImageSender(connect_to="tcp://192.168.8.204:5555")
+        self.device_manager = DeviceManager()
+    
+    def on_image_received(self, image, record):
+        if record.camera_id.name == "RGB":
+            rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            try:
+                reply = self.sender.send_image("mac", rotated)
+            except Exception as e:
+                print(f"Send error: {e}")
+    
+    def start(self):
+        self.device_manager.connect()
+        self.device_manager.start_streaming()
+        self.device_manager.register_observer(self)
+        self.device_manager.subscribe()
+        
+        ctrl_handler = CtrlCHandler()
+        while not ctrl_handler.should_stop:
+            pass
+        
+        self.device_manager.cleanup()
+
+if __name__ == "__main__":
+    sender = MacSender()
+    sender.start()
+EOF
+
+# Pull container image
+echo "🐳 Pulling container image..."
+ssh $JETSON_USER@$JETSON_IP "docker pull $CONTAINER_IMAGE" > /dev/null 2>&1
+
+# Install dependencies in container
+echo "📦 Installing dependencies..."
+ssh $JETSON_USER@$JETSON_IP "cd ~/aria-navigation && docker run --rm -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE bash -c 'pip install ultralytics imagezmq pyttsx3'"
+
+# Test imports
+echo "🧪 Testing architecture imports..."
+if ssh $JETSON_USER@$JETSON_IP "cd ~/aria-navigation && docker run --rm -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 -c 'import sys; sys.path.insert(0, \"/workspace/src\"); from core.navigation.builder import build_navigation_system; print(\"✅ Architecture OK\")'"; then
+    echo "✅ Setup completed successfully!"
+else
+    echo "❌ Architecture test failed"
+    exit 1
+fi
 
 echo ""
-echo -e "${GREEN}🎉 JETSON DEPLOYMENT COMPLETE!${NC}"
+echo "Next steps:"
+echo "1. Jetson: ssh $JETSON_USER@$JETSON_IP"
+echo "   cd ~/aria-navigation"
+echo "   docker run --rm --runtime nvidia --network host -v \$(pwd):/workspace -w /workspace $CONTAINER_IMAGE python3 jetson_server.py"
+echo ""
+echo "2. Mac: python3 mac_sender.py"
