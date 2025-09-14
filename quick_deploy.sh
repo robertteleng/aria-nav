@@ -6,7 +6,7 @@
 
 # Configuration
 JETSON_IP="${JETSON_IP:-192.168.8.204}"
-JETSON_USER="${JETSON_USER:-aria}"
+JETSON_USER="${JETSON_USER:-jetson}"
 JETSON_PATH="~/jetson-aria"
 LOCAL_SRC="./src"
 
@@ -42,14 +42,14 @@ ssh ${JETSON_USER}@${JETSON_IP} "
     cd ${JETSON_PATH}
     
     # Kill proceso anterior si existe
-    pkill -f 'python3 jetson_server.py' || echo 'No proceso anterior'
+    pkill -f 'python jetson_server.py' || echo 'No proceso anterior'
     
     # Wait a moment
     sleep 1
     
-    # Test que el código funciona
-    python3 jetson_server.py test && echo '✅ Quick deploy OK' || echo '❌ Deploy failed'
+    # Test que el código funciona (dentro del container)
+    docker run -it --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace nvcr.io/nvidia/l4t-ml:r36.2.0-py3 python jetson_server.py test && echo '✅ Quick deploy OK' || echo '❌ Deploy failed'
 "
 
 echo "⚡ QUICK DEPLOY COMPLETADO"
-echo "💡 Para restart manual: ssh ${JETSON_USER}@${JETSON_IP} 'cd ${JETSON_PATH} && python3 jetson_server.py'"
+echo "💡 Para restart manual: ssh ${JETSON_USER}@${JETSON_IP} 'cd ${JETSON_PATH} && docker run -it --rm --runtime nvidia -v \$(pwd):/workspace -w /workspace nvcr.io/nvidia/l4t-ml:r36.2.0-py3 python jetson_server.py'"
