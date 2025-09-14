@@ -1,15 +1,54 @@
+# ============================
+# Python
+# ============================
 __pycache__/
-docs/
 *.pyc
 *.pyo
+*.pyd
+*.pyd
+*.egg-info/
 .Python
+
+# ============================
+# Entornos virtuales
+# ============================
 .venv/
 venv/
 .conda/
-.DS_Store
+
+# ============================
+# IDEs & Editors
+# ============================
 .vscode/
+.idea/
+
+# ============================
+# macOS / SO
+# ============================
+.DS_Store
+
+# ============================
+# Logs & Outputs
+# ============================
 *.log
-*.bag
-*.vrs
+logs/
+
+# ============================
+# 🔹 Data pesada (capturas/datasets)
+# ============================
+*.bag      # rosbag recordings
+*.vrs      # Meta Aria recordings
+*.xml      # anotaciones / configuraciones exportadas
+
+# ============================
+# Modelos entrenados
+# ============================
 *.pt
-*.xml
+
+# ============================
+# Documentación (mantén solo lo necesario)
+# ============================
+# Si quieres versionar diagramas .puml y markdown, comenta esta línea:
+# docs/
+docs/generated/
+docs/tmp/

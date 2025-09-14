@@ -1,0 +1,89 @@
+@startuml Performance_Monitoring_Flow
+!theme plain
+title Flujo de Monitoreo de Performance
+
+participant "Mac Monitoring" as mac_mon
+participant "Network Monitor" as net_mon  
+participant "Jetson Monitor" as jetson_mon
+participant "GPU Monitor" as gpu_mon
+participant "Dashboard" as dashboard
+
+== Continuous Monitoring ==
+
+loop Every 1 second
+    
+    par Mac Metrics
+        mac_mon -> mac_mon: Measure capture FPS
+        mac_mon -> mac_mon: Track ImageZMQ latency
+        mac_mon -> mac_mon: Monitor display FPS
+        mac_mon -> dashboard: Mac stats
+    end
+    
+    par Network Metrics  
+        net_mon -> net_mon: Measure frame transfer rate
+        net_mon -> net_mon: Track packet loss
+        net_mon -> net_mon: Monitor bandwidth usage
+        net_mon -> dashboard: Network stats
+    end
+    
+    par Jetson System Metrics
+        jetson_mon -> jetson_mon: CPU usage %
+        jetson_mon -> jetson_mon: Memory usage %
+        jetson_mon -> jetson_mon: Disk I/O
+        jetson_mon -> jetson_mon: Temperature
+        jetson_mon -> dashboard: System stats
+    end
+    
+    par GPU Metrics
+        gpu_mon -> gpu_mon: GPU utilization %
+        gpu_mon -> gpu_mon: VRAM usage
+        gpu_mon -> gpu_mon: GPU temperature
+        gpu_mon -> gpu_mon: CUDA core usage
+        gpu_mon -> dashboard: GPU stats
+    end
+    
+end
+
+== Performance Analysis ==
+
+dashboard -> dashboard: Calculate end-to-end latency
+note right: Aria capture → Jetson processing → Mac display
+
+dashboard -> dashboard: Identify bottlenecks
+note right: CPU, GPU, Network, or I/O bound?
+
+dashboard -> dashboard: Generate optimization suggestions
+note right: Buffer sizes, FPS limits, compression settings
+
+== Alerting ==
+
+alt Performance degradation detected
+    dashboard -> mac_mon: Performance alert
+    dashboard -> jetson_mon: Performance alert
+    
+    note over dashboard
+        **Typical alerts:**
+        • FPS below threshold (< 20 FPS)
+        • High latency (> 200ms)  
+        • GPU overheating (> 80°C)
+        • Network packet loss (> 1%)
+        • Memory usage (> 80%)
+    end note
+end
+
+== Logging & Reporting ==
+
+dashboard -> dashboard: Log performance metrics
+dashboard -> dashboard: Generate hourly reports
+dashboard -> dashboard: Trend analysis
+
+note right of dashboard
+    **Key Performance Indicators:**
+    • End-to-end latency: < 100ms target
+    • Processing FPS: 25-30 FPS target
+    • GPU utilization: 60-80% optimal
+    • Network throughput: 50-100 Mbps
+    • System temperature: < 70°C
+end note
+
+@enduml

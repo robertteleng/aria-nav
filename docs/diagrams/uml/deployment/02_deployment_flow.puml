@@ -1,0 +1,91 @@
+@startuml Deployment_Process_Flow
+!theme plain
+title Flujo de Proceso - Deployment y Ejecución
+
+actor Developer as dev
+participant "Mac Terminal" as mac_term
+participant "jetson_deploy.sh" as deploy_script
+participant "Jetson SSH" as jetson_ssh
+participant "Mac Sender" as mac_sender
+participant "Jetson Server" as jetson_server
+participant "ImageZMQ Network" as network
+participant "GPU Processing" as gpu
+participant "Mac Display" as display
+
+== Setup Phase ==
+dev -> mac_term : Edit code in src/
+mac_term -> mac_term : code src/core/vision/yolo_processor.py
+
+dev -> deploy_script : ./jetson_deploy.sh
+activate deploy_script
+
+deploy_script -> deploy_script : Verify network connectivity
+deploy_script -> jetson_ssh : ping 192.168.8.204
+jetson_ssh -> deploy_script : Connection OK
+
+deploy_script -> deploy_script : Create remote directory structure
+deploy_script -> jetson_ssh : mkdir -p ~/jetson-aria/{src,logs,config}
+
+deploy_script -> deploy_script : Sync code with rsync
+deploy_script -> jetson_ssh : rsync -avz --delete src/ jetson-aria/src/
+jetson_ssh -> deploy_script : Files synchronized
+
+deploy_script -> deploy_script : Generate jetson_server.py
+deploy_script -> jetson_ssh : scp jetson_server.py jetson-aria/
+
+deploy_script -> jetson_ssh : python3 -c "import test dependencies"
+jetson_ssh -> deploy_script : Dependencies verified
+
+deploy_script -> mac_term : ✅ Deployment completed
+deactivate deploy_script
+
+== Execution Phase ==
+dev -> jetson_ssh : ssh aria@192.168.8.204
+dev -> jetson_server : python3 jetson_server.py
+activate jetson_server
+
+jetson_server -> jetson_server : Initialize GPU components
+jetson_server -> jetson_server : Start ImageZMQ receiver (port 5555)
+jetson_server -> jetson_server : Start ImageZMQ sender (port 5556)
+jetson_server -> network : Ready to receive frames
+
+dev -> mac_sender : python3 mac_sender.py
+activate mac_sender
+
+mac_sender -> mac_sender : Initialize Aria SDK
+mac_sender -> mac_sender : Start ImageZMQ bridge
+mac_sender -> network : Connect to Jetson
+
+== Processing Loop ==
+loop Every frame (30 FPS)
+    mac_sender -> mac_sender : Capture RGB from Aria
+    mac_sender -> network : Send frame to Jetson
+    network -> jetson_server : Receive frame
+    
+    jetson_server -> gpu : Process with YOLO + Audio
+    activate gpu
+    gpu -> gpu : CUDA inference
+    gpu -> gpu : Generate audio commands
+    gpu -> gpu : Annotate frame
+    gpu -> jetson_server : Return processed result
+    deactivate gpu
+    
+    jetson_server -> network : Send result to Mac
+    network -> mac_sender : Receive processed frame
+    mac_sender -> display : Display annotated result
+    display -> dev : Visual feedback
+end
+
+== Shutdown ==
+dev -> mac_sender : Ctrl+C or 'q'
+mac_sender -> network : Close connection
+mac_sender -> display : Cleanup display
+deactivate mac_sender
+
+dev -> jetson_server : Ctrl+C
+jetson_server -> network : Close server
+jetson_server -> jetson_server : Cleanup resources
+deactivate jetson_server
+
+@enduml
+

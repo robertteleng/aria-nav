@@ -1,0 +1,63 @@
+@startuml Network_Communication_Protocol
+!theme plain
+title Protocolo de Comunicación Red - ImageZMQ
+
+package "Mac Master (192.168.8.229)" {
+    component [Aria SDK] as aria
+    component [Mac Sender Bridge] as mac_bridge
+    component [Display Manager] as display
+    
+    aria -> mac_bridge: RGB frames
+    mac_bridge -> display: Processed results
+}
+
+package "Network Layer" {
+    cloud "ImageZMQ Protocol" as zmq_protocol {
+        [TCP Socket 5555] as tcp_5555
+        [TCP Socket 5556] as tcp_5556
+        [TCP Socket 5557] as tcp_5557
+    }
+    
+    note right of zmq_protocol
+        **Port Assignment:**
+        5555: Mac → Jetson (frames)
+        5556: Jetson → Mac (results)  
+        5557: Mac receiver bind
+        
+        **Data Format:**
+        - Frame: BGR numpy array
+        - Metadata: JSON serialized
+        - Compression: Optional JPEG
+    end note
+}
+
+package "Jetson Worker (192.168.8.204)" {
+    component [ImageZMQ Server] as jetson_server
+    component [YOLO Processor] as yolo
+    component [Audio Generator] as audio_gen
+    
+    jetson_server -> yolo: Frame data
+    jetson_server -> audio_gen: Detections
+    yolo -> jetson_server: Annotated frame
+    audio_gen -> jetson_server: Commands
+}
+
+' Network connections
+mac_bridge --> tcp_5555: Send frames
+tcp_5555 --> jetson_server: Receive frames
+
+jetson_server --> tcp_5556: Send results  
+tcp_5556 --> mac_bridge: Receive results
+
+' Deployment connection
+package "Deployment Channel" {
+    [SSH Connection] as ssh
+    [rsync Protocol] as rsync
+    
+    ssh -> rsync: File transfer
+}
+
+mac_bridge -.-> ssh: jetson_deploy.sh
+ssh -.-> jetson_server: Code synchronization
+
+@enduml

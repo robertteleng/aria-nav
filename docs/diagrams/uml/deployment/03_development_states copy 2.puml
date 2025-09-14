@@ -1,0 +1,93 @@
+@startuml Development_Workflow_States
+!theme plain
+title Estados del Workflow de Desarrollo
+
+state "Mac Development" as mac_dev {
+    state "Edit Code" as edit : src/core/\nsrc/utils/\nsrc/presentation/
+    state "Local Test" as local_test : python main.py\n(optional)
+    state "Ready to Deploy" as ready
+    
+    [*] --> edit
+    edit --> local_test
+    edit --> ready
+    local_test --> ready
+}
+
+state "Deployment Process" as deploy_process {
+    state "Quick Deploy" as quick : ./quick_deploy.sh\n(changed files only)
+    state "Full Deploy" as full : ./jetson_deploy.sh\n(complete sync)
+    state "Verify Sync" as verify : SSH test components
+    
+    ready --> quick : minor changes
+    ready --> full : major changes\nnew files
+    quick --> verify
+    full --> verify
+}
+
+state "Jetson Execution" as jetson_exec {
+    state "Start Server" as start_server : python3 jetson_server.py
+    state "Ready for Frames" as ready_frames : ImageZMQ listening
+    state "Processing" as processing : GPU + CUDA active
+    state "Error Recovery" as error_recovery : Restart if needed
+    
+    verify --> start_server
+    start_server --> ready_frames
+    ready_frames --> processing
+    processing --> processing : continuous loop
+    processing --> error_recovery : on error
+    error_recovery --> start_server
+}
+
+state "Mac Bridge" as mac_bridge {
+    state "Start Bridge" as start_bridge : python3 mac_sender.py
+    state "Aria Capture" as aria_capture : SDK streaming
+    state "Send to Jetson" as send_frames : ImageZMQ sender
+    state "Display Results" as display_results : OpenCV display
+    
+    ready_frames --> start_bridge
+    start_bridge --> aria_capture
+    aria_capture --> send_frames
+    send_frames --> display_results
+    display_results --> send_frames : continuous
+}
+
+state "Production Mode" as production {
+    state "Monitoring" as monitoring : GPU usage\nFPS tracking\nError logging
+    state "Performance Tuning" as tuning : Buffer sizes\nFPS limits\nLatency optimization
+    
+    display_results --> monitoring
+    monitoring --> tuning
+    tuning --> monitoring
+}
+
+' Transitions between main states
+mac_dev --> deploy_process
+deploy_process --> jetson_exec
+jetson_exec --> mac_bridge
+mac_bridge --> production
+
+' Feedback loops
+production --> mac_dev : code improvements
+error_recovery --> mac_dev : bug fixes needed
+
+note right of mac_dev
+**Single Source Development**
+All code changes happen here
+No development on Jetson
+end note
+
+note bottom of deploy_process
+**Automated Synchronization**
+- Intelligent file sync
+- Dependency verification
+- Remote setup automation
+end note
+
+note left of production
+**Distributed Processing**
+Mac: UI + Display
+Jetson: GPU + Processing
+Network: ImageZMQ bridge
+end note
+
+@enduml

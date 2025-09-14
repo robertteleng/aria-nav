@@ -1,0 +1,104 @@
+@startuml File_Structure_Deployment
+allowmixing
+
+title Estructura de Archivos - Deployment
+
+skinparam package<<synced>> {
+  BackgroundColor LightGray
+}
+
+package "Mac Master: ~/aria-navigation-tfm/" {
+    package "src" as mac_src {
+        package "core" as mac_core {
+            class "observer.py"
+            package "vision" {
+                class "yolo_processor.py"
+                class "image_enhancer.py"
+                class "depth_estimator.py"
+            }
+            package "audio" {
+                class "audio_system.py"
+            }
+            package "navigation" {
+                class "coordinator.py"
+                class "builder.py"
+            }
+        }
+        package "utils" {
+            class "config.py"
+            class "ctrl_handler.py"
+        }
+        package "presentation" {
+            package "dashboards" {}
+            package "renderers" {}
+        }
+    }
+
+    class "main.py" #LightGreen
+    class "jetson_deploy.sh" #Orange
+    class "quick_deploy.sh" #Orange
+    class "mac_sender.py" #LightBlue
+}
+
+package "Jetson Worker: ~/jetson-aria/" {
+    package "src" as jetson_src {
+        package "core" as jetson_core <<synced>> {
+            class "observer.py"
+            note right of "observer.py"
+              Copied from Mac
+              via rsync
+            end note
+        }
+        package "utils" <<synced>>
+        package "presentation" <<synced>>
+    }
+
+    class "jetson_server.py" #Yellow
+    class "requirements.txt"
+    package "logs" {
+        class "jetson_worker.log"
+        class "performance.log"
+    }
+    package "models" {
+        class "yolo11n.pt"
+    }
+}
+
+package "Network Sync" {
+    component "rsync Process" as rsync_proc
+    component "SSH Channel" as ssh_channel
+}
+
+mac_src --> rsync_proc : Source files
+rsync_proc --> jetson_src : Synchronized copy
+mac_src -.-> ssh_channel : Deploy script execution
+
+class jetson_deploy_sh as "jetson_deploy.sh" #Orange
+class requirements as "requirements.txt"
+jetson_deploy_sh ..> "jetson_server.py" : Auto-generates
+jetson_deploy_sh ..> requirements : Auto-generates
+
+legend right
+    |= Color |= Meaning |
+    | <#LightGreen> | Mac entry point |
+    | <#Orange> | Deployment scripts |
+    | <#LightBlue> | Bridge components |
+    | <#Yellow> | Auto-generated |
+    | LightGray | Synchronized from Mac |
+endlegend
+
+note top of mac_src
+**Development Source**
+All development happens here
+Single source of truth
+Version controlled with Git
+end note
+
+note bottom of jetson_src
+**Execution Target**
+Read-only deployment target
+Auto-synchronized from Mac
+No direct editing
+end note
+
+@enduml

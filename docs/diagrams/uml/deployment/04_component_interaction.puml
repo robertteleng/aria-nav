@@ -1,0 +1,137 @@
+@startuml Component_Interaction_Detailed
+!theme plain
+title Interacciones Detalladas de Componentes
+
+participant "Mac Developer" as dev
+participant "jetson_deploy.sh" as deploy
+participant "Mac: mac_sender.py" as mac_sender
+participant "Network: ImageZMQ" as network
+participant "Jetson: jetson_server.py" as jetson_server
+participant "Jetson: Vision Processor" as vision
+participant "Jetson: Audio Processor" as audio
+participant "Mac: Display Manager" as display
+
+== Deployment Phase ==
+dev -> deploy: Execute deployment
+activate deploy
+
+deploy -> deploy: 1. Verify Jetson connectivity
+note right: ping + SSH test
+
+deploy -> deploy: 2. Sync codebase
+note right: rsync src/ to ~/jetson-aria/
+
+deploy -> deploy: 3. Generate jetson_server.py
+note right: Auto-generate from template
+
+deploy -> deploy: 4. Verify dependencies
+note right: Test imports remotely
+
+deploy -> dev: Deployment completed ✅
+deactivate deploy
+
+== Runtime Initialization ==
+dev -> jetson_server: Start Jetson worker
+activate jetson_server
+
+jetson_server -> vision: Initialize YOLO + CUDA
+activate vision
+vision -> jetson_server: GPU ready 🎮
+deactivate vision
+
+jetson_server -> audio: Initialize TTS system  
+activate audio
+audio -> jetson_server: Audio ready 🔊
+deactivate audio
+
+jetson_server -> network: Start ImageZMQ server (port 5555)
+jetson_server -> network: Start ImageZMQ client (port 5556)
+
+dev -> mac_sender: Start Mac bridge
+activate mac_sender
+
+mac_sender -> mac_sender: Initialize Aria SDK
+mac_sender -> network: Connect to Jetson ImageZMQ
+
+== Processing Loop ==
+loop Continuous Processing (30 FPS)
+    
+    mac_sender -> mac_sender: Capture Aria RGB frame
+    note right: on_image_received callback
+    
+    mac_sender -> network: Send frame to Jetson
+    note over network: TCP socket\nCompressed frame data
+    
+    network -> jetson_server: Frame received
+    jetson_server -> vision: Process frame
+    activate vision
+    
+    vision -> vision: YOLO inference (GPU)
+    vision -> vision: Object detection + filtering
+    vision -> vision: Spatial zone analysis
+    vision -> vision: Distance estimation
+    vision -> jetson_server: Detections + annotated frame
+    deactivate vision
+    
+    jetson_server -> audio: Process detections
+    activate audio
+    audio -> audio: Generate Spanish commands
+    audio -> audio: Apply cooldown logic
+    audio -> jetson_server: Audio command (optional)
+    deactivate audio
+    
+    jetson_server -> network: Send processed result
+    note over network: Annotated frame +\nmetadata
+    
+    network -> mac_sender: Receive result
+    mac_sender -> display: Display processed frame
+    activate display
+    display -> display: Draw overlay info
+    display -> dev: Visual feedback 👁️
+    deactivate display
+    
+    alt Audio command generated
+        jetson_server -> jetson_server: Execute TTS
+        note right: pyttsx3 or espeak fallback
+    end
+    
+end
+
+== Error Handling ==
+alt Connection lost
+    network -> mac_sender: Connection timeout
+    mac_sender -> mac_sender: Attempt reconnection
+    mac_sender -> network: Retry connection
+    
+    network -> jetson_server: No frames received
+    jetson_server -> jetson_server: Log warning + wait
+end
+
+alt Processing error
+    vision -> jetson_server: Processing failed ❌
+    jetson_server -> network: Send original frame
+    note right: Graceful degradation
+end
+
+== Shutdown ==
+dev -> mac_sender: Stop (Ctrl+C or 'q')
+mac_sender -> network: Close connections
+mac_sender -> display: Cleanup windows
+deactivate mac_sender
+
+dev -> jetson_server: Stop (Ctrl+C)
+jetson_server -> vision: Cleanup GPU resources
+jetson_server -> audio: Stop audio threads
+jetson_server -> network: Close server
+deactivate jetson_server
+
+note over dev, display
+**Key Innovations:**
+✅ Single codebase development (Mac)
+✅ Automatic code synchronization  
+✅ Distributed processing (Mac UI + Jetson GPU)
+✅ Bidirectional ImageZMQ communication
+✅ Robust error handling & recovery
+end note
+
+@enduml

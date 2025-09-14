@@ -1,0 +1,128 @@
+
+@startuml Deployment_Architecture_Overview
+!theme plain
+title Arquitectura de Deployment - Mac-Jetson Clean Architecture
+
+!define RECT class
+
+package "Mac Master Environment" as mac_env {
+    RECT MacDevelopment {
+        +src/core/
+        +src/utils/
+        +src/presentation/
+        +main.py
+        +jetson_deploy.sh
+        +mac_sender.py
+        --
+        +edit_code()
+        +run_tests()
+        +deploy_to_jetson()
+    }
+    
+    RECT AriaSDKInterface {
+        +device_manager.py
+        +observer.py  
+        +hardware abstraction
+        --
+        +capture_rgb_frames()
+        +handle_streaming()
+    }
+    
+    RECT ImageZMQBridge {
+        +mac_sender_bridge.py
+        +bidirectional communication
+        --
+        +send_frames_to_jetson()
+        +receive_processed_results()
+        +display_output()
+    }
+}
+
+package "Jetson Worker Environment" as jetson_env {
+    RECT JetsonWorker {
+        +jetson_server.py
+        +synced src/ (from Mac)
+        +logs/
+        +models/
+        --
+        +receive_mac_code()
+        +execute_processing()
+        +return_results()
+    }
+    
+    RECT GPUProcessing {
+        +jetson_components_migration.py
+        +CUDA acceleration
+        +YOLO processing
+        --
+        +yolo_gpu_inference()
+        +audio_generation()
+        +frame_annotation()
+    }
+    
+    RECT ImageZMQServer {
+        +receive frames from Mac
+        +send processed results
+        --
+        +handle_frame_pipeline()
+        +manage_communication()
+    }
+}
+
+package "Network Layer" as network {
+    RECT ImageZMQProtocol {
+        +TCP sockets
+        +Frame streaming
+        +Bidirectional
+        --
+        +port 5555: Mac → Jetson
+        +port 5556: Jetson → Mac
+    }
+    
+    RECT DeploymentSync {
+        +SSH connection
+        +rsync protocol
+        +automatic sync
+        --
+        +jetson_deploy.sh
+        +quick_deploy.sh
+    }
+}
+
+' Relationships
+MacDevelopment --> DeploymentSync : "./jetson_deploy.sh"
+DeploymentSync --> JetsonWorker : "rsync src/"
+AriaSDKInterface --> ImageZMQBridge : "RGB frames"
+ImageZMQBridge --> ImageZMQProtocol : "TCP/IP"
+ImageZMQProtocol --> ImageZMQServer : "frame data"
+ImageZMQServer --> GPUProcessing : "process frame"
+GPUProcessing --> ImageZMQServer : "annotated result"
+ImageZMQServer --> ImageZMQProtocol : "result data"
+ImageZMQProtocol --> ImageZMQBridge : "processed frame"
+ImageZMQBridge --> AriaSDKInterface : "display result"
+
+note top of mac_env
+**Mac = Master**
+- Single source of truth
+- Development environment
+- Aria SDK interface
+- Display results
+end note
+
+note bottom of jetson_env
+**Jetson = Worker**
+- Executes Mac code
+- GPU processing
+- No direct development
+- Returns processed results
+end note
+
+note right of network
+**Clean Separation**
+- Code sync via SSH/rsync
+- Data flow via ImageZMQ
+- No dual development
+end note
+
+@enduml
+
