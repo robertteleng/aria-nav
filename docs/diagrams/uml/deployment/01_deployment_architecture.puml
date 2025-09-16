@@ -1,4 +1,3 @@
-
 @startuml Deployment_Architecture_Overview
 !theme plain
 title Arquitectura de Deployment - Mac-Jetson Clean Architecture
