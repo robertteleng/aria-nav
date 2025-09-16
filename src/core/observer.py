@@ -8,7 +8,6 @@ from typing import Sequence
 
 from presentation.renderers.frame_renderer import FrameRenderer
 from presentation.dashboards.opencv_dashboard import OpenCVDashboard
-from core.vision.image_enhancer import ImageEnhancer
 from core.vision.depth_estimator import DepthEstimator
 from core.navigation.builder import build_navigation_system
 from utils.config import Config
@@ -206,9 +205,9 @@ class Observer:
                         )
                         self.dashboard.log_rgb_frame(rgb_with_overlay)
                         self.dashboard.log_detections(rgb_detections, processed_frames['rgb'].shape)
-                    
-                    # SLAM frames cada 5 frames (menos críticos)
-                    if frame_counter % 5 == 0:
+
+                    # SLAM frames cada 3 frames (menos críticos)
+                    if frame_counter % 3 == 0:
                         if 'slam1' in processed_frames:
                             self.dashboard.log_slam1_frame(processed_frames['slam1'])
                         if 'slam2' in processed_frames:

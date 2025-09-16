@@ -84,10 +84,19 @@ class Coordinator:
             np.ndarray: Frame procesado con anotaciones
         """
         self.frames_processed += 1
-        
+
+        # 0. Optional low-light enhancement
+        processed_frame = frame
+        if self.image_enhancer is not None:
+            try:
+                processed_frame = self.image_enhancer.enhance_frame(frame)
+            except Exception as err:
+                print(f"[WARN] Image enhancement skipped: {err}")
+                processed_frame = frame
+
         # 1. YOLO Detection
-        detections = self.yolo_processor.process_frame(frame)
-        annotated_frame = frame
+        detections = self.yolo_processor.process_frame(processed_frame)
+        annotated_frame = processed_frame
         
         # 2. Navigation Analysis
         navigation_objects = self._analyze_navigation_objects(detections)

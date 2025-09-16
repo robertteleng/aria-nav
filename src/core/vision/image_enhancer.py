@@ -11,12 +11,10 @@ class ImageEnhancer:
     
     def __init__(self):
         self.clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        print("[INFO] ✓ ImageEnhancer initialized")
-
         self.auto_enhancement = Config.AUTO_ENHANCEMENT
         self.low_light_threshold = Config.LOW_LIGHT_THRESHOLD
         self.frame_count = 0
-    
+        
         print("[INFO] ✓ ImageEnhancer initialized")
         print(f"[INFO]   - Auto detection: {self.auto_enhancement}")
         print(f"[INFO]   - Threshold: {self.low_light_threshold}")
