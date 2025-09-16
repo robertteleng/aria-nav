@@ -11,6 +11,7 @@ from presentation.dashboards.opencv_dashboard import OpenCVDashboard
 from core.vision.image_enhancer import ImageEnhancer
 from core.vision.depth_estimator import DepthEstimator
 from core.navigation.builder import build_navigation_system
+from utils.config import Config
 
 
 class Observer:
@@ -27,6 +28,7 @@ class Observer:
         
         # Dashboard integration
         self.dashboard = OpenCVDashboard() if enable_dashboard else None
+        self._dashboard_external_update = enable_dashboard
 
         if self.dashboard:
             self.dashboard.log_system_message("Sistema iniciado - Observer multicámara activo", "SYSTEM")
@@ -107,6 +109,13 @@ class Observer:
         """Process RGB camera image (center view)"""
         # Rotar de forma eficiente; mantener BGR (Ultralytics acepta BGR)
         rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+
+        # Aria entrega imágenes en RGB; convertir a BGR para OpenCV/YOLO
+        if len(rotated.shape) == 3 and rotated.shape[2] == 3:
+            color_space = getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'RGB')
+            if color_space.upper() == 'RGB':
+                rotated = cv2.cvtColor(rotated, cv2.COLOR_RGB2BGR)
+
         return rotated
     
     def _process_slam_image(self, image: np.array) -> np.array:
@@ -208,22 +217,24 @@ class Observer:
                 # Depth estimation (only on RGB) - se ejecuta solo si está habilitado en Config
                 depth_map = None
                 if 'rgb' in frames and self.depth_estimator.model is not None:
-                    print("[DEBUG] 🎯 Running depth estimation...")
                     if not hasattr(self, 'depth_frame_skip'):
-                        self.depth_frame_skip = 10
+                        configured_skip = getattr(Config, 'DEPTH_FRAME_SKIP', 1)
+                        self.depth_frame_skip = max(1, int(configured_skip))
                         self.cached_depth_map = None
-                    
-                    if self.frame_counts['rgb'] % self.depth_frame_skip == 0:
+
+                    should_refresh = self.frame_counts['rgb'] % self.depth_frame_skip == 0
+
+                    if should_refresh:
                         depth_map = self.depth_estimator.estimate_depth(processed_frames['rgb'])
-                        print(f"[DEBUG] 📊 Depth map: {depth_map.shape if depth_map is not None else 'None'}")  # AÑADIR
                         self.cached_depth_map = depth_map
                         self.current_depth_map = depth_map
-                        # Enviar depth al dashboard cada 10 frames
-                        if self.dashboard and frame_counter % 10 == 0:
-                            print("[DEBUG] 📺 Sending depth to dashboard...")
-                            self.dashboard.log_depth_map(depth_map)
                     else:
-                        depth_map = self.cached_depth_map
+                        depth_map = getattr(self, 'cached_depth_map', None)
+
+                    if depth_map is not None:
+                        self.current_depth_map = depth_map
+                        if self.dashboard:
+                            self.dashboard.log_depth_map(depth_map)
 
                 
 
@@ -237,8 +248,8 @@ class Observer:
                 # Store final result
                 self.current_frame = annotated_frame
                 
-                # Dashboard update optimizado - cada 3 frames
-                if self.dashboard and frame_counter % 3 == 0:
+                # Dashboard update optimizado - cada 3 frames (solo si se maneja aquí)
+                if self.dashboard and not self._dashboard_external_update and frame_counter % 3 == 0:
                     key = self.dashboard.update_all()
                     if key == ord('q'):
                         print("[INFO] 'q' pressed - stopping system")

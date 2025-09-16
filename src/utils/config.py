@@ -32,12 +32,16 @@ class Config:
     CONSISTENCY_THRESHOLD = 2
     DEBUG_FRAME_INTERVAL = 100
 
+    # Camera input (Aria RGB camera delivers RGB ordering)
+    RGB_CAMERA_COLOR_SPACE = "RGB"  # "RGB" or "BGR"
+
     # MiDaS depth estimation
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
     MIDAS_DEVICE = "cpu"         # Evitar problemas MPS
     DEPTH_ENABLED = True        # DESACTIVADO por rendimiento (CPU-only)
+    DEPTH_FRAME_SKIP = 1        # Profundidad: 1=tiempo real, subir valor para reducir carga
     
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
