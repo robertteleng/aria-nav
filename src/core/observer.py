@@ -6,11 +6,11 @@ import aria.sdk as aria
 from projectaria_tools.core.sensor_data import ImageDataRecord, MotionData
 from typing import Sequence
 
-# from presentation.renderers.frame_renderer import FrameRenderer
+from presentation.renderers.frame_renderer import FrameRenderer
 from presentation.dashboards.opencv_dashboard import OpenCVDashboard
-from vision.image_enhancer import ImageEnhancer
-from vision.depth_estimator import DepthEstimator
-from navigation.builder import build_navigation_system
+from core.vision.image_enhancer import ImageEnhancer
+from core.vision.depth_estimator import DepthEstimator
+from core.navigation.builder import build_navigation_system
 
 
 class Observer:
@@ -89,7 +89,7 @@ class Observer:
         # Update frame dimensions for spatial processing (using RGB as reference)
         if camera_key == 'rgb':
             h, w = processed_image.shape[:2]
-            self.audio_system.update_frame_dimensions(w, h)
+            self.coordinator.audio_system.update_frame_dimensions(w, h)
         
         # Store processed frame for async processing
         with self._lock:
@@ -192,8 +192,8 @@ class Observer:
                     if 'rgb' in processed_frames:
                         rgb_detections = self.camera_detections.get('rgb', [])
                         # Aplicar overlay primero
-                        rgb_with_overlay = self.frame_renderer.draw_navigation_overlay(
-                            processed_frames['rgb'], rgb_detections, self.audio_system, None
+                        rgb_with_overlay = self.coordinator.frame_renderer.draw_navigation_overlay(
+                            processed_frames['rgb'], rgb_detections, self.coordinator.audio_system, None
                         )
                         self.dashboard.log_rgb_frame(rgb_with_overlay)
                         self.dashboard.log_detections(rgb_detections, processed_frames['rgb'].shape)
@@ -208,16 +208,19 @@ class Observer:
                 # Depth estimation (only on RGB) - se ejecuta solo si está habilitado en Config
                 depth_map = None
                 if 'rgb' in frames and self.depth_estimator.model is not None:
+                    print("[DEBUG] 🎯 Running depth estimation...")
                     if not hasattr(self, 'depth_frame_skip'):
                         self.depth_frame_skip = 10
                         self.cached_depth_map = None
                     
                     if self.frame_counts['rgb'] % self.depth_frame_skip == 0:
                         depth_map = self.depth_estimator.estimate_depth(processed_frames['rgb'])
+                        print(f"[DEBUG] 📊 Depth map: {depth_map.shape if depth_map is not None else 'None'}")  # AÑADIR
                         self.cached_depth_map = depth_map
                         self.current_depth_map = depth_map
                         # Enviar depth al dashboard cada 10 frames
                         if self.dashboard and frame_counter % 10 == 0:
+                            print("[DEBUG] 📺 Sending depth to dashboard...")
                             self.dashboard.log_depth_map(depth_map)
                     else:
                         depth_map = self.cached_depth_map

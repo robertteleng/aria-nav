@@ -25,7 +25,7 @@ class Coordinator:
     Image → YOLO → Navigation → Audio → Dashboard
     """
     
-    def __init__(self, yolo_processor, audio_system, dashboard=None):
+    def __init__(self, yolo_processor, audio_system, frame_renderer=None, image_enhancer=None, dashboard=None):
         """
         Inicializar coordinator con dependencias inyectadas
         
@@ -37,6 +37,8 @@ class Coordinator:
         # Dependencias inyectadas
         self.yolo_processor = yolo_processor
         self.audio_system = audio_system
+        self.frame_renderer = frame_renderer
+        self.image_enhancer = image_enhancer  
         self.dashboard = dashboard
         
         # Estado interno del coordinator
@@ -84,8 +86,8 @@ class Coordinator:
         self.frames_processed += 1
         
         # 1. YOLO Detection
-        detections = self.yolo_processor.detect_objects(frame)
-        annotated_frame = self.yolo_processor.get_annotated_frame()
+        detections = self.yolo_processor.process_frame(frame)
+        annotated_frame = frame
         
         # 2. Navigation Analysis
         navigation_objects = self._analyze_navigation_objects(detections)
@@ -116,7 +118,7 @@ class Coordinator:
         navigation_objects = []
         
         for detection in detections:
-            class_name = detection['class']
+            class_name = detection['name']
             
             # Solo procesar objetos relevantes para navegación
             if class_name not in self.object_priorities:
@@ -337,84 +339,3 @@ class Coordinator:
             pass
         
         print("✓ Coordinator limpiado")
-
-
-# 🧪 TESTING DEL COORDINATOR
-if __name__ == "__main__":
-    """
-    Test básico del coordinator con dependencias mock
-    """
-    print("🧪 Testing Simple Coordinator With Dependencies...")
-    print("=" * 60)
-    
-    try:
-        # Crear mocks simples para testing
-        class MockYolo:
-            def detect_objects(self, frame):
-                return [
-                    {'class': 'person', 'confidence': 0.9, 'bbox': [100, 100, 50, 200]},
-                    {'class': 'car', 'confidence': 0.8, 'bbox': [300, 150, 100, 80]}
-                ]
-            
-            def get_annotated_frame(self):
-                return np.zeros((480, 640, 3), dtype=np.uint8)
-        
-        class MockAudio:
-            def __init__(self):
-                self.announcement_cooldown = 2.0
-                
-            def speak_async(self, message):
-                print(f"🔊 Mock Audio: {message}")
-            
-            def get_queue_size(self):
-                return 0
-            
-            def cleanup(self):
-                pass
-        
-        class MockDashboard:
-            def update_detections(self, detections):
-                print(f"📊 Mock Dashboard: {len(detections)} detections")
-            
-            def update_navigation_status(self, nav_objects):
-                print(f"📊 Mock Dashboard: {len(nav_objects)} nav objects")
-            
-            def cleanup(self):
-                pass
-        
-        # Test del coordinator
-        print("\n🧪 Creando coordinator con mocks...")
-        mock_yolo = MockYolo()
-        mock_audio = MockAudio()
-        mock_dashboard = MockDashboard()
-        
-        coordinator = SimpleCoordinatorWithDeps(
-            yolo_processor=mock_yolo,
-            audio_system=mock_audio,
-            dashboard=mock_dashboard
-        )
-        
-        # Test procesamiento de frame
-        print("\n🧪 Procesando frame de prueba...")
-        test_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-        result_frame = coordinator.process_frame(test_frame)
-        
-        print(f"✓ Frame procesado: {result_frame.shape}")
-        
-        # Test estado
-        print("\n🧪 Verificando estado...")
-        status = coordinator.get_status()
-        for key, value in status.items():
-            print(f"  {key}: {value}")
-        
-        # Test cleanup
-        print("\n🧪 Testing cleanup...")
-        coordinator.cleanup()
-        
-        print("\n✅ Todos los tests del Coordinator pasaron!")
-        print("🎯 Coordinator listo para recibir dependencias del Builder")
-        
-    except Exception as e:
-        print(f"\n❌ Error en testing: {e}")
-        import traceback
-        traceback.print_exc()

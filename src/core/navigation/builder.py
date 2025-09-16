@@ -46,16 +46,16 @@ class Builder:
             dashboard=dashboard
         )
     
-    def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer):
-        """Coordinator SIN dashboard - el Observer maneja su propio dashboard"""
-        print("  📦 Creando Coordinator...")
-        return Coordinator(
-            yolo_processor=yolo_processor,
-            audio_system=audio_system,
-            frame_renderer=frame_renderer,
-            image_enhancer=image_enhancer,
-            dashboard=None  # Sin dashboard interno
-        )
+    # def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer):
+    #     """Coordinator SIN dashboard - el Observer maneja su propio dashboard"""
+    #     print("  📦 Creando Coordinator...")
+    #     return Coordinator(
+    #         yolo_processor=yolo_processor,
+    #         audio_system=audio_system,
+    #         frame_renderer=frame_renderer,
+    #         image_enhancer=image_enhancer,
+    #         dashboard=None  # Sin dashboard interno
+    #     )
 
     def build_full_system(self, enable_dashboard=False):  # False por defecto
         print("🏗️ Construyendo sistema completo...")

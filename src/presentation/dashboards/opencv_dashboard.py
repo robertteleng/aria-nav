@@ -52,26 +52,38 @@ class OpenCVDashboard:
     def log_depth_map(self, depth_data: np.ndarray):
         """Mostrar depth map coloreado"""
         if depth_data is None:
-            # Crear imagen vacía
-            empty = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
-            cv2.putText(empty, "No Depth Data", (int(self.cell_w*0.25), self.cell_h//2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            self.depth_img = empty
+            self.depth_img = self._depth_placeholder("No Depth Data")
             return
-        
-        # Normalizar y aplicar colormap
-        depth_normalized = cv2.normalize(depth_data, None, 0, 255, cv2.NORM_MINMAX)
-        depth_colored = cv2.applyColorMap(depth_normalized.astype(np.uint8), cv2.COLORMAP_JET)
-        
-        # Añadir info de distancia
-        min_dist = np.min(depth_data)
-        max_dist = np.max(depth_data)
-        cv2.putText(depth_colored, f"Min: {min_dist:.1f}m", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        cv2.putText(depth_colored, f"Max: {max_dist:.1f}m", (10, 60), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        
-        self.depth_img = self._resize_keep(depth_colored, self.cell_w, self.cell_h)
+
+        try:
+            depth_array = np.asarray(depth_data)
+
+            if depth_array.ndim == 3 and depth_array.shape[2] > 1:
+                depth_array = cv2.cvtColor(depth_array, cv2.COLOR_BGR2GRAY)
+
+            depth_array = np.nan_to_num(depth_array, nan=0.0, posinf=0.0, neginf=0.0)
+
+            if depth_array.dtype not in (np.float32, np.float64):
+                depth_metrics = depth_array.astype(np.float32)
+            else:
+                depth_metrics = depth_array
+
+            depth_normalized = cv2.normalize(depth_array, None, 0, 255, cv2.NORM_MINMAX)
+            depth_colored = cv2.applyColorMap(depth_normalized.astype(np.uint8), cv2.COLORMAP_JET)
+
+            min_dist = float(np.nanmin(depth_metrics))
+            max_dist = float(np.nanmax(depth_metrics))
+
+            cv2.putText(depth_colored, f"Min: {min_dist:.2f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(depth_colored, f"Max: {max_dist:.2f}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+            self.depth_img = self._resize_keep(depth_colored, self.cell_w, self.cell_h)
+        except cv2.error as err:
+            self.depth_img = self._depth_placeholder("Depth error")
+            self.log_system_message(f"Depth map render failed: {err}", "ERROR")
+
     
     def log_slam1_frame(self, slam1_frame: np.ndarray):
         """Mostrar SLAM1"""
@@ -281,3 +293,9 @@ class OpenCVDashboard:
         x0, y0 = c * self.cell_w, r * self.cell_h
         cv2.putText(canvas, text, (x0 + 20, y0 + self.cell_h // 2),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (180, 180, 180), 2)
+
+    def _depth_placeholder(self, message: str) -> np.ndarray:
+        tile = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+        cv2.putText(tile, message, (30, self.cell_h // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        return tile
