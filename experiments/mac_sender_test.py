@@ -1,25 +1,50 @@
 #!/usr/bin/env python3
+"""
+Mac sender completo con objetos detectables por YOLO
+"""
+
 import cv2
-import numpy as np
 import imagezmq
 import time
+import numpy as np
 
-print("[MAC] Conectando a Jetson 192.168.8.204:5555...")
-sender = imagezmq.ImageSender(connect_to='tcp://192.168.8.204:5555')
+# IP del Jetson (cambiar si es diferente)
+sender = imagezmq.ImageSender("tcp://192.168.0.25:5555", REQ_REP=True)
 
-for i in range(10):
-    # Frame de prueba
-    frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.putText(frame, f"Mac Frame #{i}", (50, 240), 
-               cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+frame_id = 0
+success = 0
+
+try:
+    for frame_id in range(100):
+        # Frame con fondo negro y objetos detectables
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # Dibujar objetos que YOLO puede detectar
+        # Rectángulo verde (puede ser detectado como objeto)
+        cv2.rectangle(frame, (100, 100), (200, 400), (0, 255, 0), -1)
+        
+        # Círculo azul (otro objeto)
+        cv2.circle(frame, (400, 200), 50, (255, 0, 0), -1)
+        
+        # Texto del frame
+        cv2.putText(frame, f"Frame {frame_id}", (50, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        
+        try:
+            _, jpg = cv2.imencode('.jpg', frame)
+            reply = sender.send_jpg("mac", jpg)
+            if reply == b'OK':
+                success += 1
+                if frame_id % 10 == 0:
+                    print(f"✅ Frame {frame_id} sent")
+        except Exception as e:
+            print(f"❌ Frame {frame_id}: {e}")
+        
+        time.sleep(1/30)  # 30 FPS
     
-    try:
-        reply = sender.send_image("mac-test", frame)
-        print(f"[MAC] Frame {i} enviado - Reply: {reply}")
-    except Exception as e:
-        print(f"[MAC] Error: {e}")
-        break
+    print(f"📊 Success: {success}/100")
     
-    time.sleep(1)
-
-print("[MAC] Test completado")
+except KeyboardInterrupt:
+    print("Stopped")
+finally:
+    sender.close()
