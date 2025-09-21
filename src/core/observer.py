@@ -25,7 +25,7 @@ from typing import Sequence, Optional, Dict, Any
 from collections import deque
 
 
-class AriaObserver:
+class Observer:
     """
     Observer puramente dedicado al Aria SDK
     

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🎯 Simple Coordinator With Dependencies - TFM Navigation System
-Coordinator que recibe dependencias ya creadas por el Builder
+🎯 Coordinator Mejorado - TFM Navigation System
+Basado en la versión original, con mejoras para soporte de motion detection
+y compatibilidad con arquitectura híbrida
 
-Fecha: Día 2 - Sistema modular
-Versión: 1.0 - Dependency Injection
+Fecha: Septiembre 2025
+Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
 """
 
 import numpy as np
@@ -22,7 +23,7 @@ class Coordinator:
     Se enfoca únicamente en coordinar el flujo de procesamiento.
     
     Pipeline:
-    Image → YOLO → Navigation → Audio → Dashboard
+    Image → Enhancement → YOLO → Navigation → Audio → Rendering
     """
     
     def __init__(self, yolo_processor, audio_system, frame_renderer=None, image_enhancer=None, dashboard=None):
@@ -32,6 +33,8 @@ class Coordinator:
         Args:
             yolo_processor: Instancia ya configurada de YoloProcessor
             audio_system: Instancia ya configurada de AudioSystem
+            frame_renderer: Instancia opcional de FrameRenderer
+            image_enhancer: Instancia opcional de ImageEnhancer
             dashboard: Instancia opcional de Dashboard
         """
         # Dependencias inyectadas
@@ -68,17 +71,20 @@ class Coordinator:
             'stairs': {'priority': 5, 'spanish': 'escaleras'}
         }
         
-        print(f"✓ Coordinator inicializado")
+        print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
         print(f"  - Audio: {type(self.audio_system).__name__}")
+        print(f"  - Frame Renderer: {type(self.frame_renderer).__name__ if self.frame_renderer else 'None'}")
+        print(f"  - Image Enhancer: {type(self.image_enhancer).__name__ if self.image_enhancer else 'None'}")
         print(f"  - Dashboard: {type(self.dashboard).__name__ if self.dashboard else 'None'}")
     
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
+    def process_frame(self, frame: np.ndarray, motion_state: str = "stationary") -> np.ndarray:
         """
         🔄 Procesar frame completo a través del pipeline
         
         Args:
             frame: Frame BGR de entrada
+            motion_state: Estado de movimiento ("stationary", "walking")
             
         Returns:
             np.ndarray: Frame procesado con anotaciones
@@ -96,18 +102,31 @@ class Coordinator:
 
         # 1. YOLO Detection
         detections = self.yolo_processor.process_frame(processed_frame)
-        annotated_frame = processed_frame
         
         # 2. Navigation Analysis
         navigation_objects = self._analyze_navigation_objects(detections)
         
-        # 3. Audio Commands (con cooldown)
-        self._generate_audio_commands(navigation_objects)
+        # 3. Audio Commands (con motion-aware cooldown)
+        self._generate_audio_commands(navigation_objects, motion_state)
         
-        # 4. Dashboard Update (si está disponible)
+        # 4. Frame Rendering (si está disponible)
+        annotated_frame = processed_frame
+        if self.frame_renderer is not None:
+            try:
+                annotated_frame = self.frame_renderer.draw_navigation_overlay(
+                    processed_frame, detections, self.audio_system, None
+                )
+            except Exception as err:
+                print(f"[WARN] Frame rendering skipped: {err}")
+                annotated_frame = processed_frame
+        
+        # 5. Dashboard Update (si está disponible)
         if self.dashboard:
-            self.dashboard.update_detections(detections)
-            self.dashboard.update_navigation_status(navigation_objects)
+            try:
+                self.dashboard.update_detections(detections)
+                self.dashboard.update_navigation_status(navigation_objects)
+            except Exception as err:
+                print(f"[WARN] Dashboard update skipped: {err}")
         
         # Guardar estado actual
         self.current_detections = detections
@@ -251,17 +270,25 @@ class Coordinator:
         
         return priority
     
-    def _generate_audio_commands(self, navigation_objects):
+    def _generate_audio_commands(self, navigation_objects, motion_state="stationary"):
         """
         🔊 Generar comandos de audio basados en objetos detectados
+        MEJORADO: Ahora incluye motion-aware cooldown
         
         Args:
             navigation_objects: Lista de objetos ordenados por prioridad
+            motion_state: Estado de movimiento del usuario
         """
         current_time = time.time()
         
-        # Cooldown para evitar spam de mensajes
-        if current_time - self.last_announcement_time < self.audio_system.announcement_cooldown:
+        # Cooldown adaptativo según movimiento (como en tu AudioSystem original)
+        if motion_state == "walking":
+            cooldown = 1.5  # Más frecuente cuando camina
+        else:
+            cooldown = 3.0  # Menos frecuente cuando está parado
+        
+        # Verificar cooldown
+        if current_time - self.last_announcement_time < cooldown:
             return
         
         # Solo anunciar el objeto de mayor prioridad
@@ -271,7 +298,21 @@ class Coordinator:
             # Filtrar solo objetos de alta prioridad
             if top_object['priority'] >= 8.0:
                 message = self._create_audio_message(top_object)
-                self.audio_system.speak_async(message)
+                
+                # Pasar motion_state al audio system si lo soporta
+                try:
+                    # Intentar llamada con motion_state (nueva versión)
+                    if hasattr(self.audio_system, 'process_detections'):
+                        # Si audio_system tiene process_detections, usarlo
+                        self.audio_system.process_detections([top_object], motion_state)
+                    else:
+                        # Fallback al método original
+                        self.audio_system.speak_async(message)
+                except Exception as e:
+                    # Fallback seguro
+                    print(f"[WARN] Audio command fallback: {e}")
+                    self.audio_system.speak_async(message)
+                
                 self.last_announcement_time = current_time
     
     def _create_audio_message(self, nav_object):
@@ -319,13 +360,69 @@ class Coordinator:
         Returns:
             dict: Estado con métricas y información
         """
+        audio_queue_size = 0
+        try:
+            if hasattr(self.audio_system, 'get_queue_size'):
+                audio_queue_size = self.audio_system.get_queue_size()
+            elif hasattr(self.audio_system, 'audio_queue'):
+                audio_queue_size = len(self.audio_system.audio_queue)
+        except:
+            pass
+        
         return {
             'frames_processed': self.frames_processed,
             'current_detections_count': len(self.current_detections),
-            'audio_queue_size': self.audio_system.get_queue_size(),
+            'audio_queue_size': audio_queue_size,
             'has_dashboard': self.dashboard is not None,
+            'has_frame_renderer': self.frame_renderer is not None,
+            'has_image_enhancer': self.image_enhancer is not None,
             'last_announcement': self.last_announcement_time
         }
+    
+    def get_current_detections(self):
+        """
+        🎯 Obtener detecciones actuales (para compatibilidad con Observer)
+        
+        Returns:
+            list: Lista de detecciones actuales
+        """
+        return self.current_detections.copy()
+    
+    def test_audio(self):
+        """
+        🔊 Test del sistema de audio
+        """
+        try:
+            if hasattr(self.audio_system, 'speak_force'):
+                self.audio_system.speak_force("Test del sistema de navegación")
+            else:
+                self.audio_system.speak_async("Test del sistema de navegación")
+            print("[COORDINATOR] Audio test enviado")
+        except Exception as e:
+            print(f"[COORDINATOR] Audio test failed: {e}")
+    
+    def print_stats(self):
+        """
+        📈 Imprimir estadísticas del coordinator
+        """
+        status = self.get_status()
+        
+        print(f"\n[COORDINATOR STATS]")
+        print(f"  Frames procesados: {status['frames_processed']}")
+        print(f"  Detecciones actuales: {status['current_detections_count']}")
+        print(f"  Audio queue size: {status['audio_queue_size']}")
+        print(f"  Dashboard: {'✅' if status['has_dashboard'] else '❌'}")
+        print(f"  Frame Renderer: {'✅' if status['has_frame_renderer'] else '❌'}")
+        print(f"  Image Enhancer: {'✅' if status['has_image_enhancer'] else '❌'}")
+        
+        # Mostrar últimas detecciones
+        if self.current_detections:
+            print(f"  Últimas detecciones:")
+            for det in self.current_detections[:3]:  # Top 3
+                name = det.get('name', 'unknown')
+                zone = det.get('zone', 'unknown')
+                conf = det.get('confidence', 0)
+                print(f"    - {name} en {zone} (conf: {conf:.2f})")
     
     def cleanup(self):
         """
@@ -333,18 +430,122 @@ class Coordinator:
         """
         print("🧹 Limpiando Coordinator...")
         
-        if self.audio_system:
-            self.audio_system.cleanup()
+        try:
+            if self.audio_system:
+                if hasattr(self.audio_system, 'cleanup'):
+                    self.audio_system.cleanup()
+                elif hasattr(self.audio_system, 'close'):
+                    self.audio_system.close()
+                print("  ✅ Audio system cleanup")
+        except Exception as e:
+            print(f"  ⚠️ Audio cleanup error: {e}")
         
-        if self.dashboard:
-            self.dashboard.cleanup()
-            
-        if self.frame_renderer:
-            # FrameRenderer normalmente no necesita cleanup específico
-            pass
-            
-        if self.image_enhancer:
-            # ImageEnhancer normalmente no necesita cleanup específico  
-            pass
+        try:
+            if self.dashboard:
+                if hasattr(self.dashboard, 'cleanup'):
+                    self.dashboard.cleanup()
+                elif hasattr(self.dashboard, 'shutdown'):
+                    self.dashboard.shutdown()
+                print("  ✅ Dashboard cleanup")
+        except Exception as e:
+            print(f"  ⚠️ Dashboard cleanup error: {e}")
         
-        print("✓ Coordinator limpiado")
+        # Frame renderer y image enhancer normalmente no necesitan cleanup
+        
+        # Reset estado
+        self.current_detections = []
+        
+        print("✅ Coordinator limpiado")
+
+
+# ============================================================================
+# TESTING DEL COORDINATOR MEJORADO
+# ============================================================================
+
+def test_coordinator():
+    """Test básico del Coordinator mejorado"""
+    print("🧪 Testing Coordinator mejorado...")
+    
+    # Mock classes para testing
+    class MockYolo:
+        def process_frame(self, frame):
+            return [
+                {'name': 'person', 'confidence': 0.9, 'bbox': [100, 100, 50, 200]},
+                {'name': 'car', 'confidence': 0.8, 'bbox': [300, 150, 100, 80]}
+            ]
+    
+    class MockAudio:
+        def __init__(self):
+            self.announcement_cooldown = 2.0
+            self.audio_queue = []
+        
+        def speak_async(self, message):
+            self.audio_queue.append(message)
+            print(f"🔊 Mock Audio: {message}")
+        
+        def process_detections(self, detections, motion_state):
+            if detections:
+                message = f"[{motion_state.upper()}] {detections[0]['name']}"
+                self.speak_async(message)
+        
+        def get_queue_size(self):
+            return len(self.audio_queue)
+        
+        def cleanup(self):
+            pass
+    
+    class MockRenderer:
+        def draw_navigation_overlay(self, frame, detections, audio_system, depth_map):
+            # Simular rendering añadiendo texto
+            import cv2
+            annotated = frame.copy()
+            cv2.putText(annotated, f"Detections: {len(detections)}", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            return annotated
+    
+    # Crear mocks
+    mock_yolo = MockYolo()
+    mock_audio = MockAudio()
+    mock_renderer = MockRenderer()
+    
+    # Crear coordinator
+    coordinator = Coordinator(
+        yolo_processor=mock_yolo,
+        audio_system=mock_audio,
+        frame_renderer=mock_renderer
+    )
+    
+    # Test con frame sintético
+    test_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    
+    print("  🔄 Procesando frame de test...")
+    
+    # Test con diferentes motion states
+    result_stationary = coordinator.process_frame(test_frame, "stationary")
+    print(f"  ✅ Frame estationary procesado: {result_stationary.shape}")
+    
+    result_walking = coordinator.process_frame(test_frame, "walking")
+    print(f"  ✅ Frame walking procesado: {result_walking.shape}")
+    
+    # Test status
+    status = coordinator.get_status()
+    print(f"  ✅ Status: {status}")
+    
+    # Test detections
+    detections = coordinator.get_current_detections()
+    print(f"  ✅ Detecciones: {len(detections)}")
+    
+    # Test audio
+    coordinator.test_audio()
+    
+    # Test stats
+    coordinator.print_stats()
+    
+    # Test cleanup
+    coordinator.cleanup()
+    
+    print("✅ Coordinator mejorado test completado!")
+
+
+if __name__ == "__main__":
+    test_coordinator()

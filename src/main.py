@@ -1,111 +1,327 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Navigation system for blind users using Meta Aria glasses
+🚀 Navigation System for Blind Users - Refactored Architecture
+Sistema de navegación para personas con discapacidad visual usando Meta Aria glasses
+
+Arquitectura Separada:
+- AriaObserver: Solo manejo del SDK de Aria
+- Coordinator: Solo pipeline de navegación (YOLO + Audio)  
+- PresentationManager: Solo UI/Dashboard/Display
+
 Author: Roberto Rojas Sahuquillo
-Date: 2025-09  
-Version: 0.50 - Clean main with Rerun dashboard
+Date: Septiembre 2025  
+Version: 2.0 - Clean Separated Architecture
 """
 
 import cv2
+import time
 from utils.ctrl_handler import CtrlCHandler
 from core.hardware.device_manager import DeviceManager
-from core.observer import Observer
+
+# Componentes separados de la nueva arquitectura
+from core.observer import Observer  # Solo SDK
+from core.navigation.coordinator import Coordinator  # Solo Pipeline
+from core.navigation.builder import Builder  # Factory
+from presentation.presentation_manager import PresentationManager  # Solo UI
 
 
 def main():
-    """Clean entry point orchestrating all components"""
+    """
+    🎯 Punto de entrada principal con arquitectura limpia separada
+    
+    Flujo:
+    1. Inicialización de componentes separados
+    2. Setup de Aria SDK y streaming
+    3. Loop principal de procesamiento
+    4. Cleanup ordenado
+    """
     print("=" * 60)
-    print("ARIA project: Navigation system for blind users")
+    print("🚀 ARIA Navigation System - Arquitectura Separada")
+    print("Sistema de navegación para personas con discapacidad visual")
     print("=" * 60)
     
     # Setup clean exit handler
     ctrl_handler = CtrlCHandler()
 
-    # Initialize dashboard flag (Observer will own the dashboard instance)
-    enable_dashboard = input("Habilitar dashboard Rerun? (y/n): ").lower() == 'y'
-    if enable_dashboard:
-        print("[MAIN] Dashboard OpenCV activado (gestionado por Observer)")
+    # UI Configuration
+    enable_dashboard = input("¿Habilitar dashboard? (y/n): ").lower() == 'y'
+    dashboard_type = "opencv"  # Default
     
-    # Core components
+    if enable_dashboard:
+        dashboard_choice = input("Dashboard type (opencv/rerun) [opencv]: ").lower() or "opencv"
+        dashboard_type = dashboard_choice if dashboard_choice in ["opencv", "rerun"] else "opencv"
+        print(f"[MAIN] Dashboard {dashboard_type} habilitado")
+    else:
+        print("[MAIN] Display OpenCV simple habilitado")
+    
+    # Component initialization
     device_manager = None
     observer = None
+    coordinator = None
+    presentation = None
     
     try:
-        # 1. Device connection and streaming setup
+        print("\n🔧 Inicializando componentes...")
+        
+        # 1. Aria Device Setup
+        print("  📱 Conectando con Aria glasses...")
         device_manager = DeviceManager()
         device_manager.connect()
         rgb_calib = device_manager.start_streaming()
         
-        # 2. Observer setup with all modules integrated
-        # Pass user's choice so only one dashboard gets created (inside Observer)
-        observer = Observer(rgb_calib=rgb_calib, enable_dashboard=enable_dashboard)
+        # 2. Observer Setup (Solo SDK)
+        print("  👁️ Inicializando AriaObserver (SDK only)...")
+        observer = Observer(rgb_calib=rgb_calib)
         device_manager.register_observer(observer)
         device_manager.subscribe()
         
-        # 3. Main visualization loop
-        if not enable_dashboard:
-            window_name = "Aria Navigation - TFM"
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(window_name, 800, 600)
+        # 3. Navigation Coordinator Setup (Solo Pipeline)
+        print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")
+        builder = Builder()
+        coordinator = builder.build_full_system(enable_dashboard=False)  # Sin dashboard propio
         
-        print("[INFO] Stream active - Press 'q' to quit or Ctrl+C")
-        print("[INFO] Press 't' to test audio system")
+        # 4. Presentation Manager Setup (Solo UI)
+        print("  🎨 Inicializando PresentationManager (UI Layer)...")
+        presentation = PresentationManager(
+            enable_dashboard=enable_dashboard,
+            dashboard_type=dashboard_type
+        )
         
-        frames_displayed = 0
+        print("✅ Todos los componentes inicializados correctamente")
+        print("\n🎮 Controles:")
+        print("  - 'q': Salir del sistema")
+        print("  - 't': Test del sistema de audio")
+        print("  - Ctrl+C: Salida limpia")
+        print("\n🔄 Sistema activo - procesando frames...")
+        
+        # 5. Main Processing Loop
+        frames_processed = 0
+        last_stats_print = time.time()
         
         while not ctrl_handler.should_stop:
-            current_frame = observer.get_latest_frame()
-            
-            if current_frame is not None:
-                # OpenCV display (only if no dashboard)
-                if not enable_dashboard:
-                    cv2.imshow(window_name, current_frame)
+            try:
+                # Obtener datos del Observer (Solo SDK)
+                frame = observer.get_latest_frame('rgb')
+                motion_data = observer.get_motion_state()
+                motion_state = motion_data.get('state', 'unknown') if motion_data else 'unknown'
                 
-                frames_displayed += 1
+                if frame is not None:
+                    frames_processed += 1
+                    
+                    # Procesar con Coordinator (Solo Pipeline)
+                    processed_frame = coordinator.process_frame(frame, motion_state)
+                    
+                    # Actualizar UI con PresentationManager (Solo UI)
+                    key = presentation.update_display(
+                        frame=processed_frame,
+                        detections=coordinator.get_current_detections(),
+                        motion_state=motion_state,
+                        coordinator_stats=coordinator.get_status()
+                    )
+                    
+                    # Handle UI Events
+                    if key == 'q':
+                        print("\n[INFO] 'q' detected, closing application...")
+                        break
+                    elif key == 't':
+                        print("[INFO] Testing audio system...")
+                        coordinator.test_audio()
+                        presentation.log_audio_command("Test del sistema", 5)
                 
-                # if frames_displayed % 200 == 0:
-                #     print(f"[INFO] Frames displayed: {frames_displayed}")
-            
-            # Refrescar dashboard en hilo principal (macOS requiere main-thread para GUI)
-            if enable_dashboard and getattr(observer, 'dashboard', None):
-                key = observer.dashboard.update_all()
-                if key == ord('q'):
-                    print("[INFO] 'q' detected in dashboard, closing application...")
-                    break
-                # No llamar a waitKey dos veces cuando dashboard activo
-                key = 255
-            else:
-                key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                print("[INFO] 'q' detected, closing application...")
-                break
-            elif key == ord('t'):
-                print("[INFO] Testing audio system...")
-                observer.test_audio()
+                # Estadísticas periódicas
+                current_time = time.time()
+                if current_time - last_stats_print > 10.0:  # Cada 10 segundos
+                    print(f"[STATUS] Frames: {frames_processed}, Motion: {motion_state}")
+                    last_stats_print = current_time
+                
+            except Exception as e:
+                print(f"[WARN] Error en processing loop: {e}")
+                time.sleep(0.1)  # Evitar spam de errores
+        
+        print(f"\n📊 Sesión completada: {frames_processed} frames procesados")
         
         # Final statistics
-        observer.print_stats()
+        print("\n📈 Estadísticas finales:")
+        if observer:
+            observer.print_stats()
+        if coordinator:
+            coordinator.print_stats()
+        if presentation:
+            presentation.print_ui_stats()
         
     except KeyboardInterrupt:
-        print("\n[INFO] Keyboard interrupt detected")
+        print("\n[INFO] ⌨️ Interrupción de teclado detectada")
         
     except Exception as e:
-        print(f"[ERROR] Error during execution: {e}")
+        print(f"\n[ERROR] ❌ Error durante la ejecución: {e}")
+        import traceback
+        traceback.print_exc()
         
     finally:
-        # Cleanup
-        print("[INFO] Starting resource cleanup...")
+        # Cleanup ordenado de todos los componentes
+        print("\n🧹 Iniciando limpieza de recursos...")
         
-        if observer:
-            observer.stop()
+        try:
+            if coordinator:
+                coordinator.cleanup()
+                print("  ✅ Coordinator cleanup")
+        except Exception as e:
+            print(f"  ⚠️ Coordinator cleanup error: {e}")
         
-        if device_manager:
-            device_manager.cleanup()
+        try:
+            if presentation:
+                presentation.cleanup()
+                print("  ✅ PresentationManager cleanup")
+        except Exception as e:
+            print(f"  ⚠️ PresentationManager cleanup error: {e}")
         
-        # Dashboard is owned and closed by Observer
+        try:
+            if observer:
+                observer.stop()
+                print("  ✅ AriaObserver cleanup")
+        except Exception as e:
+            print(f"  ⚠️ AriaObserver cleanup error: {e}")
         
+        try:
+            if device_manager:
+                device_manager.cleanup()
+                print("  ✅ DeviceManager cleanup")
+        except Exception as e:
+            print(f"  ⚠️ DeviceManager cleanup error: {e}")
+        
+        # Final OpenCV cleanup
+        try:
+            cv2.destroyAllWindows()
+            print("  ✅ OpenCV cleanup")
+        except Exception as e:
+            print(f"  ⚠️ OpenCV cleanup error: {e}")
+        
+        print("✅ Programa terminado exitosamente")
+        print("=" * 60)
+
+
+def main_debug():
+    """
+    🐛 Versión de debug con componentes mock para testing sin hardware
+    """
+    print("🧪 DEBUG MODE - Testing sin hardware Aria")
+    
+    import numpy as np
+    from time import sleep
+    
+    # Mock observer para testing
+    class MockObserver:
+        def __init__(self):
+            self.frame_count = 0
+        
+        def get_latest_frame(self, camera='rgb'):
+            # Generar frame sintético
+            self.frame_count += 1
+            frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            
+            # Añadir texto indicando que es mock
+            cv2.putText(frame, f"MOCK FRAME {self.frame_count}", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            return frame
+        
+        def get_motion_state(self):
+            # Alternar entre stationary y walking
+            state = "walking" if (self.frame_count // 30) % 2 else "stationary"
+            return {'state': state, 'magnitude': 9.8}
+        
+        def print_stats(self):
+            print(f"  MockObserver: {self.frame_count} frames generados")
+        
+        def stop(self):
+            pass
+    
+    try:
+        print("🔧 Inicializando componentes mock...")
+        
+        # Solo coordinator y presentation para testing
+        builder = Builder()
+        coordinator = builder.build_full_system(enable_dashboard=False)
+        presentation = PresentationManager(enable_dashboard=False)
+        observer = MockObserver()
+        
+        ctrl_handler = CtrlCHandler()
+        
+        print("✅ Componentes mock inicializados")
+        print("🔄 Loop de testing activo...")
+        
+        frames_processed = 0
+        
+        while not ctrl_handler.should_stop and frames_processed < 300:  # Límite para testing
+            frame = observer.get_latest_frame()
+            motion_data = observer.get_motion_state()
+            
+            if frame is not None:
+                processed_frame = coordinator.process_frame(frame, motion_data['state'])
+                
+                key = presentation.update_display(
+                    frame=processed_frame,
+                    detections=coordinator.get_current_detections(),
+                    motion_state=motion_data['state'],
+                    coordinator_stats=coordinator.get_status()
+                )
+                
+                if key == 'q':
+                    break
+                
+                frames_processed += 1
+                
+                # Simular 30fps
+                sleep(1/30)
+        
+        print(f"🧪 Testing completado: {frames_processed} frames")
+        
+        # Stats
+        observer.print_stats()
+        coordinator.print_stats()
+        presentation.print_ui_stats()
+        
+    except KeyboardInterrupt:
+        print("\n🧪 Testing interrumpido")
+    finally:
+        try:
+            coordinator.cleanup()
+            presentation.cleanup()
+        except:
+            pass
         cv2.destroyAllWindows()
-        print("[INFO] Program finished successfully")
+
+
+def main_hybrid_mac():
+    """
+    🌉 Versión híbrida para Mac - Solo ImageZMQ Sender
+    Para usar con Jetson processing remoto
+    """
+    print("🌉 HYBRID MODE - Mac ImageZMQ Sender")
+    print("Enviando frames al Jetson para procesamiento...")
+    
+    # Esta función se implementará cuando creemos el ImageZMQ sender
+    # Por ahora, placeholder para la arquitectura híbrida
+    print("⚠️ Función híbrida aún no implementada")
+    print("💡 Usar main() normal para sistema local completo")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    # Permitir diferentes modos de ejecución
+    if len(sys.argv) > 1:
+        mode = sys.argv[1].lower()
+        
+        if mode == "debug":
+            main_debug()
+        elif mode == "hybrid":
+            main_hybrid_mac()
+        else:
+            print(f"❌ Modo '{mode}' no reconocido")
+            print("💡 Modos disponibles: debug, hybrid")
+            print("💡 Sin argumentos = modo normal")
+            sys.exit(1)
+    else:
+        # Modo normal
+        main()
