@@ -170,7 +170,7 @@ class OpenCVDashboard:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         self.logs_img = logs_img
     
-    def log_detections(self, detections: List[Dict], frame_shape: tuple):
+    def log_detections(self, detections: List[Dict], frame_shape: tuple = None):
         """Procesar detecciones para métricas"""
         if detections:
             self.total_detections += len(detections)

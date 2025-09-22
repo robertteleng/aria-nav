@@ -49,8 +49,12 @@ def main():
     dashboard_type = "opencv"  # Default
     
     if enable_dashboard:
-        dashboard_choice = input("Dashboard type (opencv/rerun) [opencv]: ").lower() or "opencv"
-        dashboard_type = dashboard_choice if dashboard_choice in ["opencv", "rerun"] else "opencv"
+        allowed_dashboards = ["opencv", "rerun", "web"]
+        dashboard_choice = input("Dashboard type (opencv/rerun/web) [opencv]: ").lower() or "opencv"
+        if dashboard_choice not in allowed_dashboards:
+            print(f"[MAIN] Dashboard '{dashboard_choice}' no reconocido, usando 'opencv'")
+            dashboard_choice = "opencv"
+        dashboard_type = dashboard_choice
         print(f"[MAIN] Dashboard {dashboard_type} habilitado")
     else:
         print("[MAIN] Display OpenCV simple habilitado")
@@ -103,6 +107,8 @@ def main():
             try:
                 # Obtener datos del Observer (Solo SDK)
                 frame = observer.get_latest_frame('rgb')
+                slam1_frame = observer.get_latest_frame('slam1')
+                slam2_frame = observer.get_latest_frame('slam2')
                 motion_data = observer.get_motion_state()
                 motion_state = motion_data.get('state', 'unknown') if motion_data else 'unknown'
                 
@@ -111,13 +117,17 @@ def main():
                     
                     # Procesar con Coordinator (Solo Pipeline)
                     processed_frame = coordinator.process_frame(frame, motion_state)
+                    depth_map = coordinator.get_latest_depth_map()
                     
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
                         frame=processed_frame,
                         detections=coordinator.get_current_detections(),
                         motion_state=motion_state,
-                        coordinator_stats=coordinator.get_status()
+                        coordinator_stats=coordinator.get_status(),
+                        depth_map=depth_map,
+                        slam1_frame=slam1_frame,
+                        slam2_frame=slam2_frame
                     )
                     
                     # Handle UI Events
@@ -254,16 +264,22 @@ def main_debug():
         
         while not ctrl_handler.should_stop and frames_processed < 300:  # Límite para testing
             frame = observer.get_latest_frame()
+            slam1_frame = observer.get_latest_frame('slam1')
+            slam2_frame = observer.get_latest_frame('slam2')
             motion_data = observer.get_motion_state()
             
             if frame is not None:
                 processed_frame = coordinator.process_frame(frame, motion_data['state'])
+                depth_map = coordinator.get_latest_depth_map()
                 
                 key = presentation.update_display(
                     frame=processed_frame,
                     detections=coordinator.get_current_detections(),
                     motion_state=motion_data['state'],
-                    coordinator_stats=coordinator.get_status()
+                    coordinator_stats=coordinator.get_status(),
+                    depth_map=depth_map,
+                    slam1_frame=slam1_frame,
+                    slam2_frame=slam2_frame
                 )
                 
                 if key == 'q':

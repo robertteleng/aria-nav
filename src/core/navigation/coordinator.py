@@ -14,6 +14,13 @@ import cv2
 import time
 from typing import Optional
 
+from utils.config import Config
+
+try:
+    from core.vision.depth_estimator import DepthEstimator
+except Exception:
+    DepthEstimator = None
+
 
 class Coordinator:
     """
@@ -71,6 +78,19 @@ class Coordinator:
             'stairs': {'priority': 5, 'spanish': 'escaleras'}
         }
         
+        self.depth_estimator = None
+        self.depth_frame_skip = max(1, getattr(Config, 'DEPTH_FRAME_SKIP', 1))
+        self.latest_depth_map = None
+        if getattr(Config, 'DEPTH_ENABLED', False) and DepthEstimator is not None:
+            try:
+                self.depth_estimator = DepthEstimator()
+                # Si el modelo no está disponible, mantener referencia pero avisar
+                if getattr(self.depth_estimator, 'model', None) is None:
+                    print("[WARN] Depth estimator initialized without model (disabled)")
+            except Exception as err:
+                print(f"[WARN] Depth estimator init failed: {err}")
+                self.depth_estimator = None
+
         print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
         print(f"  - Audio: {type(self.audio_system).__name__}")
@@ -100,38 +120,54 @@ class Coordinator:
                 print(f"[WARN] Image enhancement skipped: {err}")
                 processed_frame = frame
 
-        # 1. YOLO Detection
-        detections = self.yolo_processor.process_frame(processed_frame)
-        
-        # 2. Navigation Analysis
+        # 1. Depth estimation (opcional)
+        depth_map = None
+        if self.depth_estimator is not None and getattr(self.depth_estimator, 'model', None) is not None:
+            try:
+                if self.frames_processed % self.depth_frame_skip == 0:
+                    depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
+                    if depth_candidate is not None:
+                        self.latest_depth_map = depth_candidate
+                depth_map = self.latest_depth_map
+            except Exception as err:
+                print(f"[WARN] Depth estimation skipped: {err}")
+
+        # 2. YOLO Detection
+        detections = self.yolo_processor.process_frame(processed_frame, depth_map)
+
+        # 3. Navigation Analysis
         navigation_objects = self._analyze_navigation_objects(detections)
-        
-        # 3. Audio Commands (con motion-aware cooldown)
+
+        # 4. Audio Commands (con motion-aware cooldown)
         self._generate_audio_commands(navigation_objects, motion_state)
-        
-        # 4. Frame Rendering (si está disponible)
+
+        # 5. Frame Rendering (si está disponible)
         annotated_frame = processed_frame
         if self.frame_renderer is not None:
             try:
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                    processed_frame, detections, self.audio_system, None
+                    processed_frame, detections, self.audio_system, depth_map
                 )
             except Exception as err:
                 print(f"[WARN] Frame rendering skipped: {err}")
                 annotated_frame = processed_frame
-        
-        # 5. Dashboard Update (si está disponible)
+
+        # 6. Dashboard Update (si está disponible)
         if self.dashboard:
             try:
                 self.dashboard.update_detections(detections)
                 self.dashboard.update_navigation_status(navigation_objects)
             except Exception as err:
                 print(f"[WARN] Dashboard update skipped: {err}")
-        
+
         # Guardar estado actual
         self.current_detections = detections
-        
+
         return annotated_frame
+
+    def get_latest_depth_map(self) -> Optional[np.ndarray]:
+        """Obtener el último depth map estimado"""
+        return self.latest_depth_map
     
     def _analyze_navigation_objects(self, detections):
         """

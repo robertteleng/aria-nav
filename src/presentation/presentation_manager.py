@@ -18,6 +18,7 @@ Versión: 1.0 - UI Layer Separation
 import cv2
 import time
 import threading
+import numpy as np
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
@@ -52,12 +53,13 @@ class PresentationManager:
         
         Args:
             enable_dashboard: Habilitar dashboard
-            dashboard_type: Tipo de dashboard ("opencv", "rerun")
+            dashboard_type: Tipo de dashboard ("opencv", "rerun", "web")
         """
         self.ui_state = UIState(dashboard_enabled=enable_dashboard)
         self.dashboard_type = dashboard_type
         self.dashboard = None
-        
+        self.dashboard_server_thread = None
+
         # Estado de visualización
         self.current_display_frame = None
         self.frame_count = 0
@@ -99,7 +101,18 @@ class PresentationManager:
                 from presentation.dashboards.rerun_dashboard import RerunDashboard
                 self.dashboard = RerunDashboard()
                 print("  ✅ Rerun Dashboard inicializado")
-                
+
+            elif dashboard_type == "web":
+                from presentation.dashboards.web_dashboard import WebDashboard
+                self.dashboard = WebDashboard()
+                try:
+                    self.dashboard_server_thread = self.dashboard.start_server()
+                except Exception as server_err:
+                    print(f"  ⚠️ Web dashboard server failed: {server_err}")
+                    self.dashboard = None
+                    self.ui_state.dashboard_enabled = False
+                    return
+                print("  ✅ Web Dashboard inicializado")       
             else:
                 print(f"  ⚠️ Dashboard type '{dashboard_type}' no reconocido")
                 self.ui_state.dashboard_enabled = False
@@ -120,7 +133,10 @@ class PresentationManager:
     
     def update_display(self, frame, detections: List[Dict] = None, 
                       motion_state: str = "unknown", 
-                      coordinator_stats: Dict = None) -> str:
+                      coordinator_stats: Dict = None,
+                      depth_map: Optional[np.ndarray] = None,
+                      slam1_frame: Optional[np.ndarray] = None,
+                      slam2_frame: Optional[np.ndarray] = None) -> str:
         """
         🖼️ Actualizar display principal con frame y datos
         
@@ -129,6 +145,9 @@ class PresentationManager:
             detections: Detecciones actuales
             motion_state: Estado de movimiento
             coordinator_stats: Estadísticas del coordinator
+            depth_map: Último depth map estimado (para dashboards compatibles)
+            slam1_frame: Frame más reciente de la cámara SLAM izquierda
+            slam2_frame: Frame más reciente de la cámara SLAM derecha
             
         Returns:
             str: Tecla presionada ('q' para quit, 't' para test, etc.)
@@ -151,7 +170,15 @@ class PresentationManager:
         # Actualizar dashboard si está habilitado
         if self.ui_state.dashboard_enabled and self.dashboard:
             try:
-                key_pressed = self._update_dashboard(frame, detections, motion_state)
+                key_pressed = self._update_dashboard(
+                    frame,
+                    detections,
+                    motion_state,
+                    coordinator_stats=coordinator_stats,
+                    depth_map=depth_map,
+                    slam1_frame=slam1_frame,
+                    slam2_frame=slam2_frame
+                )
             except Exception as e:
                 print(f"[WARN] Dashboard update failed: {e}")
         
@@ -164,7 +191,11 @@ class PresentationManager:
         
         return key_pressed
     
-    def _update_dashboard(self, frame, detections, motion_state) -> str:
+    def _update_dashboard(self, frame, detections, motion_state,
+                         coordinator_stats: Optional[Dict] = None,
+                         depth_map: Optional[np.ndarray] = None,
+                         slam1_frame: Optional[np.ndarray] = None,
+                         slam2_frame: Optional[np.ndarray] = None) -> str:
         """
         Actualizar dashboard con todos los datos
         
@@ -174,10 +205,21 @@ class PresentationManager:
         # Log frame principal
         if hasattr(self.dashboard, 'log_rgb_frame'):
             self.dashboard.log_rgb_frame(frame)
-        
+
+        # Log SLAM frames
+        if slam1_frame is not None and hasattr(self.dashboard, 'log_slam1_frame'):
+            self.dashboard.log_slam1_frame(slam1_frame)
+        if slam2_frame is not None and hasattr(self.dashboard, 'log_slam2_frame'):
+            self.dashboard.log_slam2_frame(slam2_frame)
+
         # Log detecciones
         if detections and hasattr(self.dashboard, 'log_detections'):
-            self.dashboard.log_detections(detections)
+            frame_shape = frame.shape if frame is not None else None
+            self.dashboard.log_detections(detections, frame_shape=frame_shape)
+
+        # Log depth map
+        if depth_map is not None and hasattr(self.dashboard, 'log_depth_map'):
+            self.dashboard.log_depth_map(depth_map)
         
         # Log motion state
         if hasattr(self.dashboard, 'log_motion_state'):
@@ -187,6 +229,14 @@ class PresentationManager:
         # Log performance metrics
         if hasattr(self.dashboard, 'log_performance_metrics'):
             self.dashboard.log_performance_metrics()
+        elif hasattr(self.dashboard, 'update_performance_stats'):
+            frames_processed = 0
+            if coordinator_stats:
+                frames_processed = coordinator_stats.get('frames_processed', 0)
+            self.dashboard.update_performance_stats(
+                fps=self.current_fps,
+                frames_processed=frames_processed
+            )
         
         # Log system message con estadísticas
         if hasattr(self.dashboard, 'log_system_message'):
@@ -364,7 +414,7 @@ def create_presentation_manager(enable_dashboard: bool = False,
     
     Args:
         enable_dashboard: Habilitar dashboard
-        dashboard_type: Tipo de dashboard ("opencv", "rerun")
+        dashboard_type: Tipo de dashboard ("opencv", "rerun", "web")
         
     Returns:
         PresentationManager: Instancia configurada

@@ -24,6 +24,8 @@ from projectaria_tools.core.sensor_data import ImageDataRecord, MotionData
 from typing import Sequence, Optional, Dict, Any
 from collections import deque
 
+from utils.config import Config
+
 
 class Observer:
     """
@@ -173,8 +175,12 @@ class Observer:
         Returns:
             np.array: Imagen procesada y rotada
         """
-        # Rotación eficiente 90° horario, mantener BGR
         rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+
+        # Convertir a espacio de color esperado por el resto del pipeline
+        if getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'BGR').upper() == 'RGB':
+            return cv2.cvtColor(rotated, cv2.COLOR_RGB2BGR)
+
         return rotated
     
     def _process_slam_image(self, image: np.array) -> np.array:
@@ -189,8 +195,10 @@ class Observer:
         """
         # Convertir grayscale a RGB si es necesario
         if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        elif getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'BGR').upper() == 'RGB':
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
         # Rotación consistente con RGB
         rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
         return rotated

@@ -175,14 +175,12 @@ class AriaObserverSender(Observer):
             if self.frame_counts[camera_key] % 100 == 0:
                 print(f"[SENDER] {camera_key.upper()}: received={self.frame_counts[camera_key]}, sent={self.send_counts[camera_key]}")
     def _process_rgb_image(self, image: np.array) -> np.array:
-        """Process RGB camera image (same as parent)"""
-        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        """Procesamiento RGB consistente con Observer base"""
+        return super()._process_rgb_image(image)
     
     def _process_slam_image(self, image: np.array) -> np.array:
-        """Process SLAM camera images (same as parent)"""
-        if len(image.shape) == 2:
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        """Procesamiento SLAM consistente con Observer base"""
+        return super()._process_slam_image(image)
     
     def get_latest_frame(self):
         """Get most recent frame for display"""
