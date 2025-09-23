@@ -142,7 +142,11 @@ class SlamDetectionWorker:
             processing_ms = (time.perf_counter() - start) * 1000.0
 
             events = self._convert_to_events(
-                detections, timestamp, frame_index, processing_ms
+                detections,
+                timestamp,
+                frame_index,
+                processing_ms,
+                frame_width=frame.shape[1] if frame is not None else None,
             )
             with self._lock:
                 self._latest_events = events
@@ -160,11 +164,12 @@ class SlamDetectionWorker:
         timestamp: float,
         frame_index: int,
         processing_ms: float,
+        frame_width: Optional[int],
     ) -> List[SlamDetectionEvent]:
         events: List[SlamDetectionEvent] = []
         for det in detections:
             bbox = det.get("bbox", (0, 0, 0, 0))
-            zone = self._peripheral_zone(bbox, det.get("zone", "unknown"))
+            zone = self._peripheral_zone(bbox, det.get("zone", "unknown"), frame_width)
             events.append(
                 SlamDetectionEvent(
                     timestamp=timestamp,
@@ -184,16 +189,22 @@ class SlamDetectionWorker:
             )
         return events
 
-    def _peripheral_zone(self, bbox: Tuple[int, int, int, int], raw_zone: str) -> str:
+    def _peripheral_zone(
+        self,
+        bbox: Tuple[int, int, int, int],
+        raw_zone: str,
+        frame_width: Optional[int],
+    ) -> str:
         if raw_zone in {"left", "right"}:
             return raw_zone
 
         x1, _, x2, _ = bbox
-        center = (x1 + x2) / 2
-        if self.source == CameraSource.SLAM1:
-            return "left" if center < 0 else "far_left"
-        if self.source == CameraSource.SLAM2:
-            return "right" if center > 0 else "far_right"
+        if frame_width and frame_width > 0:
+            center = (x1 + x2) / 2
+            if self.source == CameraSource.SLAM1:
+                return "far_left" if center < frame_width * 0.4 else "left"
+            if self.source == CameraSource.SLAM2:
+                return "right" if center < frame_width * 0.6 else "far_right"
         return raw_zone or "peripheral"
 
 
