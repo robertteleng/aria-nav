@@ -1,301 +1,321 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Navigation system for blind users using Meta Aria glasses - MAC SENDER VERSION
-Author: Roberto Rojas Sahuquillo
-Date: 2025-09  
-Version: 0.60 - Mac Sender to Jetson Processor
+Mac Sender - FIXED VERSION
+Corrección del formato IMU para compatibilidad total con Jetson receiver
 
-ARCHITECTURE:
-Mac (Aria SDK) → ImageZMQ → Jetson (Processing) → ImageZMQ → Mac (Display)
+PROBLEMA IDENTIFICADO:
+- Mac enviaba IMU como imagen pequeña codificada
+- Jetson esperaba datos serializados con pickle
+- Resultado: "invalid load key" y "double free or corruption"
+
+SOLUCIÓN:
+- Enviar IMU data como array numpy estructurado
+- Compatible con _decode_numpy_imu_array() del receiver
+- Mantener misma funcionalidad, formato correcto
 """
 
 import cv2
 import time
 import numpy as np
 import imagezmq
+import pickle
+from dataclasses import dataclass
+from typing import Optional
 from utils.ctrl_handler import CtrlCHandler
 from core.hardware.device_manager import DeviceManager
 from core.observer import Observer
 
+# =================================================================
+# DATA STRUCTURES (matching Jetson receiver)
+# =================================================================
+
+@dataclass
+class IMUData:
+    """Estructura optimizada para datos IMU"""
+    timestamp_ns: int
+    accel_x: float
+    accel_y: float
+    accel_z: float
+    magnitude: float
+    gyro_x: float = 0.0
+    gyro_y: float = 0.0
+    gyro_z: float = 0.0
+    imu_idx: int = 0
+
 
 class MacSender:
     """
-    Mac sender que captura desde Aria SDK y envía al Jetson para procesamiento
+    Bridge que usa DeviceManager + Observer existentes
+    y envía RGB + SLAM1 + SLAM2 + IMU al Jetson con formato compatible
     """
     
-    def __init__(self, jetson_ip="192.168.0.25", jetson_port=5555):
-        self.jetson_ip = jetson_ip
-        self.jetson_port = jetson_port
+    def __init__(self, jetson_ip="192.168.8.204", jetson_port=5555):
+        print("[MAC SENDER] Iniciando bridge Mac → Jetson (FIXED VERSION)...")
         
-        # ImageZMQ sender setup
+        # ImageZMQ sender
         self.sender = imagezmq.ImageSender(
-            connect_to=f"tcp://{jetson_ip}:{jetson_port}",
+            connect_to=f"tcp://{jetson_ip}:{jetson_port}"
         )
         
-        # Stats tracking
-        self.frames_sent = 0
-        self.start_time = time.time()
-        self.last_fps_time = time.time()
-        self.connection_errors = 0
+        # Componentes existentes
+        self.device_manager = None
+        self.observer = None
         
-        print(f"[SENDER] Configurado para enviar a Jetson: {jetson_ip}:{jetson_port}")
-
-    def send_frame_to_jetson(self, frame: np.ndarray, camera_id: str = "rgb") -> bool:
-        try:
-            # RESIZE TODOS los frames a tamaño estándar
-            frame = cv2.resize(frame, (640, 480))
-            
-            # Verificar que ahora está correcto
-            if frame.shape != (480, 640, 3):
-                print(f"[SENDER ERROR] Resize falló: {frame.shape}")
-                return False
-                
-            # Send frame with camera identifier
-            frame_id = f"aria_{camera_id}_{self.frames_sent}"
-            reply = self.sender.send_image(frame_id, frame)
-            
-            if reply == b'OK':
-                self.frames_sent += 1
-                return True
-            else:
-                print(f"[SENDER WARN] Respuesta inesperada del Jetson: {reply}")
-                return False
-                
-        except Exception as e:
-            self.connection_errors += 1
-            if self.connection_errors % 10 == 1:
-                print(f"[SENDER ERROR] Error enviando frame: {e}")
-            return False
-    
-    def print_sender_stats(self):
-        """Print estadísticas del sender"""
-        elapsed = time.time() - self.start_time
-        fps = self.frames_sent / elapsed if elapsed > 0 else 0
-        
-        print(f"[SENDER STATS] Frames enviados: {self.frames_sent}")
-        print(f"[SENDER STATS] FPS promedio: {fps:.1f}")
-        print(f"[SENDER STATS] Errores conexión: {self.connection_errors}")
-        print(f"[SENDER STATS] Tiempo activo: {elapsed:.1f}s")
-    
-    def close(self):
-        """Cerrar sender"""
-        try:
-            self.sender.close()
-        except:
-            pass
-
-
-class AriaObserverSender(Observer):
-    """
-    Observer modificado que envía frames al Jetson en lugar de procesarlos localmente
-    """
-    
-    def __init__(self, rgb_calib=None, jetson_ip="192.168.8.204"):
-        # Initialize parent Observer but WITHOUT coordinator (no local processing)
-        self.depth_estimator = None  # Disabled for sender mode
-        self.dashboard = None        # Disabled for sender mode (Jetson will process)
-        
-        # Mac sender specific setup
-        self.sender = MacSender(jetson_ip=jetson_ip)
-        
-        # Multi-camera frame storage (same as parent)
-        self.current_frames = {
-            'rgb': None,
-            'slam1': None,
-            'slam2': None
+        # Stats por tipo de stream
+        self.frames_sent = {
+            'rgb': 0,
+            'slam1': 0, 
+            'slam2': 0,
+            'imu': 0
         }
+        self.start_time = time.time()
         
-        # Processing state
-        self.frame_counts = {'rgb': 0, 'slam1': 0, 'slam2': 0}
-        self.send_counts = {'rgb': 0, 'slam1': 0, 'slam2': 0}
-        
-        # Latest frame for display (will come from Jetson eventually)
-        self.current_frame = None
-        
-        print("[SENDER OBSERVER] Initialized - Mode: Send to Jetson")
-        print("[SENDER OBSERVER] Local processing: DISABLED")
-        print("[SENDER OBSERVER] Target: All frames → Jetson")
+        print(f"[MAC SENDER] Conectando a Jetson: {jetson_ip}:{jetson_port}")
+        print("[MAC SENDER] FIXED: Compatible IMU format")
     
-    def on_image_received(self, image: np.array, record) -> None:
-        """
-        SDK callback modificado para enviar frames al Jetson
-        """
-        import aria.sdk as aria
+    def start(self):
+        """Inicia el sistema usando componentes existentes"""
+        print("[MAC SENDER] Configurando Aria SDK...")
         
-        camera_id = record.camera_id
+        # 1. DeviceManager exactamente igual
+        self.device_manager = DeviceManager()
+        self.device_manager.connect()
+        rgb_calib = self.device_manager.start_streaming()
         
-        # # Process and identify camera
-        # if camera_id == aria.CameraId.Rgb:
-        #     processed_image = self._process_rgb_image(image)
-        #     camera_key = 'rgb'
-        # elif camera_id == aria.CameraId.Slam1:
-        #     processed_image = self._process_slam_image(image)
-        #     camera_key = 'slam1'
-        # elif camera_id == aria.CameraId.Slam2:
-        #     processed_image = self._process_slam_image(image)
-        #     camera_key = 'slam2'
-        # else:
-        #     return  # Ignore other cameras
+        # 2. Observer exactamente igual (SIN dashboard para ahorrar recursos)
+        self.observer = Observer(rgb_calib=rgb_calib)
+        self.device_manager.register_observer(self.observer)
+        self.device_manager.subscribe()
         
-        # # Update counters
-        # self.frame_counts[camera_key] += 1
+        print("[MAC SENDER] ✅ Aria SDK configurado, iniciando envío compatible...")
         
-        # # Send to Jetson (priority: RGB > SLAM)
-        # if camera_key == 'rgb' or self.frame_counts[camera_key] % 3 == 0:  # Send all RGB, every 3rd SLAM
-        #     if self.sender.send_frame_to_jetson(processed_image, camera_key):
-        #         self.send_counts[camera_key] += 1
-        
-        # # Store for local display (until we get processed frames back)
-        # self.current_frames[camera_key] = processed_image
-        
-        # # Use RGB as main display
-        # if camera_key == 'rgb':
-        #     self.current_frame = processed_image
-        
-        # # Debug every 100 frames
-        # if self.frame_counts[camera_key] % 100 == 0:
-        #     print(f"[SENDER] {camera_key.upper()}: received={self.frame_counts[camera_key]}, sent={self.send_counts[camera_key]}")
+        # 3. Loop de envío con formato corregido
+        self._sending_loop()
     
+    def _create_compatible_imu_array(self, motion_data: dict) -> np.ndarray:
+        """
+        CORREGIDO: Crear array numpy compatible con _decode_numpy_imu_array()
+        
+        Format esperado por Jetson receiver:
+        [timestamp_ns, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, imu_idx]
+        """
+        # Extraer datos del motion state
+        magnitude = motion_data.get('magnitude', 9.8)
+        state = motion_data.get('state', 'stationary')
+        
+        # Timestamp actual en nanosegundos
+        timestamp_ns = int(time.time() * 1e9)
+        
+        # Descomponer magnitude en componentes X,Y,Z realistas
+        # Aria típicamente tiene orientación Y dominante
+        accel_x = magnitude * 0.1   # Componente X mínima
+        accel_y = magnitude * 0.95  # Componente Y principal (gravedad)
+        accel_z = magnitude * 0.1   # Componente Z mínima
+        
+        # Gyro simulado (Observer no tiene gyro real)
+        gyro_x = 0.0
+        gyro_y = 0.0
+        gyro_z = 0.0
+        
+        # IMU index (siempre 0 para IMU principal)
+        imu_idx = 0
+        
+        # Crear array compatible con receiver
+        imu_array = np.array([
+            timestamp_ns,  # [0] timestamp
+            accel_x,       # [1] accel_x
+            accel_y,       # [2] accel_y  
+            accel_z,       # [3] accel_z
+            gyro_x,        # [4] gyro_x
+            gyro_y,        # [5] gyro_y
+            gyro_z,        # [6] gyro_z
+            imu_idx        # [7] imu_idx
+        ], dtype=np.float64)
+        
+        return imu_array
+    
+    def _create_pickled_imu_data(self, motion_data: dict) -> np.ndarray:
+        """
+        ALTERNATIVA: Crear IMUData serializado con pickle
+        Para compatibilidad total con receiver
+        """
+        magnitude = motion_data.get('magnitude', 9.8)
+        timestamp_ns = int(time.time() * 1e9)
+        
+        # Crear IMUData estructurado
+        imu_data = IMUData(
+            timestamp_ns=timestamp_ns,
+            accel_x=magnitude * 0.1,
+            accel_y=magnitude * 0.95,
+            accel_z=magnitude * 0.1,
+            magnitude=magnitude,
+            gyro_x=0.0,
+            gyro_y=0.0,
+            gyro_z=0.0,
+            imu_idx=0
+        )
+        
+        # Serializar con pickle y convertir a ndarray
+        serialized = pickle.dumps(imu_data)
+        return np.frombuffer(serialized, dtype=np.uint8).copy()
+    
+    def _sending_loop(self):
+        """Loop principal CORREGIDO con formato IMU compatible"""
+        print("[MAC SENDER] 🚀 Loop compatible activo...")
+        
+        ctrl_handler = CtrlCHandler()
+        last_stats_time = time.time()
 
-        if camera_id == aria.CameraId.Rgb:
-            processed_image = self._process_rgb_image(image)
-            camera_key = 'rgb'
+        try:
+            while not ctrl_handler.should_stop:
+                try:
+                    # 1. ENVIAR RGB FRAME (principal)
+                    rgb_frame = self.observer.get_latest_frame()
+                    if rgb_frame is not None:
+                        reply = self.sender.send_image("mac_rgb", rgb_frame)
+                        self.frames_sent['rgb'] += 1
+
+                    # 2. ENVIAR SLAM FRAMES
+                    all_frames = self.observer.get_all_frames()
+
+                    if 'slam1' in all_frames and all_frames['slam1'] is not None:
+                        reply = self.sender.send_image("mac_slam1", all_frames['slam1'])
+                        self.frames_sent['slam1'] += 1
+
+                    if 'slam2' in all_frames and all_frames['slam2'] is not None:
+                        reply = self.sender.send_image("mac_slam2", all_frames['slam2'])
+                        self.frames_sent['slam2'] += 1
+
+                    # 3. ENVIAR IMU DATA - FORMATO CORREGIDO
+                    motion_data = self.observer.get_motion_state()
+                    if motion_data is not None:
+                        # OPCIÓN A: Array numpy compatible
+                        imu_array = self._create_compatible_imu_array(motion_data)
+                        reply = self.sender.send_image("mac_imu", imu_array)
+                        self.frames_sent['imu'] += 1
+
+                        # DEBUG: Verificar formato enviado
+                        if self.frames_sent['imu'] % 50 == 1:  # Cada 50 frames
+                            print(f"[MAC SENDER] 🔍 IMU format sent:")
+                            print(f"  Shape: {imu_array.shape}")
+                            print(f"  Dtype: {imu_array.dtype}")
+                            print(f"  Data: {imu_array[:4]}...")  # Primera mitad
+                            print(f"  Magnitude: {motion_data['magnitude']:.3f}")
+
+                    # Stats cada 5 segundos
+                    current_time = time.time()
+                    if current_time - last_stats_time >= 5.0:
+                        elapsed = current_time - self.start_time
+
+                        total_frames = sum(self.frames_sent.values())
+                        fps = total_frames / elapsed if elapsed > 0 else 0
+
+                        print(f"[MAC SENDER] 📊 Frames enviados (FIXED FORMAT):")
+                        print(f"  RGB: {self.frames_sent['rgb']}")
+                        print(f"  SLAM1: {self.frames_sent['slam1']}")
+                        print(f"  SLAM2: {self.frames_sent['slam2']}")
+                        print(f"  IMU: {self.frames_sent['imu']} (compatible format)")
+                        print(f"  Total FPS: {fps:.1f}")
+
+                        last_stats_time = current_time
+
+                    # Rate limiting 
+                    time.sleep(1/30)  # ~30 FPS máximo
+
+                except Exception as e:
+                    print(f"[MAC SENDER] ⚠️ Error enviando frames: {e}")
+                    time.sleep(0.1)
+
+        finally:
+            print("[MAC SENDER] 🛑 Cerrando sender...")
+            self._cleanup()
+    
+    def _cleanup(self):
+        """Cleanup usando métodos existentes"""
+        try:
+            if self.observer:
+                self.observer.stop()
             
-            # Update counters
-            self.frame_counts[camera_key] += 1
+            if self.device_manager:
+                self.device_manager.cleanup()
             
-            # Enviar TODOS los frames RGB
-            if self.sender.send_frame_to_jetson(processed_image, camera_key):
-                self.send_counts[camera_key] += 1
+            if self.sender:
+                self.sender.close()
             
-            # Store for local display
-            self.current_frames[camera_key] = processed_image
-            self.current_frame = processed_image
+            duration = (time.time() - self.start_time) / 60.0
+            total_frames = sum(self.frames_sent.values())
+            print(f"[MAC SENDER] ✅ Sesión terminada: {duration:.1f}min")
+            print(f"  RGB: {self.frames_sent['rgb']} frames")
+            print(f"  SLAM1: {self.frames_sent['slam1']} frames") 
+            print(f"  SLAM2: {self.frames_sent['slam2']} frames")
+            print(f"  IMU: {self.frames_sent['imu']} packets (FIXED)")
+            print(f"  Total: {total_frames} transmissions")
             
-            # Debug every 100 frames
-            if self.frame_counts[camera_key] % 100 == 0:
-                print(f"[SENDER] {camera_key.upper()}: received={self.frame_counts[camera_key]}, sent={self.send_counts[camera_key]}")
-    def _process_rgb_image(self, image: np.array) -> np.array:
-        """Procesamiento RGB consistente con Observer base"""
-        return super()._process_rgb_image(image)
+        except Exception as e:
+            print(f"[MAC SENDER] ⚠️ Error en cleanup: {e}")
+
+
+def test_imu_format():
+    """Test específico del formato IMU corregido"""
+    print("🧪 Testing FIXED IMU format...")
     
-    def _process_slam_image(self, image: np.array) -> np.array:
-        """Procesamiento SLAM consistente con Observer base"""
-        return super()._process_slam_image(image)
+    # Simular motion data del Observer
+    mock_motion_data = {
+        'magnitude': 9.85,
+        'state': 'walking'
+    }
     
-    def get_latest_frame(self):
-        """Get most recent frame for display"""
-        return self.current_frame
+    sender = MacSender()
     
-    def print_stats(self):
-        """Print sender statistics"""
-        print(f"[SENDER STATS] Frame counts: {self.frame_counts}")
-        print(f"[SENDER STATS] Send counts: {self.send_counts}")
-        self.sender.print_sender_stats()
+    # Test formato array
+    imu_array = sender._create_compatible_imu_array(mock_motion_data)
+    print(f"✅ Array format:")
+    print(f"  Shape: {imu_array.shape}")
+    print(f"  Dtype: {imu_array.dtype}")
+    print(f"  Data: {imu_array}")
     
-    def stop(self):
-        """Stop sender"""
-        print("[SENDER] Cerrando sender...")
-        self.sender.close()
+    # Test formato pickle
+    imu_pickled = sender._create_pickled_imu_data(mock_motion_data)
+    print(f"✅ Pickled format:")
+    print(f"  Shape: {imu_pickled.shape}")
+    print(f"  Dtype: {imu_pickled.dtype}")
+    print(f"  Size: {imu_pickled.size} bytes")
     
-    def test_audio(self):
-        """Audio testing disabled in sender mode"""
-        print("[SENDER] Audio testing deshabilitado - se maneja en Jetson")
+    print("✅ Formato IMU test completado")
 
 
 def main():
-    """
-    Main modificado: Mac Sender que envía todo al Jetson
-    """
+    """Entry point del Mac Sender CORREGIDO"""
     print("=" * 60)
-    print("ARIA MAC SENDER: Frames to Jetson for processing")
+    print("MAC SENDER - FIXED VERSION")
+    print("Bridge Aria → Jetson con formato IMU compatible")
+    print("Corrige: 'invalid load key' y 'double free or corruption'")
     print("=" * 60)
     
-    # Setup clean exit handler
-    ctrl_handler = CtrlCHandler()
-
-    # Jetson configuration
-    jetson_ip = input("IP del Jetson [192.168.8.204]: ").strip() or "192.168.8.204"
+    # Test formato antes de enviar
+    test_option = input("¿Ejecutar test de formato IMU primero? (y/n): ").lower()
+    if test_option == 'y':
+        test_imu_format()
+        print()
     
-    print(f"[MAIN] Configurando sender para Jetson: {jetson_ip}")
-    
-    # Core components
-    device_manager = None
-    observer = None
+    # Configuración Jetson
+    jetson_ip = input("IP del Jetson [192.168.8.204]: ").strip()
+    if not jetson_ip:
+        jetson_ip = "192.168.8.204"
     
     try:
-        # 1. Device connection and streaming setup (same as before)
-        device_manager = DeviceManager()
-        device_manager.connect()
-        rgb_calib = device_manager.start_streaming()
-        
-        # 2. Observer setup - SENDER VERSION (no local processing)
-        observer = AriaObserverSender(rgb_calib=rgb_calib, jetson_ip=jetson_ip)
-        device_manager.register_observer(observer)
-        device_manager.subscribe()
-        
-        # 3. Simple display loop (raw frames until Jetson integration complete)
-        window_name = "Aria Mac Sender - Raw Frames"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 800, 600)
-        
-        print("[INFO] Mac Sender active - sending to Jetson")
-        print("[INFO] Display shows RAW frames (processed frames from Jetson coming soon)")
-        print("[INFO] Press 'q' to quit or Ctrl+C")
-        
-        frames_displayed = 0
-        last_stats_time = time.time()
-        
-        while not ctrl_handler.should_stop:
-            current_frame = observer.get_latest_frame()
-            
-            if current_frame is not None:
-                # Simple display (will be replaced by processed frames from Jetson)
-                cv2.imshow(window_name, current_frame)
-                frames_displayed += 1
-                
-                # Add sender info overlay
-                if frames_displayed % 30 == 0:  # Every 30 frames
-                    info_text = f"Frames sent: RGB={observer.send_counts['rgb']} SLAM1={observer.send_counts['slam1']} SLAM2={observer.send_counts['slam2']}"
-                    print(f"[INFO] {info_text}")
-            
-            # Stats every 10 seconds
-            if time.time() - last_stats_time > 10.0:
-                observer.print_stats()
-                last_stats_time = time.time()
-            
-            # UI handling
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                print("[INFO] 'q' detected, closing sender...")
-                break
-            elif key == ord('s'):
-                observer.print_stats()
-        
-        # Final statistics
-        print("\n" + "=" * 40)
-        print("SENDER SESSION COMPLETE")
-        observer.print_stats()
+        sender = MacSender(jetson_ip=jetson_ip)
+        sender.start()
         
     except KeyboardInterrupt:
-        print("\n[INFO] Keyboard interrupt detected")
-        
+        print("\n[MAC SENDER] 🛑 Interrumpido por usuario")
     except Exception as e:
-        print(f"[ERROR] Error during sender execution: {e}")
+        print(f"[MAC SENDER] ❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        
     finally:
-        # Cleanup
-        print("[INFO] Starting sender cleanup...")
-        
-        if observer:
-            observer.stop()
-        
-        if device_manager:
-            device_manager.cleanup()
-        
-        cv2.destroyAllWindows()
-        print("[INFO] Mac Sender finished successfully")
+        print("[MAC SENDER] 👋 Programa terminado")
 
 
 if __name__ == "__main__":

@@ -13,3 +13,5 @@ class CtrlCHandler:
         """Callback executed when Ctrl+C is detected"""
         print("\n[INFO] Interrupt signal detected, closing cleanly...")
         self.should_stop = True
+        # Re-emit default Ctrl+C behaviour so blocking calls exit promptly
+        signal.default_int_handler(sig, frame)
