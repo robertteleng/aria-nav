@@ -49,7 +49,7 @@ class Config:
     DEPTH_FRAME_SKIP = 3        # Profundidad cada 3 frames para equilibrar rendimiento
     DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
     DEPTH_ANYTHING_VARIANT = "Small"
-    DEPTH_INPUT_SIZE = 384
+    DEPTH_INPUT_SIZE = 256
     
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"

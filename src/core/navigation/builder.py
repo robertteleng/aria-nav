@@ -7,8 +7,8 @@
 from core.vision.yolo_processor import YoloProcessor
 from core.audio.audio_system import AudioSystem
 from presentation.renderers.frame_renderer import FrameRenderer
-from vision.image_enhancer import ImageEnhancer
-from navigation.coordinator import Coordinator
+from core.vision.image_enhancer import ImageEnhancer
+from core.navigation.coordinator import Coordinator
 
 class Builder:
     """Builder que crea todas las dependencias del sistema"""
