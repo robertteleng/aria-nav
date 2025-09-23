@@ -3,6 +3,8 @@ import numpy as np
 import time
 from typing import Dict, List, Optional
 
+from utils.config import Config
+
 
 class OpenCVDashboard:
     """
@@ -18,6 +20,7 @@ class OpenCVDashboard:
         self.frame_count = 0
         self.last_fps_update = time.time()
         self.current_fps = 0.0
+        self._frame_skip_multiplier = max(1, getattr(Config, "YOLO_FRAME_SKIP", 1))
         self.audio_commands_sent = 0
         self.total_detections = 0
 
@@ -120,8 +123,10 @@ class OpenCVDashboard:
         
         # Métricas
         uptime = current_time - self.start_time
+        fps_display = min(self.current_fps * self._frame_skip_multiplier, float(Config.TARGET_FPS))
+
         metrics = [
-            f"FPS: {self.current_fps:.1f}",
+            f"FPS: {fps_display:.1f}",
             f"Detections: {self.total_detections}",
             f"Audio Commands: {self.audio_commands_sent}",
             f"Uptime: {uptime/60:.1f} min"

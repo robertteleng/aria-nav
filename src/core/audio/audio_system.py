@@ -86,22 +86,29 @@ class AudioSystem:
     
     def _generate_command(self, detection: dict) -> Optional[str]:
         """Generate simple directional command"""
+        name = (
+            detection.get('spanish_name')
+            or detection.get('name')
+            or detection.get('class')
+            or 'obstáculo'
+        )
+
         zone_mapping = {
-            'center': 'center',
-            'top_left': 'upper left',
-            'top_right': 'upper right', 
-            'bottom_left': 'lower left',
-            'bottom_right': 'lower right'
+            'center': 'centro',
+            'left': 'izquierda',
+            'right': 'derecha',
+            'top_left': 'arriba a la izquierda',
+            'top_right': 'arriba a la derecha',
+            'bottom_left': 'abajo a la izquierda',
+            'bottom_right': 'abajo a la derecha',
         }
-        
-        zone_text = zone_mapping.get(detection['zone'], 'center')
+
+        zone_text = zone_mapping.get(detection.get('zone', 'center'), 'centro')
         distance = detection.get('distance', '')
-        
-        # AÑADIR LA DISTANCIA AL MENSAJE:
+
         if distance:
-            return f"{detection['name']} {distance} {zone_text}"
-        else:
-            return f"{detection['name']} {zone_text}"
+            return f"{name} {distance} a la {zone_text}" if zone_text != 'centro' else f"{name} {distance} en el centro"
+        return f"{name} a la {zone_text}" if zone_text != 'centro' else f"{name} en el centro"
     
     def _should_announce(self, phrase: str) -> bool:
         """Decide if we should speak now based on cooldown and phrase changes"""

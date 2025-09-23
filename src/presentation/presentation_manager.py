@@ -19,6 +19,7 @@ import cv2
 import time
 import threading
 import numpy as np
+import webbrowser
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
@@ -107,6 +108,9 @@ class PresentationManager:
                 self.dashboard = WebDashboard()
                 try:
                     self.dashboard_server_thread = self.dashboard.start_server()
+                    url = f"http://localhost:{self.dashboard.port}"
+                    webbrowser.open(url, new=2)
+                    print(f"  🌐 Web dashboard abierto en navegador: {url}")
                 except Exception as server_err:
                     print(f"  ⚠️ Web dashboard server failed: {server_err}")
                     self.dashboard = None

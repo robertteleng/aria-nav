@@ -91,6 +91,18 @@ class Coordinator:
                 print(f"[WARN] Depth estimator init failed: {err}")
                 self.depth_estimator = None
 
+        self.profile_enabled = getattr(Config, 'PROFILE_PIPELINE', False)
+        self.profile_window = max(1, getattr(Config, 'PROFILE_WINDOW_FRAMES', 30))
+        self._profile_acc = {
+            'enhance': 0.0,
+            'depth': 0.0,
+            'yolo': 0.0,
+            'nav_audio': 0.0,
+            'render': 0.0,
+            'total': 0.0,
+        }
+        self._profile_frames = 0
+
         print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
         print(f"  - Audio: {type(self.audio_system).__name__}")
@@ -111,7 +123,10 @@ class Coordinator:
         """
         self.frames_processed += 1
 
+        total_start = time.perf_counter() if self.profile_enabled else 0.0
+
         # 0. Optional low-light enhancement
+        enhance_start = time.perf_counter() if self.profile_enabled else 0.0
         processed_frame = frame
         if self.image_enhancer is not None:
             try:
@@ -119,8 +134,11 @@ class Coordinator:
             except Exception as err:
                 print(f"[WARN] Image enhancement skipped: {err}")
                 processed_frame = frame
+        if self.profile_enabled:
+            self._profile_acc['enhance'] += time.perf_counter() - enhance_start
 
         # 1. Depth estimation (opcional)
+        depth_start = time.perf_counter() if self.profile_enabled else 0.0
         depth_map = None
         if self.depth_estimator is not None and getattr(self.depth_estimator, 'model', None) is not None:
             try:
@@ -131,17 +149,26 @@ class Coordinator:
                 depth_map = self.latest_depth_map
             except Exception as err:
                 print(f"[WARN] Depth estimation skipped: {err}")
+        if self.profile_enabled:
+            self._profile_acc['depth'] += time.perf_counter() - depth_start
 
         # 2. YOLO Detection
+        yolo_start = time.perf_counter() if self.profile_enabled else 0.0
         detections = self.yolo_processor.process_frame(processed_frame, depth_map)
+        if self.profile_enabled:
+            self._profile_acc['yolo'] += time.perf_counter() - yolo_start
 
         # 3. Navigation Analysis
+        nav_start = time.perf_counter() if self.profile_enabled else 0.0
         navigation_objects = self._analyze_navigation_objects(detections)
 
         # 4. Audio Commands (con motion-aware cooldown)
         self._generate_audio_commands(navigation_objects, motion_state)
+        if self.profile_enabled:
+            self._profile_acc['nav_audio'] += time.perf_counter() - nav_start
 
         # 5. Frame Rendering (si está disponible)
+        render_start = time.perf_counter() if self.profile_enabled else 0.0
         annotated_frame = processed_frame
         if self.frame_renderer is not None:
             try:
@@ -151,6 +178,8 @@ class Coordinator:
             except Exception as err:
                 print(f"[WARN] Frame rendering skipped: {err}")
                 annotated_frame = processed_frame
+        if self.profile_enabled:
+            self._profile_acc['render'] += time.perf_counter() - render_start
 
         # 6. Dashboard Update (si está disponible)
         if self.dashboard:
@@ -163,7 +192,26 @@ class Coordinator:
         # Guardar estado actual
         self.current_detections = detections
 
+        if self.profile_enabled:
+            self._profile_acc['total'] += time.perf_counter() - total_start
+            self._profile_frames += 1
+            if self._profile_frames >= self.profile_window:
+                self._log_profile_metrics()
+
         return annotated_frame
+
+    def _log_profile_metrics(self) -> None:
+        frame_count = max(1, self._profile_frames)
+        averaged = {
+            key: (value / frame_count) * 1000.0 for key, value in self._profile_acc.items()
+        }
+        print(
+            "[PROFILE] enhance={enhance:.1f}ms | depth={depth:.1f}ms | yolo={yolo:.1f}ms | "
+            "nav+audio={nav_audio:.1f}ms | render={render:.1f}ms | total={total:.1f}ms".format(**averaged)
+        )
+        for key in self._profile_acc:
+            self._profile_acc[key] = 0.0
+        self._profile_frames = 0
 
     def get_latest_depth_map(self) -> Optional[np.ndarray]:
         """Obtener el último depth map estimado"""

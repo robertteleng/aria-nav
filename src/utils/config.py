@@ -6,8 +6,13 @@ class Config:
     # Video processing
     TARGET_FPS = 30
     YOLO_MODEL = "yolo12n.pt"
-    YOLO_CONFIDENCE = 0.45
-    YOLO_DEVICE = "cpu"  # Avoid MPS bug
+    YOLO_CONFIDENCE = 0.50
+    YOLO_DEVICE = "mps"  # Avoid MPS bug
+    YOLO_IMAGE_SIZE = 320
+    YOLO_MAX_DETECTIONS = 12
+    YOLO_IOU_THRESHOLD = 0.45
+    YOLO_FRAME_SKIP = 2
+    YOLO_FORCE_MPS = True
     
     # Audio system
     TTS_RATE = 190
@@ -39,9 +44,12 @@ class Config:
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
-    MIDAS_DEVICE = "cpu"         # Evitar problemas MPS
-    DEPTH_ENABLED = True        # DESACTIVADO por rendimiento (CPU-only)
-    DEPTH_FRAME_SKIP = 1        # Profundidad: 1=tiempo real, subir valor para reducir carga
+    MIDAS_DEVICE = "mps"         # Evitar problemas MPS
+    DEPTH_ENABLED = True        # Activar profundidad con MPS
+    DEPTH_FRAME_SKIP = 3        # Profundidad cada 3 frames para equilibrar rendimiento
+    DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
+    DEPTH_ANYTHING_VARIANT = "Small"
+    DEPTH_INPUT_SIZE = 384
     
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
@@ -71,3 +79,7 @@ class Config:
     ENHANCEMENT_DEBUG = True        # Show debug messages
     CLAHE_CLIP_LIMIT = 3.0         # Contrast enhancement strength
     CLAHE_TILE_SIZE = (8, 8)       # CLAHE tile grid size
+
+    # Profiling
+    PROFILE_PIPELINE = True
+    PROFILE_WINDOW_FRAMES = 30

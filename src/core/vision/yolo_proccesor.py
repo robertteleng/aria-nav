@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torchvision
+import time
 from typing import List
 from ultralytics import YOLO
 
@@ -62,6 +63,10 @@ class YoloProcessor:
         self.latest_detections: List[dict] = []
         self._cached_results = None
         self._frame_index = 0
+        self._profile = getattr(Config, "PROFILE_PIPELINE", False)
+        self._inference_acc = 0.0
+        self._post_acc = 0.0
+        self._profile_frames = 0
 
         self.navigation_objects = {
             "person": {"priority": 1.0, "name": "person"},
@@ -89,6 +94,7 @@ class YoloProcessor:
             run_inference = self._frame_index % self.frame_skip == 0 or self._cached_results is None
 
             if run_inference:
+                start_inf = time.perf_counter() if self._profile else 0.0
                 results = self.model.predict(
                     source=frame,
                     device=self.device_str,
@@ -99,11 +105,19 @@ class YoloProcessor:
                     verbose=False,
                     stream=False,
                 )
+                if self._profile:
+                    self._inference_acc += time.perf_counter() - start_inf
                 self._cached_results = results
             else:
                 results = self._cached_results
 
+            post_start = time.perf_counter() if self._profile else 0.0
             detected_objects = self._analyze_detections(results, frame.shape[1], depth_map)
+            if self._profile:
+                self._post_acc += time.perf_counter() - post_start
+                self._profile_frames += 1
+                if self._profile_frames >= getattr(Config, "PROFILE_WINDOW_FRAMES", 30):
+                    self._log_local_profile()
 
             detections: List[dict] = []
             for obj in detected_objects:
@@ -128,6 +142,15 @@ class YoloProcessor:
         except Exception as exc:  # noqa: BLE001
             print(f"[WARN] YOLO processing failed: {exc}")
             return []
+
+    def _log_local_profile(self) -> None:
+        frames = max(1, self._profile_frames)
+        inf_ms = (self._inference_acc / frames) * 1000.0
+        post_ms = (self._post_acc / frames) * 1000.0
+        print(f"[PROFILE][YOLO] inference={inf_ms:.1f}ms | post={post_ms:.1f}ms | imgsz={self.img_size}")
+        self._inference_acc = 0.0
+        self._post_acc = 0.0
+        self._profile_frames = 0
 
     def _analyze_detections(
         self,
