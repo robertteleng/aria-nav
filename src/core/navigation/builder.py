@@ -4,12 +4,8 @@
 🏗️ Simple Builder Pattern - TFM Navigation System
 """
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from vision.yolo_proccesor import YoloProcessor
-from audio.audio_system import AudioSystem
+from core.vision.yolo_processor import YoloProcessor
+from core.audio.audio_system import AudioSystem
 from presentation.renderers.frame_renderer import FrameRenderer
 from vision.image_enhancer import ImageEnhancer
 from navigation.coordinator import Coordinator
