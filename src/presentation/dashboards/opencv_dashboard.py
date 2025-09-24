@@ -255,9 +255,8 @@ class OpenCVDashboard:
         
         self.update_counter += 1
         
-        # Solo recomponer canvas cada 3 frames (reduce carga)
-        if self.update_counter % 3 == 0:
-            self._compose_canvas()
+        # Recompose canvas on every call so FPS matches real processing rate
+        self._compose_canvas()
         # Actualizar métricas cada 30 frames (~1 segundo)
         if self.update_counter % 30 == 0:
             self.log_performance_metrics()

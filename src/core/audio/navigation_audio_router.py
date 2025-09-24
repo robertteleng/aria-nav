@@ -34,9 +34,10 @@ class NavigationAudioRouter:
 
     def __init__(self, audio_system: AudioSystem) -> None:
         self.audio = audio_system
-        self.event_queue: "queue.PriorityQueue[tuple[int, NavigationEvent]]" = queue.PriorityQueue(maxsize=16)
+        self.event_queue: "queue.PriorityQueue[tuple[int, int, NavigationEvent | None]]" = queue.PriorityQueue(maxsize=16)
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._counter = 0
 
         self._last_global_announcement = 0.0
         self._last_source_announcement: dict[CameraSource, float] = {}
@@ -60,6 +61,7 @@ class NavigationAudioRouter:
         if self._running:
             return
         self._running = True
+        self._counter = 0
         self._thread = threading.Thread(target=self._run, name="NavigationAudioRouter", daemon=True)
         self._thread.start()
 
@@ -68,9 +70,10 @@ class NavigationAudioRouter:
             return
         self._running = False
         try:
-            self.event_queue.put_nowait((EventPriority.LOW.value, None))  # type: ignore[arg-type]
+            self.event_queue.put_nowait((EventPriority.LOW.value, self._counter, None))
         except queue.Full:
             pass
+        self._counter += 1
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
 
@@ -80,7 +83,8 @@ class NavigationAudioRouter:
 
     def enqueue(self, event: NavigationEvent) -> None:
         try:
-            self.event_queue.put_nowait((event.priority.value, event))
+            self.event_queue.put_nowait((event.priority.value, self._counter, event))
+            self._counter += 1
         except queue.Full:
             self.events_dropped += 1
 
@@ -101,7 +105,7 @@ class NavigationAudioRouter:
     def _run(self) -> None:
         while self._running:
             try:
-                priority, event = self.event_queue.get(timeout=0.5)
+                priority, _order, event = self.event_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 

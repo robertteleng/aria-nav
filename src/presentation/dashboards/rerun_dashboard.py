@@ -34,6 +34,10 @@ class RerunDashboard:
         self.frame_index = 0
         # Modo de visualización SLAM: "side_by_side" (por defecto) o "overlay"
         self.slam_mode = slam_mode if slam_mode in ("side_by_side", "overlay") else "side_by_side"
+        self._last_slam1: Optional[np.ndarray] = None
+        self._last_slam2: Optional[np.ndarray] = None
+        self._last_slam1_events: List[Dict] = []
+        self._last_slam2_events: List[Dict] = []
 
         # --- Intento de layout 2x3 fijo con API moderna ---
         try:
@@ -41,15 +45,15 @@ class RerunDashboard:
             blueprint = rr.blueprint(
                 rr.Vertical(
                     rr.Horizontal(
-                        rr.Spatial2DView(origin="panels/camera_rgb", name="RGB + YOLO"),
-                        rr.Spatial2DView(origin="panels/depth_map", name="Depth Map"),
-                        rr.Spatial2DView(origin="panels/slam", name="SLAM1+SLAM2"),
+                        rr.Spatial2DView(origin=self.RGB_PATH, name="RGB + YOLO"),
+                        rr.Spatial2DView(origin=self.DEPTH_PATH, name="Depth Map"),
+                        rr.Spatial2DView(origin=self.SLAM_PATH, name="SLAM"),
                         name="Top Row",
                     ),
                     rr.Horizontal(
-                        rr.TextLogView(origin="panels/system_logs", name="Logs"),
-                        rr.TimeSeriesView(origin="panels/metrics", name="Metrics"),
-                        rr.TimeSeriesView(origin="panels/acceleration", name="Acceleration"),
+                        rr.TextLogView(origin=self.LOGS_PATH, name="Logs"),
+                        rr.TimeSeriesView(origin=self.METRICS_PATH, name="Metrics"),
+                        rr.TimeSeriesView(origin=self.MOTION_PATH, name="Motion"),
                         name="Bottom Row",
                     ),
                     name="TFM Navigation Dashboard (2x3)",
@@ -60,12 +64,12 @@ class RerunDashboard:
             # Intento 2: blueprint plano (sin contenedores). El viewer suele generar grid automáticamente.
             try:
                 flat = rr.blueprint(
-                    rr.Spatial2DView(origin="panels/camera_rgb", name="RGB + YOLO"),
-                    rr.Spatial2DView(origin="panels/depth_map", name="Depth Map"),
-                    rr.Spatial2DView(origin="panels/slam", name="SLAM1+SLAM2"),
-                    rr.TextLogView(origin="panels/system_logs", name="Logs"),
-                    rr.TimeSeriesView(origin="panels/metrics", name="Metrics"),
-                    rr.TimeSeriesView(origin="panels/acceleration", name="Acceleration"),
+                    rr.Spatial2DView(origin=self.RGB_PATH, name="RGB + YOLO"),
+                    rr.Spatial2DView(origin=self.DEPTH_PATH, name="Depth Map"),
+                    rr.Spatial2DView(origin=self.SLAM_PATH, name="SLAM"),
+                    rr.TextLogView(origin=self.LOGS_PATH, name="Logs"),
+                    rr.TimeSeriesView(origin=self.METRICS_PATH, name="Metrics"),
+                    rr.TimeSeriesView(origin=self.MOTION_PATH, name="Motion"),
                 )
                 rr.send_blueprint(flat)
                 print("[DEBUG] Applied flat blueprint (no containers).")
@@ -75,12 +79,12 @@ class RerunDashboard:
             print(f"[DEBUG] Could not set blueprint layout ({e}). Using auto layout.")
 
         print("[DASHBOARD] Layout 2x3 listo:")
-        print("  panels/camera_rgb: RGB + YOLO detecciones")
-        print("  panels/depth_map: Depth Map")
-        print("  panels/slam: SLAM1+SLAM2 (composición)")
-        print("  panels/system_logs: Logs del sistema")
-        print("  panels/metrics: Métricas (Scalars)")
-        print("  panels/acceleration: Aceleración (Scalars)")
+        print(f"  {self.RGB_PATH}: RGB + YOLO detecciones")
+        print(f"  {self.DEPTH_PATH}: Depth Map")
+        print(f"  {self.SLAM_PATH}: SLAM1+SLAM2 (composición)")
+        print(f"  {self.LOGS_PATH}: Logs del sistema")
+        print(f"  {self.METRICS_PATH}: Métricas (Scalars)")
+        print(f"  {self.MOTION_PATH}: Aceleración / Movimiento")
 
     # ---------------------- UTILIDADES ----------------------
     def _ts(self) -> float:
@@ -99,8 +103,11 @@ class RerunDashboard:
     def _ensure_rgb(img: np.ndarray) -> np.ndarray:
         if img is None:
             return img
+        if img.ndim == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        if img.ndim == 3 and img.shape[2] == 1:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         if img.ndim == 3 and img.shape[2] == 3:
-            # Asumimos BGR (OpenCV) → RGB
             return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return img
 
@@ -128,10 +135,54 @@ class RerunDashboard:
         right_r = resize_h(img_right, target_h)
         return np.hstack([left_r, right_r])
 
+    @staticmethod
+    def _draw_slam_events(frame: np.ndarray, events: List[Dict], color: tuple) -> np.ndarray:
+        if frame is None or not events:
+            return frame
+        if frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        elif frame.ndim == 3 and frame.shape[2] == 1:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+        height, width = frame.shape[:2]
+
+        for event in events:
+            bbox = event.get('bbox')
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            x1 = max(0, min(width - 1, x1))
+            x2 = max(0, min(width - 1, x2))
+            y1 = max(0, min(height - 1, y1))
+            y2 = max(0, min(height - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = event.get('name', 'obj')
+            distance = event.get('distance')
+            if distance and distance not in {'', 'unknown'}:
+                label = f"{label} {distance}"
+            cv2.putText(
+                frame,
+                label,
+                (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
+        return frame
+
+    def _append_slam_message(self, message: str) -> None:
+        if not message:
+            return
+        self.log_system_message(f"SLAM: {message}", level="SLAM")
+
     # ---------------------- LOGGING PANELES ----------------------
     def log_rgb_frame(self, frame: np.ndarray):
         self._advance_frame_time()
-        rr.log("panels/camera_rgb/image", rr.Image(self._ensure_rgb(frame)))
+        rr.log(f"{self.RGB_PATH}/image", rr.Image(self._ensure_rgb(frame)))
         self.frame_count += 1
 
     def log_detections(self, *args, **kwargs):
@@ -167,7 +218,7 @@ class RerunDashboard:
             return
 
         rr.log(
-            "panels/camera_rgb/dets",
+            f"{self.RGB_PATH}/dets",
             rr.Boxes2D(array=boxes, array_format=rr.Box2DFormat.XYWH, labels=labels, colors=colors),
         )
         self.total_detections += n
@@ -203,6 +254,20 @@ class RerunDashboard:
 
         boxes, labels, colors = [], [], []
 
+        def spanish_name(name: str) -> str:
+            mapping = {
+                'person': 'Persona',
+                'car': 'Coche',
+                'truck': 'Camión',
+                'bus': 'Autobús',
+                'bicycle': 'Bicicleta',
+                'motorcycle': 'Moto',
+                'stop sign': 'Señal de stop',
+                'traffic light': 'Semáforo',
+            }
+            key = name.lower()
+            return mapping.get(key, name.capitalize())
+
         def to_xywh_from_xyxy(row):
             x1, y1, x2, y2 = map(float, row[:4])
             return [x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)]
@@ -221,7 +286,8 @@ class RerunDashboard:
                     xywh = [float(x), float(y), float(w), float(h)]
                 else:
                     continue
-                name = str(det.get('name', det.get('class', 'object'))).upper()
+                raw_name = str(det.get('name', det.get('class', 'object')))
+                name = spanish_name(raw_name)
                 zone = str(det.get('zone', ''))
                 conf = float(det.get('confidence', det.get('conf', 0.0)))
                 pri = int(det.get('priority', 0))
@@ -230,11 +296,15 @@ class RerunDashboard:
                 xywh = to_xywh_from_xyxy(det)
                 conf = float(det[4]) if len(det) >= 5 else 0.0
                 cls_name = str(det[5]) if len(det) >= 6 else 'object'
-                name, zone, pri = cls_name.upper(), '', 0
+                name, zone, pri = spanish_name(cls_name), '', 0
             else:
                 continue
 
-            label = f"{name}\n{zone} | P{pri}\nConf: {conf:.2f}" if zone else f"{name}\nP{pri}\nConf: {conf:.2f}"
+            label_zone = zone.replace('_', ' ') if zone else ''
+            if label_zone:
+                label = f"{name}\n{label_zone} | P{pri}\nConf: {conf:.2f}"
+            else:
+                label = f"{name}\nP{pri}\nConf: {conf:.2f}"
             if pri >= 8:
                 color = [255, 0, 0]
             elif pri >= 5:
@@ -250,32 +320,35 @@ class RerunDashboard:
     def log_depth_map(self, depth_data: Optional[np.ndarray]):
         if depth_data is None:
             return
-        # rr.DepthImage espera float32 y escala opcional en metros
-        if depth_data.dtype != np.float32:
-            depth_data = depth_data.astype(np.float32)
-        depth_clipped = np.clip(depth_data, 0.1, 10.0)
-        rr.log("panels/depth_map/image", rr.DepthImage(depth_clipped, meter=1.0))
+        if depth_data.ndim == 2:
+            depth_norm = cv2.normalize(depth_data, None, 0, 255, cv2.NORM_MINMAX)
+            depth_colored = cv2.applyColorMap(depth_norm.astype(np.uint8), cv2.COLORMAP_JET)
+        else:
+            depth_colored = depth_data
+        rr.log(f"{self.DEPTH_PATH}/image", rr.Image(self._ensure_rgb(depth_colored)))
 
-    def log_slam1_frame(self, slam1_frame: Optional[np.ndarray]):
+    def log_slam1_frame(self, slam1_frame: Optional[np.ndarray], events: Optional[List[Dict]] = None):
         if slam1_frame is None:
             return
-        # Guardamos para composición en slam combined
         self._last_slam1 = slam1_frame
+        self._last_slam1_events = events or []
         self._compose_and_log_slam()
 
-    def log_slam2_frame(self, slam2_frame: Optional[np.ndarray]):
+    def log_slam2_frame(self, slam2_frame: Optional[np.ndarray], events: Optional[List[Dict]] = None):
         if slam2_frame is None:
             return
-        # Guardamos para composición en slam combined
         self._last_slam2 = slam2_frame
+        self._last_slam2_events = events or []
         self._compose_and_log_slam()
 
     # Compat: permitir log combinado explícito
     def log_slam_frames(self, slam1_frame: Optional[np.ndarray] = None, slam2_frame: Optional[np.ndarray] = None):
         if slam1_frame is not None:
             self._last_slam1 = slam1_frame
+            self._last_slam1_events = []
         if slam2_frame is not None:
             self._last_slam2 = slam2_frame
+            self._last_slam2_events = []
         self._compose_and_log_slam()
 
     def _compose_and_log_slam(self):
@@ -284,14 +357,20 @@ class RerunDashboard:
         img2 = getattr(self, "_last_slam2", None)
         if img1 is None and img2 is None:
             return
+        events1 = getattr(self, "_last_slam1_events", [])
+        events2 = getattr(self, "_last_slam2_events", [])
+        if img1 is not None and events1:
+            img1 = self._draw_slam_events(img1.copy(), events1, (0, 165, 255))
+        if img2 is not None and events2:
+            img2 = self._draw_slam_events(img2.copy(), events2, (255, 128, 0))
         if self.slam_mode == "overlay":
             if img1 is not None:
-                rr.log("panels/slam/slam1", rr.Image(self._ensure_rgb(img1)))
+                rr.log(f"{self.SLAM_PATH}/slam1", rr.Image(self._ensure_rgb(img1)))
             if img2 is not None:
-                rr.log("panels/slam/slam2", rr.Image(self._ensure_rgb(img2)))
+                rr.log(f"{self.SLAM_PATH}/slam2", rr.Image(self._ensure_rgb(img2)))
         else:
             stacked = self._stack_horizontal(self._ensure_rgb(img1), self._ensure_rgb(img2))
-            rr.log("panels/slam/image", rr.Image(stacked))
+            rr.log(f"{self.SLAM_PATH}/image", rr.Image(stacked))
 
     def set_slam_mode(self, mode: str):
         """Cambia el modo de SLAM en caliente: 'side_by_side' o 'overlay'."""
@@ -299,7 +378,7 @@ class RerunDashboard:
             self.slam_mode = mode
 
     def log_system_message(self, message: str, level: str = "INFO"):
-        rr.log("panels/system_logs", rr.TextLog(f"[{level}] {message}"))
+        rr.log(f"{self.LOGS_PATH}", rr.TextLog(f"[{level}] {message}"))
 
     # Métricas en Panel 5 (TimeSeriesView)
     def log_performance_metrics(self):
@@ -312,14 +391,14 @@ class RerunDashboard:
             self.frame_count = 0
             self.last_fps_update = now
         # Series temporales
-        rr.log("panels/metrics/fps", rr.Scalars(self.current_fps))
-        rr.log("panels/metrics/detections", rr.Scalars(float(self.total_detections)))
-        rr.log("panels/metrics/audio_commands", rr.Scalars(float(self.audio_commands_sent)))
-        rr.log("panels/metrics/uptime", rr.Scalars(ts))
+        rr.log(f"{self.METRICS_PATH}/fps", rr.Scalars(self.current_fps))
+        rr.log(f"{self.METRICS_PATH}/detections", rr.Scalars(float(self.total_detections)))
+        rr.log(f"{self.METRICS_PATH}/audio_commands", rr.Scalars(float(self.audio_commands_sent)))
+        rr.log(f"{self.METRICS_PATH}/uptime", rr.Scalars(ts))
 
     # Panel 6: Aceleración (magnitud IMU)
     def log_acceleration_magnitude(self, accel_mag: float):
-        rr.log("panels/acceleration/mag", rr.Scalars(float(accel_mag)))
+        rr.log(f"{self.MOTION_PATH}/mag", rr.Scalars(float(accel_mag)))
 
     # Utilidades adicionales
     def log_audio_command(self, command: str, priority: int = 5):
