@@ -39,9 +39,11 @@ class WebDashboard:
             'detections_total': 0,
             'audio_commands': 0,
             'uptime': 0.0,
-            'frames_processed': 0
+            'frames_processed': 0,
+            'slam1_events': 0,
+            'slam2_events': 0,
         }
-        
+        self.slam_messages: List[str] = []
         # System logs with levels
         self.logs = []
         self.max_logs = 100
@@ -65,7 +67,9 @@ class WebDashboard:
         @self.app.route('/stats')
         def get_stats():
             self.stats['uptime'] = time.time() - self.start_time
-            return jsonify(self.stats)
+            payload = dict(self.stats)
+            payload['slam_messages'] = self.slam_messages[-6:]
+            return jsonify(payload)
         
         @self.app.route('/logs')  
         def get_logs():
@@ -156,7 +160,8 @@ class WebDashboard:
         }
         .grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); 
+            grid-template-columns: repeat(3, minmax(320px, 1fr)); 
+            grid-auto-rows: auto; 
             gap: 15px; 
             padding: 15px; 
             max-width: 1400px; 
@@ -181,6 +186,11 @@ class WebDashboard:
             max-width: 100%; 
             height: auto; 
             border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .frame-half {
+            width: 100%;
+            border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         }
         .stats-grid { 
@@ -281,8 +291,29 @@ class WebDashboard:
             <h3>🗺️ Depth Map</h3>
             <img id="depth-frame" class="frame" src="/video_feed/depth" alt="Depth Feed">
         </div>
-        
-        <!-- Performance Stats -->
+
+        <div class="panel">
+            <h3>👁️ Visión Periférica (SLAM)</h3>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:space-between;">
+                <div style="flex:1; min-width:200px;">
+                    <h4>SLAM Izquierda</h4>
+                    <img id="slam1-frame" class="frame-half" src="/video_feed/slam1" alt="SLAM1 Feed">
+                </div>
+                <div style="flex:1; min-width:200px;">
+                    <h4>SLAM Derecha</h4>
+                    <img id="slam2-frame" class="frame-half" src="/video_feed/slam2" alt="SLAM2 Feed">
+                </div>
+            </div>
+            <div id="slam-events" style="margin-top:10px; font-size:0.85em; color:#ccc;">
+                <div>Eventos laterales aparecerán aquí…</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>📝 System Logs</h3>
+            <div class="logs" id="logs-container">Loading logs...</div>
+        </div>
+
         <div class="panel">
             <h3>📊 Performance Metrics</h3>
             <div class="stats-grid" id="stats-container">
@@ -292,11 +323,19 @@ class WebDashboard:
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="detections">0</div>
-                    <div class="stat-label">Detections</div>
+                    <div class="stat-label">Detecciones</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="audio">0</div>
-                    <div class="stat-label">Audio Cmds</div>
+                    <div class="stat-label">Alertas audio</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="slam1-count">0</div>
+                    <div class="stat-label">SLAM1 det.</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="slam2-count">0</div>
+                    <div class="stat-label">SLAM2 det.</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="uptime">0s</div>
@@ -304,19 +343,12 @@ class WebDashboard:
                 </div>
             </div>
         </div>
-        
-        <!-- Recent Detections -->
+
         <div class="panel">
-            <h3>🎯 Recent Detections</h3>
+            <h3>🎯 Detecciones recientes</h3>
             <div id="detections-container">
-                <div class="no-data">No detections yet...</div>
+                <div class="no-data">Aún no hay detecciones…</div>
             </div>
-        </div>
-        
-        <!-- System Logs -->
-        <div class="panel" style="grid-column: 1 / -1;">
-            <h3>📝 System Logs</h3>
-            <div class="logs" id="logs-container">Loading logs...</div>
         </div>
     </div>
     
@@ -360,6 +392,14 @@ class WebDashboard:
                     document.getElementById('fps').textContent = data.fps.toFixed(1);
                     document.getElementById('detections').textContent = data.detections_total;
                     document.getElementById('audio').textContent = data.audio_commands;
+                    document.getElementById('slam1-count').textContent = data.slam1_events || 0;
+                    document.getElementById('slam2-count').textContent = data.slam2_events || 0;
+                    const eventsBox = document.getElementById('slam-events');
+                    if (data.slam_messages && data.slam_messages.length) {
+                        eventsBox.innerHTML = data.slam_messages.map(msg => `<div>${msg}</div>`).join('');
+                    } else {
+                        eventsBox.innerHTML = '<div>No hay eventos SLAM recientes…</div>';
+                    }
                     document.getElementById('uptime').textContent = formatUptime(data.uptime);
                 })
                 .catch(err => console.log('Stats error:', err));
@@ -476,6 +516,12 @@ class WebDashboard:
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
                 if events:
                     self._draw_slam_events(frame_copy, events, (0, 165, 255))
+                    self.stats['slam1_events'] = len(events)
+                    for event in events:
+                        desc = f"SLAM1: {event.get('name', 'obj')} {event.get('distance', '')} ({event.get('zone', '')})"
+                        self._append_slam_message(desc)
+                else:
+                    self.stats['slam1_events'] = 0
                 self.current_slam1_frame = frame_copy
 
     def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Dict]] = None):
@@ -487,6 +533,12 @@ class WebDashboard:
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
                 if events:
                     self._draw_slam_events(frame_copy, events, (255, 128, 0))
+                    self.stats['slam2_events'] = len(events)
+                    for event in events:
+                        desc = f"SLAM2: {event.get('name', 'obj')} {event.get('distance', '')} ({event.get('zone', '')})"
+                        self._append_slam_message(desc)
+                else:
+                    self.stats['slam2_events'] = 0
                 self.current_slam2_frame = frame_copy
     
     def log_detections(self, detections: List[Dict], frame_shape: tuple = None):
@@ -568,6 +620,13 @@ class WebDashboard:
                 1,
                 cv2.LINE_AA,
             )
+
+    def _append_slam_message(self, message: str) -> None:
+        if not message:
+            return
+        self.slam_messages.append(f"[{time.strftime('%H:%M:%S')}] {message}")
+        if len(self.slam_messages) > 20:
+            self.slam_messages = self.slam_messages[-20:]
     
     # =================================================================
     # WEB DASHBOARD SPECIFIC METHODS

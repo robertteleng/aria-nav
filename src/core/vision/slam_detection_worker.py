@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Tuple
 
+import cv2
 import numpy as np
 
 from .yolo_processor import YoloProcessor
@@ -136,6 +137,9 @@ class SlamDetectionWorker:
             frame = item["frame"]
             timestamp = item["timestamp"]
             frame_index = item["frame_index"]
+
+            if frame.ndim == 2 or (frame.ndim == 3 and frame.shape[2] == 1):
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
             start = time.perf_counter()
             detections = self.processor.process_frame(frame)

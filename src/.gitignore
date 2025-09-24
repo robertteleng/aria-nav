@@ -1,0 +1,318 @@
+# =================================================================
+# ARIA NAVIGATION SYSTEM - TFM GITIGNORE
+# Sistema de navegación para ciegos usando Meta Aria Glasses
+# =================================================================
+
+# Python Core
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+aria_env/
+.conda/
+conda-meta/
+
+# IDE and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.spyderproject
+.spyproject
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# =================================================================
+# MACHINE LEARNING & COMPUTER VISION
+# =================================================================
+
+# YOLO Models
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+yolo*.pt
+best.pt
+last.pt
+runs/
+wandb/
+
+# Model checkpoints
+checkpoints/
+models/*.pt
+models/*.pth
+*.weights
+
+# Training outputs
+results/
+experiments/
+training_logs/
+
+# MiDaS depth estimation cache
+.cache/
+torch/
+torchvision/
+
+# OpenCV cache
+.opencv_cache/
+
+# =================================================================
+# ARIA SDK & HARDWARE SPECIFIC  
+# =================================================================
+
+# Aria device recordings
+*.vrs
+recordings/
+aria_recordings/
+data/raw/
+*.mp4
+*.avi
+
+# Aria calibration files (keep templates, ignore device-specific)
+*_calibration.json
+device_calib_*.json
+
+# Hardware logs
+device_logs/
+hardware_debug/
+
+# =================================================================
+# AUDIO & TTS SYSTEM
+# =================================================================
+
+# Audio output files
+*.wav
+*.mp3
+*.m4a
+audio_output/
+generated_audio/
+
+# TTS cache
+.pyttsx3_cache/
+tts_cache/
+
+# =================================================================
+# LOGGING & DEBUGGING
+# =================================================================
+
+# Log files
+logs/
+*.log
+debug_*.log
+performance_*.log
+jetson_processing.log
+*.log.*
+
+# Profiling output
+*.prof
+profile_*.txt
+
+# Core dumps
+core.*
+*.core
+
+# =================================================================
+# CONFIGURATION & SECRETS
+# =================================================================
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Configuration files with secrets
+config_private.yaml
+device_config.json
+api_keys.json
+secrets.json
+
+# User-specific configurations
+user_config.yaml
+local_settings.py
+
+# =================================================================
+# JETSON & CONTAINER SPECIFIC
+# =================================================================
+
+# Docker
+.dockerignore
+Dockerfile.bak
+docker-compose.override.yml
+
+# Container volumes
+container_data/
+jetson_workspace/
+
+# NVIDIA/CUDA
+.nv/
+.nvidia/
+cuda_*.log
+
+# =================================================================
+# TESTING & COVERAGE
+# =================================================================
+
+# Test outputs
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Test data
+test_images/
+test_videos/
+mock_data/
+
+# =================================================================
+# DOCUMENTATION & BUILD
+# =================================================================
+
+# Sphinx documentation
+docs/_build/
+docs/build/
+
+# LaTeX (for PDF generation)
+*.aux
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# PlantUML
+*.puml.png
+*.puml.svg
+
+# =================================================================
+# PERFORMANCE & PROFILING
+# =================================================================
+
+# Performance monitoring
+perf_*.json
+benchmark_*.csv
+fps_analysis/
+
+# Memory dumps
+*.dmp
+memory_profile/
+
+# =================================================================
+# TEMPORARY & CACHE FILES
+# =================================================================
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.#*
+
+# Cache directories
+.cache/
+__temp__/
+tmp/
+temp/
+
+# =================================================================
+# BACKUP & ARCHIVE FILES
+# =================================================================
+
+# Backup files
+*.bak
+*.backup
+*.old
+*_backup.*
+*_old.*
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+
+# =================================================================
+# PROJECT SPECIFIC
+# =================================================================
+
+# Screenshots and demos
+screenshots/
+demo_videos/
+presentation_materials/
+
+# Experimental code
+experimental/
+sandbox/
+playground/
+
+# Personal notes (keep structured docs)
+personal_notes.md
+todo_personal.txt
+brainstorming/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# =================================================================
+# SYSTEM MONITORING
+# =================================================================
+
+# System resource monitoring
+system_stats/
+gpu_monitoring/
+cpu_profiles/
+
+# Network logs
+network_debug/
+imagezmq_logs/
+
+# =================================================================
+# END OF GITIGNORE
+# =================================================================

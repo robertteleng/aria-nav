@@ -16,7 +16,7 @@ class Config:
 
     # Peripheral vision (SLAM)
 
-    PERIPHERAL_VISION_ENABLED = False
+    PERIPHERAL_VISION_ENABLED = True
     SLAM_TARGET_FPS = 8
     
     # Audio system
@@ -52,7 +52,7 @@ class Config:
     MIDAS_DEVICE = "mps"         # Evitar problemas MPS
     DEPTH_ENABLED = True        # Activar profundidad con MPS
     DEPTH_FRAME_SKIP = 3        # Profundidad cada 4 frames para equilibrar rendimiento
-    DEPTH_BACKEND = "depth_anything_v2"     # "midas" o "depth_anything_v2"
+    DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
     DEPTH_ANYTHING_VARIANT = "Small"
     DEPTH_INPUT_SIZE = 128
 
