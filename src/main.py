@@ -117,7 +117,10 @@ def main():
                     
                     # Procesar con Coordinator (Solo Pipeline)
                     processed_frame = coordinator.process_frame(frame, motion_state)
+                    if hasattr(coordinator, 'handle_slam_frames'):
+                        coordinator.handle_slam_frames(slam1_frame, slam2_frame)
                     depth_map = coordinator.get_latest_depth_map()
+                    slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
                     
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
@@ -127,7 +130,8 @@ def main():
                         coordinator_stats=coordinator.get_status(),
                         depth_map=depth_map,
                         slam1_frame=slam1_frame,
-                        slam2_frame=slam2_frame
+                        slam2_frame=slam2_frame,
+                        slam_events=slam_events
                     )
                     
                     # Handle UI Events

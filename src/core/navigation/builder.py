@@ -6,9 +6,12 @@
 
 from core.vision.yolo_processor import YoloProcessor
 from core.audio.audio_system import AudioSystem
+from core.audio.navigation_audio_router import NavigationAudioRouter
+from core.vision.slam_detection_worker import SlamDetectionWorker, CameraSource
 from presentation.renderers.frame_renderer import FrameRenderer
 from core.vision.image_enhancer import ImageEnhancer
 from core.navigation.coordinator import Coordinator
+from utils.config import Config
 
 class Builder:
     """Builder que crea todas las dependencias del sistema"""
@@ -66,6 +69,21 @@ class Builder:
         coordinator = self.build_coordinator(
             yolo_processor, audio_system, frame_renderer, image_enhancer
         )
+
+        if getattr(Config, "PERIPHERAL_VISION_ENABLED", False) and CameraSource is not None:
+            print("  🔁 Configurando visión periférica (SLAM)...")
+            slam_workers = {
+                CameraSource.SLAM1: SlamDetectionWorker(
+                    CameraSource.SLAM1,
+                    target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
+                ),
+                CameraSource.SLAM2: SlamDetectionWorker(
+                    CameraSource.SLAM2,
+                    target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
+                ),
+            }
+            audio_router = NavigationAudioRouter(audio_system)
+            coordinator.attach_peripheral_system(slam_workers, audio_router)
         
         print("✅ Sistema completo construido!")
         return coordinator

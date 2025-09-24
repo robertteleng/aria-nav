@@ -12,7 +12,8 @@ Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
 import numpy as np
 import cv2
 import time
-from typing import Optional
+from enum import Enum
+from typing import Optional, Dict, List
 
 from utils.config import Config
 
@@ -20,6 +21,29 @@ try:
     from core.vision.depth_estimator import DepthEstimator
 except Exception:
     DepthEstimator = None
+
+try:
+    from core.vision.slam_detection_worker import (
+        CameraSource,
+        SlamDetectionEvent,
+        SlamDetectionWorker,
+    )
+    from core.audio.navigation_audio_router import (
+        NavigationAudioRouter,
+        EventPriority,
+    )
+except Exception:
+    CameraSource = None  # type: ignore[assignment]
+    SlamDetectionWorker = None  # type: ignore[assignment]
+    NavigationAudioRouter = None  # type: ignore[assignment]
+
+    class _FallbackPriority(Enum):
+        CRITICAL = 1
+        HIGH = 2
+        MEDIUM = 3
+        LOW = 4
+
+    EventPriority = _FallbackPriority  # type: ignore[assignment]
 
 
 class Coordinator:
@@ -102,6 +126,14 @@ class Coordinator:
             'total': 0.0,
         }
         self._profile_frames = 0
+
+        # Peripheral SLAM support
+        self.peripheral_enabled = False
+        self.slam_workers: Dict[CameraSource, SlamDetectionWorker] = {}
+        self.slam_frame_counters: Dict[CameraSource, int] = {}
+        self._last_slam_indices: Dict[CameraSource, int] = {}
+        self.latest_slam_events: Dict[CameraSource, List[SlamDetectionEvent]] = {}
+        self.audio_router: Optional[NavigationAudioRouter] = None
 
         print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
@@ -199,6 +231,134 @@ class Coordinator:
                 self._log_profile_metrics()
 
         return annotated_frame
+
+    # ------------------------------------------------------------------
+    # Peripheral vision (SLAM) integration
+    # ------------------------------------------------------------------
+
+    def attach_peripheral_system(
+        self,
+        slam_workers: Dict[CameraSource, SlamDetectionWorker],
+        audio_router: Optional[NavigationAudioRouter] = None,
+    ) -> None:
+        if CameraSource is None:
+            print("[WARN] Peripheral system not available (missing dependencies)")
+            return
+
+        self.peripheral_enabled = True
+        self.slam_workers = slam_workers
+        self.audio_router = audio_router
+
+        for source, worker in slam_workers.items():
+            worker.start()
+            self.slam_frame_counters[source] = 0
+            self._last_slam_indices[source] = -1
+            self.latest_slam_events[source] = []
+
+        if self.audio_router:
+            self.audio_router.start()
+
+        print("[PERIPHERAL] SLAM workers attached")
+
+    def handle_slam_frames(
+        self,
+        slam1_frame: Optional[np.ndarray] = None,
+        slam2_frame: Optional[np.ndarray] = None,
+    ) -> None:
+        if not self.peripheral_enabled or CameraSource is None:
+            return
+
+        if slam1_frame is not None and CameraSource.SLAM1 in self.slam_workers:
+            self._submit_and_route(CameraSource.SLAM1, slam1_frame)
+
+        if slam2_frame is not None and CameraSource.SLAM2 in self.slam_workers:
+            self._submit_and_route(CameraSource.SLAM2, slam2_frame)
+
+    def _submit_and_route(self, source: CameraSource, frame: np.ndarray) -> None:
+        worker = self.slam_workers[source]
+        self.slam_frame_counters[source] += 1
+        worker.submit(frame, self.slam_frame_counters[source])
+
+        events = worker.latest_events()
+        if not events:
+            return
+
+        latest_index = events[0].frame_index
+        if latest_index == self._last_slam_indices.get(source, -1):
+            return
+
+        self._last_slam_indices[source] = latest_index
+        self.latest_slam_events[source] = events
+
+        if self.audio_router:
+            for event in events:
+                priority = self._determine_slam_priority(event)
+                message = self._build_slam_message(event)
+                self.audio_router.enqueue_from_slam(event, message, priority)
+
+    def _determine_slam_priority(self, event: SlamDetectionEvent) -> EventPriority:
+        if EventPriority is None:
+            return EventPriority.HIGH  # type: ignore[return-value]
+
+        distance = event.distance
+        name = event.object_name
+
+        if name in {"car", "truck", "bus", "motorcycle"} and distance in {"close", "very_close"}:
+            return EventPriority.CRITICAL
+        if name == "person" and distance in {"close", "very_close"}:
+            return EventPriority.HIGH
+        if name in {"bicycle", "motorbike"}:
+            return EventPriority.HIGH
+        return EventPriority.MEDIUM
+
+    def _build_slam_message(self, event: SlamDetectionEvent) -> str:
+        zone_map = {
+            "far_left": "extrema izquierda",
+            "left": "izquierda lateral",
+            "right": "derecha lateral",
+            "far_right": "extrema derecha",
+        }
+        object_map = {
+            "person": "persona",
+            "car": "coche",
+            "truck": "camión",
+            "bus": "autobús",
+            "bicycle": "bicicleta",
+            "motorcycle": "moto",
+        }
+
+        zone_text = zone_map.get(event.zone, event.zone)
+        name = object_map.get(event.object_name, event.object_name)
+        distance = event.distance
+
+        if distance in {"close", "very_close"} and event.object_name in {"car", "truck", "bus"}:
+            return f"Cuidado: {name} acercándose por la {zone_text}"
+        if event.object_name == "person" and distance in {"close", "very_close"}:
+            return f"Persona cerca en la {zone_text}"
+        if distance not in {"", "unknown"}:
+            return f"{name} {distance} en la {zone_text}"
+        return f"{name} en la {zone_text}"
+
+    def get_slam_events(self) -> Dict[str, List[dict]]:
+        if not self.peripheral_enabled:
+            return {}
+
+        event_dict: Dict[str, List[dict]] = {}
+        for source, events in self.latest_slam_events.items():
+            simplified = []
+            for event in events:
+                simplified.append(
+                    {
+                        'bbox': event.bbox,
+                        'name': event.object_name,
+                        'confidence': event.confidence,
+                        'zone': event.zone,
+                        'distance': event.distance,
+                        'message': self._build_slam_message(event),
+                    }
+                )
+            event_dict[source.value] = simplified
+        return event_dict
 
     def _log_profile_metrics(self) -> None:
         frame_count = max(1, self._profile_frames)
@@ -458,6 +618,7 @@ class Coordinator:
             'current_detections_count': len(self.current_detections),
             'audio_queue_size': audio_queue_size,
             'has_dashboard': self.dashboard is not None,
+            'slam_events': sum(len(events) for events in self.latest_slam_events.values()) if self.peripheral_enabled else 0,
             'has_frame_renderer': self.frame_renderer is not None,
             'has_image_enhancer': self.image_enhancer is not None,
             'last_announcement': self.last_announcement_time
@@ -513,7 +674,20 @@ class Coordinator:
         🧹 Limpieza de recursos
         """
         print("🧹 Limpiando Coordinator...")
-        
+
+        if self.peripheral_enabled:
+            try:
+                if self.audio_router:
+                    self.audio_router.stop()
+            except Exception as err:
+                print(f"  ⚠️ Peripheral audio router cleanup error: {err}")
+
+            for source, worker in self.slam_workers.items():
+                try:
+                    worker.stop()
+                except Exception as err:
+                    print(f"  ⚠️ SLAM worker {source.value} cleanup error: {err}")
+
         try:
             if self.audio_system:
                 if hasattr(self.audio_system, 'cleanup'):
@@ -540,96 +714,3 @@ class Coordinator:
         self.current_detections = []
         
         print("✅ Coordinator limpiado")
-
-
-# ============================================================================
-# TESTING DEL COORDINATOR MEJORADO
-# ============================================================================
-
-def test_coordinator():
-    """Test básico del Coordinator mejorado"""
-    print("🧪 Testing Coordinator mejorado...")
-    
-    # Mock classes para testing
-    class MockYolo:
-        def process_frame(self, frame):
-            return [
-                {'name': 'person', 'confidence': 0.9, 'bbox': [100, 100, 50, 200]},
-                {'name': 'car', 'confidence': 0.8, 'bbox': [300, 150, 100, 80]}
-            ]
-    
-    class MockAudio:
-        def __init__(self):
-            self.announcement_cooldown = 2.0
-            self.audio_queue = []
-        
-        def speak_async(self, message):
-            self.audio_queue.append(message)
-            print(f"🔊 Mock Audio: {message}")
-        
-        def process_detections(self, detections, motion_state):
-            if detections:
-                message = f"[{motion_state.upper()}] {detections[0]['name']}"
-                self.speak_async(message)
-        
-        def get_queue_size(self):
-            return len(self.audio_queue)
-        
-        def cleanup(self):
-            pass
-    
-    class MockRenderer:
-        def draw_navigation_overlay(self, frame, detections, audio_system, depth_map):
-            # Simular rendering añadiendo texto
-            import cv2
-            annotated = frame.copy()
-            cv2.putText(annotated, f"Detections: {len(detections)}", (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            return annotated
-    
-    # Crear mocks
-    mock_yolo = MockYolo()
-    mock_audio = MockAudio()
-    mock_renderer = MockRenderer()
-    
-    # Crear coordinator
-    coordinator = Coordinator(
-        yolo_processor=mock_yolo,
-        audio_system=mock_audio,
-        frame_renderer=mock_renderer
-    )
-    
-    # Test con frame sintético
-    test_frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-    
-    print("  🔄 Procesando frame de test...")
-    
-    # Test con diferentes motion states
-    result_stationary = coordinator.process_frame(test_frame, "stationary")
-    print(f"  ✅ Frame estationary procesado: {result_stationary.shape}")
-    
-    result_walking = coordinator.process_frame(test_frame, "walking")
-    print(f"  ✅ Frame walking procesado: {result_walking.shape}")
-    
-    # Test status
-    status = coordinator.get_status()
-    print(f"  ✅ Status: {status}")
-    
-    # Test detections
-    detections = coordinator.get_current_detections()
-    print(f"  ✅ Detecciones: {len(detections)}")
-    
-    # Test audio
-    coordinator.test_audio()
-    
-    # Test stats
-    coordinator.print_stats()
-    
-    # Test cleanup
-    coordinator.cleanup()
-    
-    print("✅ Coordinator mejorado test completado!")
-
-
-if __name__ == "__main__":
-    test_coordinator()

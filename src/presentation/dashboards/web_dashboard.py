@@ -467,17 +467,27 @@ class WebDashboard:
             with self._frame_lock:
                 self.current_depth_frame = depth_colored
     
-    def log_slam1_frame(self, slam1_frame: np.ndarray):
+    def log_slam1_frame(self, slam1_frame: np.ndarray, events: Optional[List[Dict]] = None):
         """Update SLAM1 frame"""
         if slam1_frame is not None:
             with self._frame_lock:
-                self.current_slam1_frame = slam1_frame.copy()
-    
-    def log_slam2_frame(self, slam2_frame: np.ndarray):
+                frame_copy = slam1_frame.copy()
+                if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
+                    frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+                if events:
+                    self._draw_slam_events(frame_copy, events, (0, 165, 255))
+                self.current_slam1_frame = frame_copy
+
+    def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Dict]] = None):
         """Update SLAM2 frame"""
         if slam2_frame is not None:
             with self._frame_lock:
-                self.current_slam2_frame = slam2_frame.copy()
+                frame_copy = slam2_frame.copy()
+                if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
+                    frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+                if events:
+                    self._draw_slam_events(frame_copy, events, (255, 128, 0))
+                self.current_slam2_frame = frame_copy
     
     def log_detections(self, detections: List[Dict], frame_shape: tuple = None):
         """Log detections - Observer pattern compatibility"""
@@ -516,17 +526,48 @@ class WebDashboard:
     def log_motion_state(self, motion_state: str, imu_magnitude: float):
         """Log motion state - Observer pattern compatibility"""
         self.log_system_message(f"Motion: {motion_state.upper()} (mag: {imu_magnitude:.2f})", "SYSTEM")
-    
+
     def update_all(self):
         """Update method - Observer pattern compatibility (no-op for web)"""
         # Web dashboard updates via AJAX, no need for manual update
         return 255  # Return dummy key value
-    
+
     def shutdown(self):
         """Shutdown web dashboard - Observer pattern compatibility"""
         duration = (time.time() - self.start_time) / 60.0
         self.log_system_message(f"System shutting down - Session: {duration:.1f}min", "SYSTEM")
         print(f"🌐 Web Dashboard session: {duration:.1f}min")
+
+    def _draw_slam_events(self, frame: np.ndarray, events: List[Dict], color: tuple) -> None:
+        if frame is None or not events:
+            return
+        height, width = frame.shape[:2]
+        for event in events:
+            bbox = event.get('bbox')
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            x1 = max(0, min(width - 1, x1))
+            x2 = max(0, min(width - 1, x2))
+            y1 = max(0, min(height - 1, y1))
+            y2 = max(0, min(height - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = event.get('name', 'obj')
+            distance = event.get('distance')
+            if distance and distance not in {'', 'unknown'}:
+                label = f"{label} {distance}"
+            cv2.putText(
+                frame,
+                label,
+                (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
     
     # =================================================================
     # WEB DASHBOARD SPECIFIC METHODS

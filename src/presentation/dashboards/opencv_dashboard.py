@@ -39,6 +39,7 @@ class OpenCVDashboard:
         self.slam2_img = None
         self.metrics_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
         self.logs_img = np.zeros((self.cell_h, self.cell_w, 3), dtype=np.uint8)
+        self.slam_event_counts = {'slam1': 0, 'slam2': 0}
 
         # Ventana única
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
@@ -88,21 +89,39 @@ class OpenCVDashboard:
             self.log_system_message(f"Depth map render failed: {err}", "ERROR")
 
     
-    def log_slam1_frame(self, slam1_frame: np.ndarray):
+    def log_slam1_frame(self, slam1_frame: np.ndarray, events: Optional[List[Dict]] = None):
         """Mostrar SLAM1"""
         if slam1_frame is not None:
             frame_copy = slam1_frame.copy()
+            if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
+                frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+            if events:
+                self._draw_slam_events(frame_copy, events, (0, 165, 255))
+                self.slam_event_counts['slam1'] = len(events)
+            else:
+                self.slam_event_counts['slam1'] = 0
             cv2.putText(frame_copy, "SLAM1 (Left)", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             self.slam1_img = self._resize_keep(frame_copy, self.cell_w//2, self.cell_h)
-    
-    def log_slam2_frame(self, slam2_frame: np.ndarray):
+        else:
+            self.slam_event_counts['slam1'] = 0
+
+    def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Dict]] = None):
         """Mostrar SLAM2"""
         if slam2_frame is not None:
             frame_copy = slam2_frame.copy()
+            if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
+                frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+            if events:
+                self._draw_slam_events(frame_copy, events, (255, 128, 0))
+                self.slam_event_counts['slam2'] = len(events)
+            else:
+                self.slam_event_counts['slam2'] = 0
             cv2.putText(frame_copy, "SLAM2 (Right)", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             self.slam2_img = self._resize_keep(frame_copy, self.cell_w//2, self.cell_h)
+        else:
+            self.slam_event_counts['slam2'] = 0
     
     def log_performance_metrics(self):
         """Crear imagen con métricas de performance"""
@@ -129,6 +148,8 @@ class OpenCVDashboard:
             f"FPS: {fps_display:.1f}",
             f"Detections: {self.total_detections}",
             f"Audio Commands: {self.audio_commands_sent}",
+            f"SLAM1 det: {self.slam_event_counts['slam1']}",
+            f"SLAM2 det: {self.slam_event_counts['slam2']}",
             f"Uptime: {uptime/60:.1f} min"
         ]
         
@@ -137,6 +158,37 @@ class OpenCVDashboard:
             cv2.putText(metrics_img, metric, (10, y_pos),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         self.metrics_img = metrics_img
+
+    def _draw_slam_events(self, frame: np.ndarray, events: List[Dict], color: tuple) -> None:
+        if frame is None or events is None:
+            return
+        height, width = frame.shape[:2]
+        for event in events:
+            bbox = event.get('bbox')
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            x1 = max(0, min(width - 1, x1))
+            x2 = max(0, min(width - 1, x2))
+            y1 = max(0, min(height - 1, y1))
+            y2 = max(0, min(height - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = event.get('name', 'obj')
+            distance = event.get('distance')
+            if distance and distance not in {'', 'unknown'}:
+                label = f"{label} {distance}"
+            cv2.putText(
+                frame,
+                label,
+                (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
     
     def log_system_message(self, message: str, level: str = "INFO"):
         """Añadir mensaje a buffer de logs (simplificado)"""

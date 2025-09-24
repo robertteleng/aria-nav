@@ -11,8 +11,13 @@ class Config:
     YOLO_IMAGE_SIZE = 320
     YOLO_MAX_DETECTIONS = 12
     YOLO_IOU_THRESHOLD = 0.45
-    YOLO_FRAME_SKIP = 2
+    YOLO_FRAME_SKIP = 3
     YOLO_FORCE_MPS = True
+
+    # Peripheral vision (SLAM)
+
+    PERIPHERAL_VISION_ENABLED = False
+    SLAM_TARGET_FPS = 8
     
     # Audio system
     TTS_RATE = 190
@@ -46,11 +51,11 @@ class Config:
     MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
     MIDAS_DEVICE = "mps"         # Evitar problemas MPS
     DEPTH_ENABLED = True        # Activar profundidad con MPS
-    DEPTH_FRAME_SKIP = 3        # Profundidad cada 3 frames para equilibrar rendimiento
-    DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
+    DEPTH_FRAME_SKIP = 3        # Profundidad cada 4 frames para equilibrar rendimiento
+    DEPTH_BACKEND = "depth_anything_v2"     # "midas" o "depth_anything_v2"
     DEPTH_ANYTHING_VARIANT = "Small"
-    DEPTH_INPUT_SIZE = 256
-    
+    DEPTH_INPUT_SIZE = 128
+
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
     DEPTH_MEDIUM_THRESHOLD = 0.4  # Profundidad normalizada para "medio"

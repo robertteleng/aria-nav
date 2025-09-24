@@ -131,8 +131,6 @@ class NavigationAudioRouter:
         if now - last_source < source_cooldown:
             return False
 
-        rgb_last = self._last_source_announcement.get(CameraSource.SLAM1, 0.0)
-        rgb_last = max(rgb_last, self._last_source_announcement.get(CameraSource.SLAM2, 0.0))
         if event.source != CameraSource.SLAM1 and event.source != CameraSource.SLAM2:
             return True
 

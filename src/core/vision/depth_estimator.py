@@ -43,6 +43,7 @@ class DepthEstimator:
         self.processor = None
         self.last_inference_ms = 0.0
         self.input_size = getattr(Config, "DEPTH_INPUT_SIZE", 384)
+        self._last_map_8bit: Optional[np.ndarray] = None
 
         print(f"[INFO] Loading depth backend '{self.backend}' on {self.device.type}...")
 
@@ -105,9 +106,20 @@ class DepthEstimator:
             else:
                 depth = self._run_depth_anything(rgb_input)
 
-            depth_8bit = cv2.normalize(
-                depth, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
-            )
+            depth_min = float(np.nanmin(depth))
+            depth_max = float(np.nanmax(depth))
+            if depth_max - depth_min < 1e-6:
+                print("[WARN] Depth map range too small, reusing previous depth frame")
+                depth_8bit = (
+                    self._last_map_8bit
+                    if self._last_map_8bit is not None
+                    else np.zeros_like(rgb_frame[:, :, 0], dtype=np.uint8)
+                )
+            else:
+                depth_8bit = cv2.normalize(
+                    depth, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
+                )
+                self._last_map_8bit = depth_8bit
 
             self.last_inference_ms = (time.perf_counter() - start) * 1000.0
 

@@ -140,7 +140,8 @@ class PresentationManager:
                       coordinator_stats: Dict = None,
                       depth_map: Optional[np.ndarray] = None,
                       slam1_frame: Optional[np.ndarray] = None,
-                      slam2_frame: Optional[np.ndarray] = None) -> str:
+                      slam2_frame: Optional[np.ndarray] = None,
+                      slam_events: Optional[Dict[str, List[Dict]]] = None) -> str:
         """
         🖼️ Actualizar display principal con frame y datos
         
@@ -181,7 +182,8 @@ class PresentationManager:
                     coordinator_stats=coordinator_stats,
                     depth_map=depth_map,
                     slam1_frame=slam1_frame,
-                    slam2_frame=slam2_frame
+                    slam2_frame=slam2_frame,
+                    slam_events=slam_events
                 )
             except Exception as e:
                 print(f"[WARN] Dashboard update failed: {e}")
@@ -199,7 +201,8 @@ class PresentationManager:
                          coordinator_stats: Optional[Dict] = None,
                          depth_map: Optional[np.ndarray] = None,
                          slam1_frame: Optional[np.ndarray] = None,
-                         slam2_frame: Optional[np.ndarray] = None) -> str:
+                         slam2_frame: Optional[np.ndarray] = None,
+                         slam_events: Optional[Dict[str, List[Dict]]] = None) -> str:
         """
         Actualizar dashboard con todos los datos
         
@@ -211,10 +214,11 @@ class PresentationManager:
             self.dashboard.log_rgb_frame(frame)
 
         # Log SLAM frames
+        slam_events = slam_events or {}
         if slam1_frame is not None and hasattr(self.dashboard, 'log_slam1_frame'):
-            self.dashboard.log_slam1_frame(slam1_frame)
+            self.dashboard.log_slam1_frame(slam1_frame, slam_events.get('slam1'))
         if slam2_frame is not None and hasattr(self.dashboard, 'log_slam2_frame'):
-            self.dashboard.log_slam2_frame(slam2_frame)
+            self.dashboard.log_slam2_frame(slam2_frame, slam_events.get('slam2'))
 
         # Log detecciones
         if detections and hasattr(self.dashboard, 'log_detections'):
@@ -299,10 +303,12 @@ class PresentationManager:
             'Motion': motion_state,
             'Detections': len(detections) if detections else 0
         }
-        
+
         if coordinator_stats:
             self.stats_to_display['Frames'] = coordinator_stats.get('frames_processed', 0)
             self.stats_to_display['Audio Queue'] = coordinator_stats.get('audio_queue_size', 0)
+            if coordinator_stats.get('slam_events') is not None:
+                self.stats_to_display['SLAM Events'] = coordinator_stats.get('slam_events', 0)
     
     def log_system_event(self, message: str, level: str = "INFO"):
         """
