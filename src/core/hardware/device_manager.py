@@ -9,17 +9,25 @@ class DeviceManager:
         self.device = None
         self.streaming_manager = None
         self.streaming_client = None
-        
-    def connect(self):
+
+    def connect(self, ip_address: str = "192.168.0.204"):
         """Establish connection with Aria device"""
         print("[INFO] Starting connection with Aria glasses...")
         
         self.device_client = aria.DeviceClient()
+
+        if ip_address:
+            client_config = aria.DeviceClientConfig()
+            client_config.ip_v4_address = ip_address
+            self.device_client.set_client_config(client_config)
+            print(f"[INFO] Connecting over Wi-Fi to {ip_address}...")
+        else:
+            print("[INFO] Connecting over USB...")
+
         self.device = self.device_client.connect()
-        
         print("[INFO] ✓ Connection established successfully")
     
-    def start_streaming(self):
+    def start_streaming(self, use_wifi: bool = True):
         """Configure and start RGB streaming, return calibration"""
         print("[INFO] Configuring RGB streaming...")
         
@@ -28,8 +36,12 @@ class DeviceManager:
         # Streaming configuration
         streaming_config = aria.StreamingConfig()
         streaming_config.profile_name = "profile28"
-        streaming_config.streaming_interface = aria.StreamingInterface.Usb
         streaming_config.security_options.use_ephemeral_certs = True
+
+        if use_wifi:
+            streaming_config.streaming_interface = aria.StreamingInterface.WifiStation
+        else:
+            streaming_config.streaming_interface = aria.StreamingInterface.Usb
         
         self.streaming_manager.streaming_config = streaming_config
         self.streaming_manager.start_streaming()
@@ -80,3 +92,4 @@ class DeviceManager:
                 print("[INFO] ✓ Device disconnected")
         except Exception as e:
             print(f"[WARN] Error on disconnect: {e}")
+
