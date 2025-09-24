@@ -1,5 +1,9 @@
+from typing import Optional
+
 import aria.sdk as aria
 from projectaria_tools.core.calibration import device_calibration_from_json_string
+
+from utils.config import Config
 
 class DeviceManager:
     """Manages connection and streaming configuration for Aria device"""
@@ -10,24 +14,31 @@ class DeviceManager:
         self.streaming_manager = None
         self.streaming_client = None
 
-    def connect(self, ip_address: str = "192.168.0.204"):
+    def connect(self, ip_address: Optional[str] = None):
         """Establish connection with Aria device"""
         print("[INFO] Starting connection with Aria glasses...")
-        
+
         self.device_client = aria.DeviceClient()
 
-        if ip_address:
+        desired_interface = getattr(Config, "STREAMING_INTERFACE", "usb").lower()
+        use_wifi = desired_interface == "wifi"
+
+        target_ip = ip_address
+        if use_wifi and not target_ip:
+            target_ip = getattr(Config, "STREAMING_WIFI_DEVICE_IP", None)
+
+        if target_ip:
             client_config = aria.DeviceClientConfig()
-            client_config.ip_v4_address = ip_address
+            client_config.ip_v4_address = target_ip
             self.device_client.set_client_config(client_config)
-            print(f"[INFO] Connecting over Wi-Fi to {ip_address}...")
+            print(f"[INFO] Connecting over Wi-Fi to {target_ip}...")
         else:
-            print("[INFO] Connecting over USB...")
+            print("[INFO] Connecting over USB (no IP required)...")
 
         self.device = self.device_client.connect()
         print("[INFO] ✓ Connection established successfully")
-    
-    def start_streaming(self, use_wifi: bool = True):
+
+    def start_streaming(self, use_wifi: Optional[bool] = None):
         """Configure and start RGB streaming, return calibration"""
         print("[INFO] Configuring RGB streaming...")
         
@@ -35,13 +46,32 @@ class DeviceManager:
         
         # Streaming configuration
         streaming_config = aria.StreamingConfig()
-        streaming_config.profile_name = "profile28"
+        desired_interface = getattr(Config, "STREAMING_INTERFACE", "usb").lower()
+        if use_wifi is None:
+            use_wifi = desired_interface == "wifi"
+
+        if use_wifi:
+            profile = getattr(
+                Config,
+                "STREAMING_PROFILE_WIFI",
+                getattr(Config, "STREAMING_PROFILE", "profile18"),
+            )
+        else:
+            profile = getattr(
+                Config,
+                "STREAMING_PROFILE_USB",
+                getattr(Config, "STREAMING_PROFILE", "profile28"),
+            )
+
+        streaming_config.profile_name = profile
         streaming_config.security_options.use_ephemeral_certs = True
 
         if use_wifi:
             streaming_config.streaming_interface = aria.StreamingInterface.WifiStation
+            print(f"[INFO] Using Wi-Fi streaming profile '{profile}'")
         else:
             streaming_config.streaming_interface = aria.StreamingInterface.Usb
+            print(f"[INFO] Using USB streaming profile '{profile}'")
         
         self.streaming_manager.streaming_config = streaming_config
         self.streaming_manager.start_streaming()
@@ -92,4 +122,3 @@ class DeviceManager:
                 print("[INFO] ✓ Device disconnected")
         except Exception as e:
             print(f"[WARN] Error on disconnect: {e}")
-

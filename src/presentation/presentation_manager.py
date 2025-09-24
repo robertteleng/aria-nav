@@ -165,7 +165,7 @@ class PresentationManager:
         
         # Almacenar frame para display
         with self._ui_lock:
-            self.current_display_frame = frame.copy()
+            self.current_display_frame = frame
         
         # Actualizar estadísticas para mostrar
         self._update_display_stats(detections, motion_state, coordinator_stats)
@@ -265,13 +265,13 @@ class PresentationManager:
         Returns:
             str: Tecla presionada
         """
-        display_frame = frame.copy()
-        
-        # Añadir información de overlay
+        display_frame = frame
+
+        # Añadir información de overlay directamente sobre el frame mostrado
         if self.ui_state.show_fps:
             cv2.putText(display_frame, f"FPS: {self.current_fps:.1f}", 
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
+
         if self.ui_state.show_stats and self.stats_to_display:
             y_offset = 60
             for key, value in self.stats_to_display.items():

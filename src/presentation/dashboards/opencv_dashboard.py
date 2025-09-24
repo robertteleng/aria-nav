@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from utils.config import Config
 
@@ -89,7 +89,7 @@ class OpenCVDashboard:
             self.log_system_message(f"Depth map render failed: {err}", "ERROR")
 
     
-    def log_slam1_frame(self, slam1_frame: np.ndarray, events: Optional[List[Dict]] = None):
+    def log_slam1_frame(self, slam1_frame: np.ndarray, events: Optional[List[Any]] = None):
         """Mostrar SLAM1"""
         if slam1_frame is not None:
             frame_copy = slam1_frame.copy()
@@ -106,7 +106,7 @@ class OpenCVDashboard:
         else:
             self.slam_event_counts['slam1'] = 0
 
-    def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Dict]] = None):
+    def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Any]] = None):
         """Mostrar SLAM2"""
         if slam2_frame is not None:
             frame_copy = slam2_frame.copy()
@@ -159,12 +159,12 @@ class OpenCVDashboard:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         self.metrics_img = metrics_img
 
-    def _draw_slam_events(self, frame: np.ndarray, events: List[Dict], color: tuple) -> None:
-        if frame is None or events is None:
+    def _draw_slam_events(self, frame: np.ndarray, events: List[Any], color: tuple) -> None:
+        if frame is None or not events:
             return
         height, width = frame.shape[:2]
         for event in events:
-            bbox = event.get('bbox')
+            bbox = self._event_field(event, 'bbox')
             if not bbox or len(bbox) != 4:
                 continue
             x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -175,8 +175,8 @@ class OpenCVDashboard:
             if x2 <= x1 or y2 <= y1:
                 continue
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            label = event.get('name', 'obj')
-            distance = event.get('distance')
+            label = self._event_field(event, 'name', fallback_attr='object_name', default='obj')
+            distance = self._event_field(event, 'distance')
             if distance and distance not in {'', 'unknown'}:
                 label = f"{label} {distance}"
             cv2.putText(
@@ -189,6 +189,34 @@ class OpenCVDashboard:
                 1,
                 cv2.LINE_AA,
             )
+
+    @staticmethod
+    def _event_field(event, key, *, fallback_attr: Optional[str] = None, default=None):
+        """Safely extract event information from dicts or dataclasses."""
+        if isinstance(event, dict):
+            return event.get(key, default)
+
+        value = getattr(event, key, None)
+        if value is not None:
+            return value
+
+        if fallback_attr:
+            value = getattr(event, fallback_attr, None)
+            if value is not None:
+                return value
+
+        # Some dataclasses use "object_name" instead of "name"
+        if key == 'name':
+            value = getattr(event, 'object_name', None)
+            if value is not None:
+                return value
+
+        if key == 'bbox':
+            value = getattr(event, 'bbox', None)
+            if value is not None:
+                return value
+
+        return default
     
     def log_system_message(self, message: str, level: str = "INFO"):
         """Añadir mensaje a buffer de logs (simplificado)"""

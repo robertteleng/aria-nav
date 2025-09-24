@@ -35,7 +35,10 @@ class Config:
     
     # Aria streaming
     STREAMING_PROFILE = "profile28"
-    STREAMING_INTERFACE = "usb"
+    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
+    STREAMING_PROFILE_USB = "profile28"
+    STREAMING_PROFILE_WIFI = "profile28"
+    STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
     
     # Performance
     DETECTION_HISTORY_SIZE = 8
@@ -45,17 +48,22 @@ class Config:
     # Camera input (Aria RGB camera delivers RGB ordering)
     RGB_CAMERA_COLOR_SPACE = "RGB"  # "RGB" or "BGR"
 
-    # MiDaS depth estimation
+    # Model depth estimation
+
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
-    MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
-    MIDAS_DEVICE = "mps"         # Evitar problemas MPS
     DEPTH_ENABLED = True        # Activar profundidad con MPS
     DEPTH_FRAME_SKIP = 3        # Profundidad cada 4 frames para equilibrar rendimiento
-    DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
-    DEPTH_ANYTHING_VARIANT = "Small"
-    DEPTH_INPUT_SIZE = 128
+    DEPTH_INPUT_SIZE = 128     # Tamaño de entrada para el modelo de profundidad
 
+    #MiDas
+    MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
+    MIDAS_DEVICE = "mps"         # Evitar problemas MPS
+
+    # Depth Anything v2
+    DEPTH_BACKEND = "depth_anything_v2"     # "midas" o "depth_anything_v2"
+    DEPTH_ANYTHING_VARIANT = "Small"
+    
     # Distance calculation with depth
     DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
     DEPTH_MEDIUM_THRESHOLD = 0.4  # Profundidad normalizada para "medio"
