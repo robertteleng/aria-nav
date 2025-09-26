@@ -1,0 +1,28 @@
+@startuml
+title Audio Pipeline - Arquitectura Propuesta
+
+start
+partition "Producers" {
+  :Detecciones RGB + Depth;
+  :Eventos SLAM;
+  :Alertas adicionales (IMU, reglas);
+}
+:Normalizador de eventos -> NavigationEvent;
+partition "Audio Orchestrator" {
+  :Encolar evento;
+  :Fusionar duplicados (misma zona/objeto);
+  :Calcular prioridad combinada;
+  if (supera umbral y cooldown dinámico) then (sí)
+    :Seleccionar plantilla + tono;
+    :Emitir AudioCommand;
+  else (no)
+    :Descartar o diferir;
+  endif
+}
+partition "TTS Service" {
+  :Añadir a queue;
+  :Secuenciar;
+  :Invocar motor TTS (say, pyttsx3, etc);
+}
+stop
+@enduml

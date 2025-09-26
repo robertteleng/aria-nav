@@ -1,0 +1,24 @@
+@startuml
+title SLAM Detection to Audio Flow
+
+participant "Observer" as OBS
+participant "Coordinator" as COORD
+participant "SlamWorker (SLAM1)" as SW1
+participant "SlamWorker (SLAM2)" as SW2
+participant "NavigationAudioRouter" as ROUTER
+participant "AudioSystem" as AUDIO
+
+OBS -> COORD: get_latest_frame('slam1')
+OBS -> COORD: get_latest_frame('slam2')
+COORD -> SW1: submit(frame_slam1)
+COORD -> SW2: submit(frame_slam2)
+SW1 -> SW1: YOLO + postprocess
+SW2 -> SW2: YOLO + postprocess
+SW1 --> COORD: events_slam1
+SW2 --> COORD: events_slam2
+COORD -> ROUTER: enqueue(event, priority)
+ROUTER -> ROUTER: aplicar cooldown global y por fuente
+ROUTER --> AUDIO: speak_async(mensaje)
+AUDIO -> AUDIO: TTS `say`
+
+@enduml

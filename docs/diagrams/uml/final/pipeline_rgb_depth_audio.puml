@@ -1,0 +1,20 @@
+@startuml
+title RGB + Depth + Audio Pipeline
+
+start
+:Frame RGB del Observer;
+:ImageEnhancer mejora iluminación;
+:YoloProcessor detecta objetos;
+:DepthEstimator calcula depth map;
+:Coordinator fusiona detecciones con depth;
+:Prioriza objetos (zona, distancia, prioridad);
+if (Objeto prioritario?) then (sí)
+  :Construir evento RGB;
+  :Aplicar cooldown interno;
+  :Enviar evento a AudioSystem (estado actual);
+else (no)
+  :No se genera audio;
+endif
+:Actualizar PresentationManager (frames, stats, depth);
+stop
+@enduml

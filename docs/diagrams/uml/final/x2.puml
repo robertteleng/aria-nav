@@ -1,0 +1,30 @@
+@startuml
+title Audio Pipeline - Estado Actual
+
+start
+:YOLO detections + depth map;
+if (detections?) then (sí)
+  :Coordinator rankea navigation_objects;
+  if (top.priority >= 8 && cooldown ok) then (sí)
+    :Coordinator -> AudioSystem.process_detections([top], motion_state);
+    :AudioSystem ajusta repeat_cooldown por motion_state;
+    :Selecciona primer objeto;
+    :Genera frase \"<objeto> <distancia> <zona>\";
+    if (_should_announce?) then (sí)
+      :Crea hilo speak_async;
+      :Comando `say` (macOS);
+    endif
+  endif
+endif
+
+:SLAM workers producen eventos;
+if (nuevos eventos) then (sí)
+  :Coordinator._submit_and_route;
+  :NavigationAudioRouter.enqueue(evento, prioridad);
+  :Router aplica cooldown global + por cámara;
+  if (_should_announce?) then (sí)
+    :AudioSystem.speak_async(mensaje SLAM);
+  endif
+endif
+stop
+@enduml

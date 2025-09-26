@@ -1,0 +1,29 @@
+@startuml
+title Main Loop Lifecycle
+
+actor "User" as User
+participant "DeviceManager" as DM
+participant "Observer" as OBS
+participant "Coordinator" as COORD
+participant "PresentationManager" as PM
+
+User -> DM: connect()
+DM -> DM: start_streaming()
+DM -> OBS: register_observer()
+DM -> OBS: push frames (RGB/SLAM)
+
+loop until Ctrl+C
+  OBS -> COORD: get_latest_frame('rgb')
+  OBS -> COORD: get_latest_frame('slam1'/'slam2')
+  OBS -> COORD: get_motion_state()
+  COORD -> COORD: process_frame()
+  COORD -> PM: update_display(processed_frame, stats)
+end
+
+User -> DM: disconnect()
+COORD -> COORD: cleanup()
+PM -> PM: cleanup()
+OBS -> OBS: stop()
+DM -> DM: shutdown()
+
+@enduml
