@@ -281,6 +281,8 @@ class Coordinator:
 
         events = worker.latest_events()
         if not events:
+            # Limpiar eventos previos cuando no hay nuevas detecciones para evitar overlays persistentes
+            self.latest_slam_events[source] = []
             return
 
         latest_index = events[0].frame_index
