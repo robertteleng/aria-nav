@@ -4,7 +4,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from typing import List, Optional
+from typing import Optional
 
 class AudioSystem:
     """Directional audio command system optimized to avoid spam"""
@@ -12,14 +12,14 @@ class AudioSystem:
     def __init__(self):
         self._setup_tts()
         
-        # Audio control
+        # Audio control (solo TTS, sin lógica de selección de objetos)
         self.audio_queue = deque(maxlen=3)
         self.last_announcement_time = time.time()
-        # Lower base cooldown to reduce perceived delay
-        self.announcement_cooldown = 0.8
-        # Additional repeat cooldown for the same phrase
+        # Cooldown base entre frases (ajustable desde el coordinador/router)
+        self.announcement_cooldown = 0.0
+        # Cooldown adicional para repetir la misma frase
         self.repeat_cooldown = 2.0
-        # Track last spoken phrase to allow immediate speech on changes
+        # Seguimiento de la última frase emitida
         self.last_phrase: Optional[str] = None
         self.last_phrase_time: float = 0.0
         
@@ -49,80 +49,56 @@ class AudioSystem:
         self.selected_voice = None
         
     def update_frame_dimensions(self, width: int, height: int) -> None:
-        """Store frame dimensions for spatial processing"""
+        """Store frame dimensions for spatial processing (compatibilidad futura)"""
         self.frame_width = width
         self.frame_height = height
-    
-    def process_detections(self, detections: List[dict], motion_state: str = "stationary") -> None:
-        """Process detections and generate adaptive audio commands based on motion"""
-        if not detections:
-            return
-        
-        # NUEVO: Configuración adaptativa según movimiento
-        if motion_state == "walking":
-            # Más frecuente cuando caminas (navegación activa)
-            self.repeat_cooldown = 1.5  # segundos
-            max_objects = 1  # Solo objeto más importante
-            prefix = "[WALKING]"
-        else:
-            # Menos frecuente cuando parado (exploración)
-            self.repeat_cooldown = 3.0  # segundos  
-            max_objects = 2  # Hasta 2 objetos
-            prefix = "[STATIONARY]"
-        
-        # Filtrar objetos según estado de movimiento
-        relevant_detections = detections[:max_objects]
-        
-        # Generar comando (usar primer objeto por ahora)
-        detection = relevant_detections[0]
-        print(f"[AUDIO DEBUG] {prefix} Detection: {detection}")
-    
-        command = self._generate_command(detection)
-        print(f"[AUDIO DEBUG] {prefix} Generated command: '{command}'")
-        
-        if command and self._should_announce(command):
-            print(f"[AUDIO DEBUG] {prefix} Sending to TTS: '{command}'")
-            self.speak_async(command)
-    
-    def _generate_command(self, detection: dict) -> Optional[str]:
-        """Generate simple directional command"""
-        name = (
-            detection.get('spanish_name')
-            or detection.get('name')
-            or detection.get('class')
-            or 'obstáculo'
-        )
 
-        zone_mapping = {
-            'center': 'centro',
-            'left': 'izquierda',
-            'right': 'derecha',
-            'top_left': 'arriba a la izquierda',
-            'top_right': 'arriba a la derecha',
-            'bottom_left': 'abajo a la izquierda',
-            'bottom_right': 'abajo a la derecha',
-        }
+    # ------------------------------------------------------------------
+    # Configuración expuesta al coordinador/router
+    # ------------------------------------------------------------------
 
-        zone_text = zone_mapping.get(detection.get('zone', 'center'), 'centro')
-        distance = detection.get('distance', '')
+    def set_repeat_cooldown(self, seconds: float) -> None:
+        """Actualizar cooldown para repetir la misma frase"""
+        try:
+            self.repeat_cooldown = max(0.1, float(seconds))
+        except (TypeError, ValueError):
+            pass
 
-        if distance:
-            return f"{name} {distance} a la {zone_text}" if zone_text != 'centro' else f"{name} {distance} en el centro"
-        return f"{name} a la {zone_text}" if zone_text != 'centro' else f"{name} en el centro"
+    def set_announcement_cooldown(self, seconds: float) -> None:
+        """Actualizar cooldown base entre frases distintas"""
+        try:
+            value = float(seconds)
+            if value < 0.0:
+                value = 0.0
+            self.announcement_cooldown = value
+        except (TypeError, ValueError):
+            pass
+
+    def queue_message(self, message: str, *, force: bool = False) -> bool:
+        """Encolar un mensaje para reproducción TTS."""
+        if not message:
+            return False
+        return self.speak_async(message, force=force)
     
     def _should_announce(self, phrase: str) -> bool:
-        """Decide if we should speak now based on cooldown and phrase changes"""
+        """Decidir si se anuncia ahora en función de cooldowns"""
         if not self.say_available or self.tts_speaking:
             return False
         now = time.time()
-        # If phrase changed, allow immediate (no base cooldown)
         if phrase != self.last_phrase:
-            return True
-        # Same phrase: enforce repeat cooldown
+            return (now - self.last_announcement_time) >= self.announcement_cooldown
         return (now - self.last_announcement_time) >= self.repeat_cooldown
     
-    def speak_async(self, message: str):
-        """Speak message asynchronously with cooldown control"""
+    def speak_async(self, message: str, *, force: bool = False) -> bool:
+        """Speak message asynchronously respecting cooldowns.
+
+        Args:
+            message: Texto a reproducir.
+            force: Si es True, ignora _should_announce y lanza el TTS igualmente.
+
+        Returns:
+            bool: True si se encola reproducción, False si se omite.
+        """
         def _speak():
             try:
                 if not self.tts_speaking and self.say_available:
@@ -152,12 +128,14 @@ class AudioSystem:
                     except Exception:
                         pass
                 self.tts_speaking = False
-        
-        if self._should_announce(message):
+
+        if force or self._should_announce(message):
             self.last_phrase = message
             self.last_announcement_time = time.time()
             self.last_phrase_time = self.last_announcement_time
             threading.Thread(target=_speak, daemon=True).start()
+            return True
+        return False
     
     def speak_force(self, message: str):
         """Force speak bypassing cooldown (for testing)"""

@@ -7,7 +7,7 @@ import threading
 import queue
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
@@ -20,12 +20,18 @@ class EventPriority(Enum):
     LOW = 4
 
 
+RGB_SOURCE = "rgb"
+SLAM1_SOURCE = CameraSource.SLAM1.value if CameraSource is not None else "slam1"
+SLAM2_SOURCE = CameraSource.SLAM2.value if CameraSource is not None else "slam2"
+
+
 @dataclass
 class NavigationEvent:
     timestamp: float
-    source: CameraSource
+    source: str
     priority: EventPriority
     message: str
+    metadata: Optional[Dict[str, Any]] = None
     raw_event: Optional[SlamDetectionEvent] = None
 
 
@@ -40,13 +46,14 @@ class NavigationAudioRouter:
         self._counter = 0
 
         self._last_global_announcement = 0.0
-        self._last_source_announcement: dict[CameraSource, float] = {}
+        self._last_source_announcement: Dict[str, float] = {}
 
-        self.source_cooldown = {
-            CameraSource.SLAM1: 3.0,
-            CameraSource.SLAM2: 3.0,
+        self.default_source_cooldown = 2.0
+        self.source_cooldown: Dict[str, float] = {
+            SLAM1_SOURCE: 3.0,
+            SLAM2_SOURCE: 3.0,
+            RGB_SOURCE: 1.2,
         }
-        # RGB cooldown se gestiona en Coordinator mediante AudioSystem
         self.global_cooldown = 0.8
 
         self.events_processed = 0
@@ -89,12 +96,30 @@ class NavigationAudioRouter:
             self.events_dropped += 1
 
     def enqueue_from_slam(self, slam_event: SlamDetectionEvent, message: str, priority: EventPriority) -> None:
+        source_value = slam_event.source.value if getattr(slam_event, "source", None) is not None else SLAM1_SOURCE
         nav_event = NavigationEvent(
             timestamp=slam_event.timestamp,
-            source=slam_event.source,
+            source=source_value,
             priority=priority,
             message=message,
             raw_event=slam_event,
+        )
+        self.enqueue(nav_event)
+
+    def enqueue_from_rgb(
+        self,
+        message: str,
+        priority: EventPriority,
+        *,
+        timestamp: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        nav_event = NavigationEvent(
+            timestamp=timestamp or time.time(),
+            source=RGB_SOURCE,
+            priority=priority,
+            message=message,
+            metadata=metadata,
         )
         self.enqueue(nav_event)
 
@@ -131,20 +156,31 @@ class NavigationAudioRouter:
             return True
 
         last_source = self._last_source_announcement.get(event.source, 0.0)
-        source_cooldown = self.source_cooldown.get(event.source, 2.0)
+        source_cooldown = self.source_cooldown.get(event.source, self.default_source_cooldown)
         if now - last_source < source_cooldown:
             return False
 
-        if event.source != CameraSource.SLAM1 and event.source != CameraSource.SLAM2:
+        if not event.source.startswith("slam"):
             return True
 
-        # For peripheral events, ensure RGB has been quiet for a while
-        primary_last = self._last_source_announcement.get(CameraSource.SLAM1, 0.0)
-        primary_last = max(primary_last, self._last_source_announcement.get(CameraSource.SLAM2, 0.0))
+        # Para eventos periféricos, comprobar separación entre ambos canales
+        primary_last = max(
+            self._last_source_announcement.get(SLAM1_SOURCE, 0.0),
+            self._last_source_announcement.get(SLAM2_SOURCE, 0.0),
+        )
         if now - primary_last < 4.0:
             return False
 
         return True
+
+    def set_source_cooldown(self, source: str, cooldown: float) -> None:
+        try:
+            value = float(cooldown)
+            if value < 0.0:
+                value = 0.0
+            self.source_cooldown[source] = value
+        except (TypeError, ValueError):
+            pass
 
 
 __all__ = ["NavigationAudioRouter", "EventPriority", "NavigationEvent"]

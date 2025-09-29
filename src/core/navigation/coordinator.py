@@ -13,7 +13,7 @@ import numpy as np
 import cv2
 import time
 from enum import Enum
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 
 from utils.config import Config
 
@@ -57,7 +57,15 @@ class Coordinator:
     Image → Enhancement → YOLO → Navigation → Audio → Rendering
     """
     
-    def __init__(self, yolo_processor, audio_system, frame_renderer=None, image_enhancer=None, dashboard=None):
+    def __init__(
+        self,
+        yolo_processor,
+        audio_system,
+        frame_renderer=None,
+        image_enhancer=None,
+        dashboard=None,
+        audio_router: Optional[NavigationAudioRouter] = None,
+    ):
         """
         Inicializar coordinator con dependencias inyectadas
         
@@ -74,6 +82,7 @@ class Coordinator:
         self.frame_renderer = frame_renderer
         self.image_enhancer = image_enhancer  
         self.dashboard = dashboard
+        self.audio_router: Optional[NavigationAudioRouter] = audio_router
         
         # Estado interno del coordinator
         self.frames_processed = 0
@@ -133,7 +142,8 @@ class Coordinator:
         self.slam_frame_counters: Dict[CameraSource, int] = {}
         self._last_slam_indices: Dict[CameraSource, int] = {}
         self.latest_slam_events: Dict[CameraSource, List[SlamDetectionEvent]] = {}
-        self.audio_router: Optional[NavigationAudioRouter] = None
+        if self.audio_router and not getattr(self.audio_router, "_running", False):
+            self.audio_router.start()
 
         print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
@@ -247,7 +257,8 @@ class Coordinator:
 
         self.peripheral_enabled = True
         self.slam_workers = slam_workers
-        self.audio_router = audio_router
+        if audio_router is not None:
+            self.audio_router = audio_router
 
         for source, worker in slam_workers.items():
             worker.start()
@@ -255,7 +266,7 @@ class Coordinator:
             self._last_slam_indices[source] = -1
             self.latest_slam_events[source] = []
 
-        if self.audio_router:
+        if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
         print("[PERIPHERAL] SLAM workers attached")
@@ -526,40 +537,53 @@ class Coordinator:
             motion_state: Estado de movimiento del usuario
         """
         current_time = time.time()
-        
-        # Cooldown adaptativo según movimiento (como en tu AudioSystem original)
+
+        # Cooldown adaptativo según movimiento
         if motion_state == "walking":
-            cooldown = 1.5  # Más frecuente cuando camina
+            cooldown = 1.5
         else:
-            cooldown = 3.0  # Menos frecuente cuando está parado
-        
-        # Verificar cooldown
+            cooldown = 3.0
+
         if current_time - self.last_announcement_time < cooldown:
             return
-        
-        # Solo anunciar el objeto de mayor prioridad
-        if navigation_objects:
-            top_object = navigation_objects[0]
-            
-            # Filtrar solo objetos de alta prioridad
-            if top_object['priority'] >= 8.0:
-                message = self._create_audio_message(top_object)
-                
-                # Pasar motion_state al audio system si lo soporta
-                try:
-                    # Intentar llamada con motion_state (nueva versión)
-                    if hasattr(self.audio_system, 'process_detections'):
-                        # Si audio_system tiene process_detections, usarlo
-                        self.audio_system.process_detections([top_object], motion_state)
-                    else:
-                        # Fallback al método original
-                        self.audio_system.speak_async(message)
-                except Exception as e:
-                    # Fallback seguro
-                    print(f"[WARN] Audio command fallback: {e}")
-                    self.audio_system.speak_async(message)
-                
-                self.last_announcement_time = current_time
+
+        if not navigation_objects:
+            return
+
+        top_object = navigation_objects[0]
+
+        if top_object['priority'] < 8.0:
+            return
+
+        message = self._create_audio_message(top_object)
+        metadata: Dict[str, Any] = {
+            'class': top_object.get('name'),
+            'spanish_name': top_object.get('spanish_name'),
+            'priority': top_object.get('priority'),
+            'zone': top_object.get('zone'),
+            'distance': top_object.get('distance'),
+            'motion_state': motion_state,
+        }
+
+        event_priority = self._map_priority_for_audio(top_object)
+
+        self.audio_system.set_repeat_cooldown(cooldown)
+        if hasattr(self.audio_system, 'set_announcement_cooldown'):
+            self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
+
+        if self.audio_router and hasattr(self.audio_router, 'enqueue_from_rgb'):
+            if hasattr(self.audio_router, 'set_source_cooldown'):
+                self.audio_router.set_source_cooldown('rgb', cooldown)
+            self.audio_router.enqueue_from_rgb(
+                message=message,
+                priority=event_priority,
+                metadata=metadata,
+            )
+        else:
+            # Fallback directo al sistema TTS sin router
+            self.audio_system.queue_message(message)
+
+        self.last_announcement_time = current_time
     
     def _create_audio_message(self, nav_object):
         """
@@ -598,6 +622,19 @@ class Coordinator:
             message = f"{name} a la {zone_text}, {distance_text}"
         
         return message
+
+    def _map_priority_for_audio(self, nav_object: Dict[str, Any]) -> EventPriority:
+        """Mapear prioridad numérica a EventPriority"""
+        priority_value = float(nav_object.get('priority', 0.0) or 0.0)
+        distance = (nav_object.get('distance') or '').lower()
+
+        if priority_value >= 10.0 or distance in {'muy_cerca', 'very_close'}:
+            return EventPriority.CRITICAL
+        if priority_value >= 9.0 or distance in {'cerca', 'close'}:
+            return EventPriority.HIGH
+        if priority_value >= 8.0:
+            return EventPriority.MEDIUM
+        return EventPriority.LOW
     
     def get_status(self):
         """

@@ -35,14 +35,23 @@ class Builder:
         print("  📦 Creando Image Enhancer...")
         return ImageEnhancer()  # Sin parámetros, lee Config internamente
     
-    def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer, dashboard=None):
+    def build_coordinator(
+        self,
+        yolo_processor,
+        audio_system,
+        frame_renderer,
+        image_enhancer,
+        dashboard=None,
+        audio_router=None,
+    ):
         print("  📦 Creando Coordinator...")
         return Coordinator(
             yolo_processor=yolo_processor,
             audio_system=audio_system,
             frame_renderer=frame_renderer,
             image_enhancer=image_enhancer,
-            dashboard=dashboard
+            dashboard=dashboard,
+            audio_router=audio_router,
         )
     
     # def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer):
@@ -64,10 +73,15 @@ class Builder:
         audio_system = self.build_audio_system()
         frame_renderer = self.build_frame_renderer()
         image_enhancer = self.build_image_enhancer()
-        
+        audio_router = NavigationAudioRouter(audio_system)
+
         # Coordinator sin dashboard - Observer maneja el suyo
         coordinator = self.build_coordinator(
-            yolo_processor, audio_system, frame_renderer, image_enhancer
+            yolo_processor,
+            audio_system,
+            frame_renderer,
+            image_enhancer,
+            audio_router=audio_router,
         )
 
         if getattr(Config, "PERIPHERAL_VISION_ENABLED", False) and CameraSource is not None:
@@ -82,9 +96,8 @@ class Builder:
                     target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
                 ),
             }
-            audio_router = NavigationAudioRouter(audio_system)
             coordinator.attach_peripheral_system(slam_workers, audio_router)
-        
+
         print("✅ Sistema completo construido!")
         return coordinator
 

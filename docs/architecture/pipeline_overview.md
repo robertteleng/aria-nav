@@ -42,16 +42,16 @@
 
 4. **Decisión RGB + Audio**
    - Ordena detecciones por prioridad (clase, zona, distancias).
-   - Si el objeto top supera umbral (`priority >= 8`) y respeta cooldown interno, llama a `AudioSystem.process_detections([...], motion_state)`.
-   - `AudioSystem` ajusta cooldown según `motion_state`, construye frases y lanza TTS si `_should_announce` lo permite.
+   - Si el objeto top supera el umbral y respeta el cooldown, construye un mensaje y lo encola en `NavigationAudioRouter` como evento `rgb`.
+   - `AudioSystem` queda limitado a reproducción TTS (`say`), aplicando sólo cooldowns de frase/repetición.
 
 5. **Visión Periférica (SLAM)**
    - `Coordinator` envía frames SLAM a cada `SlamDetectionWorker`.
    - Cada worker aplica YOLO (perfil slam) y emite eventos con `bbox`, zona periférica y distancia estimada.
    - `_submit_and_route` actualiza `latest_slam_events` y, si hay novedades, encola mensajes en `NavigationAudioRouter` con prioridad calculada.
 
-6. **Audio SLAM**
-   - `NavigationAudioRouter` corre en un hilo separado; aplica cooldown global y por fuente.
+6. **Audio (SLAM + RGB)**
+   - `NavigationAudioRouter` corre en un hilo separado; aplica cooldown global y por fuente, tanto para eventos SLAM como para RGB.
    - Cuando procede, usa `AudioSystem.speak_async` para reproducir el mensaje.
 
 7. **Presentación**
@@ -96,4 +96,3 @@ Para instrumentar antes de refactorizar audio:
   - Resumen de sesión al final (`session_summary` con totales y métricas promedio).
 
 Con esta instrumentación podremos validar más tarde una versión donde todo el audio (RGB + SLAM) pase exclusivamente por `NavigationAudioRouter`.
-
