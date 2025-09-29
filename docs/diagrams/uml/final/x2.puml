@@ -1,13 +1,13 @@
 @startuml
-title Audio Pipeline - Estado Actual
+title Audio Pipeline - Router Centralizado
 
 start
 :YOLO detections + depth map;
 if (detections?) then (sí)
   :Coordinator ordena navigation_objects;
-  if (top.priority >= 8 && cooldown ok) then (sí)
-    :Construye mensaje "<objeto> <distancia> <zona>";
-    :Coordinator -> NavigationAudioRouter.enqueue_from_rgb();
+  if (top.priority >= umbral) then (sí)
+    :Construye mensaje + metadata (prioridad, zona, cooldown);
+    :Coordinator -> NavigationAudioRouter.enqueue_from_rgb(metadata);
   endif
 endif
 
@@ -17,9 +17,11 @@ if (nuevos eventos) then (sí)
   :NavigationAudioRouter.enqueue_from_slam(evento);
 endif
 
-:NavigationAudioRouter aplica cooldown global + por fuente;
+:NavigationAudioRouter evalúa cooldown global + por fuente con metadata;
 if (evento aprobado?) then (sí)
+  :NavigationAudioRouter ajusta cooldown en AudioSystem;
   :AudioSystem.speak_async(mensaje);
 endif
+:NavigationAudioRouter registra métrica/log en audio_telemetry.jsonl;
 stop
 @enduml

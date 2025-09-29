@@ -326,31 +326,38 @@ class Coordinator:
 
     def _build_slam_message(self, event: SlamDetectionEvent) -> str:
         zone_map = {
-            "far_left": "extrema izquierda",
-            "left": "izquierda lateral",
-            "right": "derecha lateral",
-            "far_right": "extrema derecha",
+            "far_left": "far left side",
+            "left": "left side",
+            "right": "right side",
+            "far_right": "far right side",
         }
         object_map = {
-            "person": "persona",
-            "car": "coche",
-            "truck": "camión",
-            "bus": "autobús",
-            "bicycle": "bicicleta",
-            "motorcycle": "moto",
+            "person": "person",
+            "car": "car",
+            "truck": "truck",
+            "bus": "bus",
+            "bicycle": "bicycle",
+            "motorcycle": "motorcycle",
+            "motorbike": "motorbike",
         }
 
         zone_text = zone_map.get(event.zone, event.zone)
         name = object_map.get(event.object_name, event.object_name)
-        distance = event.distance
+        distance = (event.distance or "").lower()
 
         if distance in {"close", "very_close"} and event.object_name in {"car", "truck", "bus"}:
-            return f"Cuidado: {name} acercándose por la {zone_text}"
+            return f"Warning, {name} approaching on the {zone_text}"
         if event.object_name == "person" and distance in {"close", "very_close"}:
-            return f"Persona cerca en la {zone_text}"
-        if distance not in {"", "unknown"}:
-            return f"{name} {distance} en la {zone_text}"
-        return f"{name} en la {zone_text}"
+            return f"Person close on the {zone_text}"
+        if distance and distance != "unknown":
+            if distance == "medium":
+                distance_text = "at medium distance"
+            elif distance == "far":
+                distance_text = "far"
+            else:
+                distance_text = distance.replace("_", " ")
+            return f"{name.capitalize()} {distance_text} on the {zone_text}"
+        return f"{name.capitalize()} on the {zone_text}"
 
     def get_slam_events(self) -> Dict[str, List[dict]]:
         if not self.peripheral_enabled:
@@ -536,17 +543,6 @@ class Coordinator:
             navigation_objects: Lista de objetos ordenados por prioridad
             motion_state: Estado de movimiento del usuario
         """
-        current_time = time.time()
-
-        # Cooldown adaptativo según movimiento
-        if motion_state == "walking":
-            cooldown = 1.5
-        else:
-            cooldown = 3.0
-
-        if current_time - self.last_announcement_time < cooldown:
-            return
-
         if not navigation_objects:
             return
 
@@ -555,21 +551,21 @@ class Coordinator:
         if top_object['priority'] < 8.0:
             return
 
+        # Cooldown adaptativo según movimiento
+        cooldown = 1.5 if motion_state == "walking" else 3.0
+
         message = self._create_audio_message(top_object)
         metadata: Dict[str, Any] = {
-            'class': top_object.get('name'),
+            'class': top_object.get('class'),
             'spanish_name': top_object.get('spanish_name'),
             'priority': top_object.get('priority'),
             'zone': top_object.get('zone'),
             'distance': top_object.get('distance'),
             'motion_state': motion_state,
+            'cooldown': cooldown,
         }
 
         event_priority = self._map_priority_for_audio(top_object)
-
-        self.audio_system.set_repeat_cooldown(cooldown)
-        if hasattr(self.audio_system, 'set_announcement_cooldown'):
-            self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
 
         if self.audio_router and hasattr(self.audio_router, 'enqueue_from_rgb'):
             if hasattr(self.audio_router, 'set_source_cooldown'):
@@ -581,47 +577,65 @@ class Coordinator:
             )
         else:
             # Fallback directo al sistema TTS sin router
+            self.audio_system.set_repeat_cooldown(cooldown)
+            if hasattr(self.audio_system, 'set_announcement_cooldown'):
+                self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
             self.audio_system.queue_message(message)
 
-        self.last_announcement_time = current_time
+        self.last_announcement_time = time.time()
     
     def _create_audio_message(self, nav_object):
         """
-        📢 Crear mensaje de audio descriptivo
+        📢 Create English audio prompts for the TTS engine
         
         Args:
             nav_object: Objeto de navegación con metadatos
             
         Returns:
-            str: Mensaje en español para TTS
+            str: English message for TTS
         """
-        name = nav_object['spanish_name']
         zone = nav_object['zone']
         distance = nav_object['distance']
-        
-        # Traducir zona a español
-        zone_spanish = {
-            'left': 'izquierda',
-            'center': 'centro',
-            'right': 'derecha'
+        class_name = (nav_object.get('class') or '').strip()
+
+        speech_labels = {
+            'person': 'person',
+            'car': 'car',
+            'truck': 'truck',
+            'bus': 'bus',
+            'bicycle': 'bicycle',
+            'motorcycle': 'motorcycle',
+            'motorbike': 'motorbike',
+            'stop sign': 'stop sign',
+            'traffic light': 'traffic light',
+            'chair': 'chair',
+            'door': 'door',
+            'stairs': 'stairs',
         }
-        zone_text = zone_spanish.get(zone, zone)
-        
-        # Traducir distancia
-        distance_spanish = {
-            'cerca': 'cerca',
-            'medio': 'a distancia media',
-            'lejos': 'lejos'
+        name = speech_labels.get(class_name, class_name if class_name else 'object')
+
+        zone_english = {
+            'left': 'left side',
+            'center': 'straight ahead',
+            'right': 'right side',
         }
-        distance_text = distance_spanish.get(distance, distance)
-        
-        # Construir mensaje contextual
-        if distance == 'cerca' and nav_object['priority'] >= 9:
-            message = f"Cuidado, {name} muy {distance_text} a la {zone_text}"
-        else:
-            message = f"{name} a la {zone_text}, {distance_text}"
-        
-        return message
+        zone_text = zone_english.get(zone, zone)
+
+        distance_english = {
+            'cerca': 'very close',
+            'muy_cerca': 'very close',
+            'very_close': 'very close',
+            'close': 'close',
+            'medio': 'at medium distance',
+            'medium': 'at medium distance',
+            'lejos': 'far',
+            'far': 'far',
+        }
+        distance_text = distance_english.get(distance, distance)
+
+        if distance_text in {'very close', 'close'} and nav_object['priority'] >= 9:
+            return f"Warning, {name} {distance_text} on the {zone_text}"
+        return f"{name.capitalize()} on the {zone_text}, {distance_text}"
 
     def _map_priority_for_audio(self, nav_object: Dict[str, Any]) -> EventPriority:
         """Mapear prioridad numérica a EventPriority"""
@@ -678,10 +692,10 @@ class Coordinator:
         """
         try:
             if hasattr(self.audio_system, 'speak_force'):
-                self.audio_system.speak_force("Test del sistema de navegación")
+                self.audio_system.speak_force("Navigation system test")
             else:
-                self.audio_system.speak_async("Test del sistema de navegación")
-            print("[COORDINATOR] Audio test enviado")
+                self.audio_system.speak_async("Navigation system test")
+            print("[COORDINATOR] Audio test emitted")
         except Exception as e:
             print(f"[COORDINATOR] Audio test failed: {e}")
     

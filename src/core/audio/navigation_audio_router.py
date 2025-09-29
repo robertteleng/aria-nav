@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import time
 import threading
 import queue
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
@@ -56,9 +58,180 @@ class NavigationAudioRouter:
         }
         self.global_cooldown = 0.8
 
+        self.events_enqueued = 0
         self.events_processed = 0
         self.events_spoken = 0
+        self.events_skipped = 0
         self.events_dropped = 0
+
+        self._metrics_lock = threading.Lock()
+        self._log_lock = threading.Lock()
+        self.log_path = Path("logs/audio_telemetry.jsonl")
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._session_start_ts = time.time()
+
+        self.metrics: Dict[str, Any] = {
+            "events_enqueued": 0,
+            "events_processed": 0,
+            "events_spoken": 0,
+            "events_skipped": 0,
+            "events_dropped": 0,
+            "queue_maxsize": self.event_queue.maxsize,
+            "queue_size": 0,
+            "last_decision_ts": 0.0,
+            "session_start_ts": self._session_start_ts,
+            "per_source": {
+                RGB_SOURCE: self._make_source_stats(),
+                SLAM1_SOURCE: self._make_source_stats(),
+                SLAM2_SOURCE: self._make_source_stats(),
+            },
+        }
+
+    def _make_source_stats(self) -> Dict[str, Any]:
+        return {
+            "enqueued": 0,
+            "spoken": 0,
+            "skipped": 0,
+            "dropped": 0,
+            "last_event_ts": 0.0,
+            "last_spoken_ts": 0.0,
+        }
+
+    def _ensure_source_stats(self, source: str) -> Dict[str, Any]:
+        per_source = self.metrics.setdefault("per_source", {})
+        if source not in per_source:
+            per_source[source] = self._make_source_stats()
+        return per_source[source]
+
+    def _reset_metrics(self) -> None:
+        self._session_start_ts = time.time()
+        self.events_enqueued = 0
+        self.events_processed = 0
+        self.events_spoken = 0
+        self.events_skipped = 0
+        self.events_dropped = 0
+        self._last_global_announcement = 0.0
+        self._last_source_announcement.clear()
+        with self._metrics_lock:
+            self.metrics.update(
+                {
+                    "events_enqueued": 0,
+                    "events_processed": 0,
+                    "events_spoken": 0,
+                    "events_skipped": 0,
+                    "events_dropped": 0,
+                    "queue_size": self.event_queue.qsize(),
+                    "last_decision_ts": 0.0,
+                    "session_start_ts": self._session_start_ts,
+                }
+            )
+            per_source = self.metrics.setdefault("per_source", {})
+            for key in list(per_source.keys()):
+                per_source[key] = self._make_source_stats()
+            for key in (RGB_SOURCE, SLAM1_SOURCE, SLAM2_SOURCE):
+                per_source.setdefault(key, self._make_source_stats())
+
+    def _update_metrics(self, event: NavigationEvent, action: str) -> None:
+        now = time.time()
+        with self._metrics_lock:
+            stats = self._ensure_source_stats(event.source)
+            if action == "enqueued":
+                self.events_enqueued += 1
+                self.metrics["events_enqueued"] = self.events_enqueued
+                stats["enqueued"] += 1
+                stats["last_event_ts"] = now
+            elif action == "processed":
+                self.events_processed += 1
+                self.metrics["events_processed"] = self.events_processed
+                self.metrics["last_decision_ts"] = now
+            elif action == "spoken":
+                self.events_spoken += 1
+                self.metrics["events_spoken"] = self.events_spoken
+                stats["spoken"] += 1
+                stats["last_spoken_ts"] = now
+            elif action == "skipped":
+                self.events_skipped += 1
+                self.metrics["events_skipped"] = self.events_skipped
+                stats["skipped"] += 1
+            elif action == "dropped":
+                self.events_dropped += 1
+                self.metrics["events_dropped"] = self.events_dropped
+                stats["dropped"] += 1
+
+            self.metrics["queue_size"] = max(self.event_queue.qsize(), 0)
+
+    def _on_event_processed(self, event: NavigationEvent) -> None:
+        self._update_metrics(event, "processed")
+
+    def _log_event(
+        self,
+        action: str,
+        event: NavigationEvent,
+        *,
+        reason: Optional[str] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "timestamp": time.time(),
+            "session_start": self._session_start_ts,
+            "action": action,
+            "source": event.source,
+            "priority": event.priority.name if isinstance(event.priority, EventPriority) else str(event.priority),
+            "priority_value": int(event.priority.value if isinstance(event.priority, EventPriority) else event.priority),
+            "message": event.message,
+        }
+        if event.metadata:
+            payload["metadata"] = event.metadata
+        if reason:
+            payload["reason"] = reason
+        if extra:
+            payload.update(extra)
+
+        raw_event = event.raw_event
+        if raw_event is not None:
+            payload["raw_event"] = {
+                "object_name": getattr(raw_event, "object_name", None),
+                "zone": getattr(raw_event, "zone", None),
+                "distance": getattr(raw_event, "distance", None),
+                "confidence": getattr(raw_event, "confidence", None),
+                "frame_index": getattr(raw_event, "frame_index", None),
+            }
+
+        self._write_log_line(payload)
+
+    def _log_control_event(self, action: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        payload: Dict[str, Any] = {
+            "timestamp": time.time(),
+            "session_start": self._session_start_ts,
+            "action": action,
+        }
+        if extra:
+            payload.update(extra)
+        self._write_log_line(payload)
+
+    def _log_session_summary(self) -> None:
+        summary = self.get_metrics()
+        summary_payload = {
+            "timestamp": time.time(),
+            "session_start": summary.get("session_start_ts", self._session_start_ts),
+            "session_duration": max(0.0, time.time() - summary.get("session_start_ts", self._session_start_ts)),
+            "action": "session_summary",
+            "metrics": summary,
+        }
+        self._write_log_line(summary_payload)
+
+    def _write_log_line(self, payload: Dict[str, Any]) -> None:
+        try:
+            line = json.dumps(payload, ensure_ascii=True)
+        except TypeError:
+            line = json.dumps({"error": "serialization_failed", "payload_repr": repr(payload)})
+        with self._log_lock:
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
+    def get_metrics(self) -> Dict[str, Any]:
+        with self._metrics_lock:
+            return json.loads(json.dumps(self.metrics))
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -69,6 +242,8 @@ class NavigationAudioRouter:
             return
         self._running = True
         self._counter = 0
+        self._reset_metrics()
+        self._log_control_event("session_start")
         self._thread = threading.Thread(target=self._run, name="NavigationAudioRouter", daemon=True)
         self._thread.start()
 
@@ -83,6 +258,8 @@ class NavigationAudioRouter:
         self._counter += 1
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
+        self._log_session_summary()
+        self._log_control_event("session_stop")
 
     # ------------------------------------------------------------------
     # queue interface
@@ -94,7 +271,11 @@ class NavigationAudioRouter:
             self.event_queue.put_nowait((priority_value, self._counter, event))
             self._counter += 1
         except queue.Full:
-            self.events_dropped += 1
+            self._update_metrics(event, "dropped")
+            self._log_event("dropped", event, reason="queue_full")
+            return
+        self._update_metrics(event, "enqueued")
+        self._log_event("enqueued", event)
 
     def enqueue_from_slam(self, slam_event: SlamDetectionEvent, message: str, priority: EventPriority) -> None:
         source_value = slam_event.source.value if getattr(slam_event, "source", None) is not None else SLAM1_SOURCE
@@ -132,24 +313,33 @@ class NavigationAudioRouter:
     def _run(self) -> None:
         while self._running:
             try:
-                priority, _order, event = self.event_queue.get(timeout=0.5)
+                _priority, _order, event = self.event_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
             if event is None:
                 break
 
-            self.events_processed += 1
-            if self._should_announce(event):
-                self._apply_audio_settings(event)
-                self.audio.speak_async(event.message)
-                self.events_spoken += 1
-                self._last_global_announcement = time.time()
-                self._last_source_announcement[event.source] = self._last_global_announcement
-            else:
-                self.events_dropped += 1
+            self._on_event_processed(event)
 
-    def _should_announce(self, event: NavigationEvent) -> bool:
+            should_announce, trigger = self._should_announce(event)
+            if should_announce:
+                self._apply_audio_settings(event)
+                speak_ok = self.audio.speak_async(event.message)
+                if speak_ok:
+                    now = time.time()
+                    self._last_global_announcement = now
+                    self._last_source_announcement[event.source] = now
+                    self._update_metrics(event, "spoken")
+                    self._log_event("spoken", event, extra={"trigger": trigger})
+                else:
+                    self._update_metrics(event, "skipped")
+                    self._log_event("skipped", event, reason="tts_rejected")
+            else:
+                self._update_metrics(event, "skipped")
+                self._log_event("skipped", event, reason=trigger)
+
+    def _should_announce(self, event: NavigationEvent) -> Tuple[bool, str]:
         now = time.time()
 
         metadata = event.metadata or {}
@@ -163,18 +353,18 @@ class NavigationAudioRouter:
                 self.source_cooldown[event.source] = cooldown_value
 
         if now - self._last_global_announcement < self.global_cooldown:
-            return False
+            return False, "global_cooldown"
 
         if event.priority == EventPriority.CRITICAL:
-            return True
+            return True, "priority_critical"
 
         last_source = self._last_source_announcement.get(event.source, 0.0)
         source_cooldown = self.source_cooldown.get(event.source, self.default_source_cooldown)
         if now - last_source < source_cooldown:
-            return False
+            return False, "source_cooldown"
 
         if not event.source.startswith("slam"):
-            return True
+            return True, "non_slam"
 
         # Para eventos periféricos, comprobar separación entre ambos canales
         primary_last = max(
@@ -182,9 +372,9 @@ class NavigationAudioRouter:
             self._last_source_announcement.get(SLAM2_SOURCE, 0.0),
         )
         if now - primary_last < 4.0:
-            return False
+            return False, "slam_spacing"
 
-        return True
+        return True, "slam_allowed"
 
     def set_source_cooldown(self, source: str, cooldown: float) -> None:
         try:

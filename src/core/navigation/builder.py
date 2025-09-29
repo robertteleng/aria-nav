@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 🏗️ Simple Builder Pattern - TFM Navigation System
 """
@@ -26,6 +24,10 @@ class Builder:
     def build_audio_system(self):
         print("  📦 Creando Audio System...")
         return AudioSystem()  # Sin parámetros, lee Config internamente
+
+    def build_audio_router(self, audio_system: AudioSystem) -> NavigationAudioRouter:
+        print("  📦 Creando NavigationAudioRouter...")
+        return NavigationAudioRouter(audio_system)
     
     def build_frame_renderer(self):
         print("  📦 Creando Frame Renderer...")
@@ -73,7 +75,7 @@ class Builder:
         audio_system = self.build_audio_system()
         frame_renderer = self.build_frame_renderer()
         image_enhancer = self.build_image_enhancer()
-        audio_router = NavigationAudioRouter(audio_system)
+        audio_router = self.build_audio_router(audio_system)
 
         # Coordinator sin dashboard - Observer maneja el suyo
         coordinator = self.build_coordinator(
