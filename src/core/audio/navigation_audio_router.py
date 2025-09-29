@@ -90,7 +90,8 @@ class NavigationAudioRouter:
 
     def enqueue(self, event: NavigationEvent) -> None:
         try:
-            self.event_queue.put_nowait((event.priority.value, self._counter, event))
+            priority_value = int(event.priority.value if isinstance(event.priority, EventPriority) else event.priority)
+            self.event_queue.put_nowait((priority_value, self._counter, event))
             self._counter += 1
         except queue.Full:
             self.events_dropped += 1
@@ -102,6 +103,7 @@ class NavigationAudioRouter:
             source=source_value,
             priority=priority,
             message=message,
+            metadata=None,
             raw_event=slam_event,
         )
         self.enqueue(nav_event)
@@ -119,7 +121,7 @@ class NavigationAudioRouter:
             source=RGB_SOURCE,
             priority=priority,
             message=message,
-            metadata=metadata,
+            metadata=dict(metadata) if metadata else None,
         )
         self.enqueue(nav_event)
 
@@ -139,6 +141,7 @@ class NavigationAudioRouter:
 
             self.events_processed += 1
             if self._should_announce(event):
+                self._apply_audio_settings(event)
                 self.audio.speak_async(event.message)
                 self.events_spoken += 1
                 self._last_global_announcement = time.time()
@@ -148,6 +151,16 @@ class NavigationAudioRouter:
 
     def _should_announce(self, event: NavigationEvent) -> bool:
         now = time.time()
+
+        metadata = event.metadata or {}
+        cooldown_hint = metadata.get("cooldown")
+        if cooldown_hint is not None:
+            try:
+                cooldown_value = max(0.0, float(cooldown_hint))
+            except (TypeError, ValueError):
+                cooldown_value = None
+            if cooldown_value is not None:
+                self.source_cooldown[event.source] = cooldown_value
 
         if now - self._last_global_announcement < self.global_cooldown:
             return False
@@ -181,6 +194,23 @@ class NavigationAudioRouter:
             self.source_cooldown[source] = value
         except (TypeError, ValueError):
             pass
+
+    def _apply_audio_settings(self, event: NavigationEvent) -> None:
+        metadata = event.metadata or {}
+
+        cooldown_hint = metadata.get("cooldown")
+        if cooldown_hint is not None:
+            try:
+                cooldown_value = max(0.0, float(cooldown_hint))
+            except (TypeError, ValueError):
+                cooldown_value = None
+            if cooldown_value is not None:
+                self.set_source_cooldown(event.source, cooldown_value)
+                if hasattr(self.audio, "set_repeat_cooldown"):
+                    self.audio.set_repeat_cooldown(cooldown_value)
+                if hasattr(self.audio, "set_announcement_cooldown"):
+                    self.audio.set_announcement_cooldown(max(0.0, cooldown_value * 0.5))
+
 
 
 __all__ = ["NavigationAudioRouter", "EventPriority", "NavigationEvent"]
