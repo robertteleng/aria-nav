@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 🎯 Coordinator Mejorado - TFM Navigation System
 Basado en la versión original, con mejoras para soporte de motion detection
@@ -10,17 +11,18 @@ Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
 """
 
 import numpy as np
-import cv2
 import time
 from enum import Enum
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, cast
 
 from utils.config import Config
 
-try:
-    from core.vision.depth_estimator import DepthEstimator
-except Exception:
-    DepthEstimator = None
+from core.navigation.navigation_decision_engine import (
+    AudioDecision,
+    NavigationDecisionEngine,
+)
+from core.navigation.navigation_pipeline import NavigationPipeline
+from core.navigation.slam_audio_router import SlamAudioRouter, SlamRoutingState
 
 try:
     from core.vision.slam_detection_worker import (
@@ -33,9 +35,10 @@ try:
         EventPriority,
     )
 except Exception:
-    CameraSource = None  # type: ignore[assignment]
-    SlamDetectionWorker = None  # type: ignore[assignment]
-    NavigationAudioRouter = None  # type: ignore[assignment]
+    CameraSource = Any  # type: ignore[assignment]
+    SlamDetectionEvent = Any  # type: ignore[assignment]
+    SlamDetectionWorker = Any  # type: ignore[assignment]
+    NavigationAudioRouter = Any  # type: ignore[assignment]
 
     class _FallbackPriority(Enum):
         CRITICAL = 1
@@ -64,7 +67,9 @@ class Coordinator:
         frame_renderer=None,
         image_enhancer=None,
         dashboard=None,
-        audio_router: Optional[NavigationAudioRouter] = None,
+        audio_router: Optional[Any] = None,
+        navigation_pipeline: Optional[NavigationPipeline] = None,
+        decision_engine: Optional[NavigationDecisionEngine] = None,
     ):
         """
         Inicializar coordinator con dependencias inyectadas
@@ -77,52 +82,26 @@ class Coordinator:
             dashboard: Instancia opcional de Dashboard
         """
         # Dependencias inyectadas
-        self.yolo_processor = yolo_processor
         self.audio_system = audio_system
         self.frame_renderer = frame_renderer
-        self.image_enhancer = image_enhancer  
         self.dashboard = dashboard
-        self.audio_router: Optional[NavigationAudioRouter] = audio_router
-        
-        # Estado interno del coordinator
+        self.audio_router: Optional[Any] = audio_router
+
+        self.pipeline = navigation_pipeline or NavigationPipeline(
+            yolo_processor=yolo_processor,
+            image_enhancer=image_enhancer,
+        )
+        self.decision_engine = decision_engine or NavigationDecisionEngine()
+
+        # Compatibilidad hacia atrás
+        self.yolo_processor = self.pipeline.yolo_processor
+        self.image_enhancer = self.pipeline.image_enhancer
+        self.depth_estimator = self.pipeline.depth_estimator
+
+        # Estado interno
         self.frames_processed = 0
-        self.last_announcement_time = 0
-        self.current_detections = []
-        
-        # Configuración de zonas espaciales (pixels)
-        self.zones = {
-            'left': (0, 213),
-            'center': (213, 426), 
-            'right': (426, 640)
-        }
-        
-        # Prioridades de objetos para navegación
-        self.object_priorities = {
-            'person': {'priority': 10, 'spanish': 'persona'},
-            'car': {'priority': 8, 'spanish': 'coche'},
-            'truck': {'priority': 8, 'spanish': 'camión'},
-            'bus': {'priority': 8, 'spanish': 'autobús'},
-            'bicycle': {'priority': 7, 'spanish': 'bicicleta'},
-            'motorcycle': {'priority': 7, 'spanish': 'motocicleta'},
-            'stop sign': {'priority': 9, 'spanish': 'señal de stop'},
-            'traffic light': {'priority': 6, 'spanish': 'semáforo'},
-            'chair': {'priority': 3, 'spanish': 'silla'},
-            'door': {'priority': 4, 'spanish': 'puerta'},
-            'stairs': {'priority': 5, 'spanish': 'escaleras'}
-        }
-        
-        self.depth_estimator = None
-        self.depth_frame_skip = max(1, getattr(Config, 'DEPTH_FRAME_SKIP', 1))
-        self.latest_depth_map = None
-        if getattr(Config, 'DEPTH_ENABLED', False) and DepthEstimator is not None:
-            try:
-                self.depth_estimator = DepthEstimator()
-                # Si el modelo no está disponible, mantener referencia pero avisar
-                if getattr(self.depth_estimator, 'model', None) is None:
-                    print("[WARN] Depth estimator initialized without model (disabled)")
-            except Exception as err:
-                print(f"[WARN] Depth estimator init failed: {err}")
-                self.depth_estimator = None
+        self.last_announcement_time = 0.0
+        self.current_detections: List[Dict[str, Any]] = []
 
         self.profile_enabled = getattr(Config, 'PROFILE_PIPELINE', False)
         self.profile_window = max(1, getattr(Config, 'PROFILE_WINDOW_FRAMES', 30))
@@ -138,10 +117,13 @@ class Coordinator:
 
         # Peripheral SLAM support
         self.peripheral_enabled = False
-        self.slam_workers: Dict[CameraSource, SlamDetectionWorker] = {}
-        self.slam_frame_counters: Dict[CameraSource, int] = {}
-        self._last_slam_indices: Dict[CameraSource, int] = {}
-        self.latest_slam_events: Dict[CameraSource, List[SlamDetectionEvent]] = {}
+        self.slam_state = SlamRoutingState(
+            workers={},
+            frame_counters={},
+            last_indices={},
+            latest_events={},
+        )
+        self.slam_router = SlamAudioRouter(self.audio_router)
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
@@ -167,47 +149,29 @@ class Coordinator:
 
         total_start = time.perf_counter() if self.profile_enabled else 0.0
 
-        # 0. Optional low-light enhancement
-        enhance_start = time.perf_counter() if self.profile_enabled else 0.0
-        processed_frame = frame
-        if self.image_enhancer is not None:
-            try:
-                processed_frame = self.image_enhancer.enhance_frame(frame)
-            except Exception as err:
-                print(f"[WARN] Image enhancement skipped: {err}")
-                processed_frame = frame
-        if self.profile_enabled:
-            self._profile_acc['enhance'] += time.perf_counter() - enhance_start
+        pipeline_result = self.pipeline.process(frame, profile=self.profile_enabled)
+        processed_frame = pipeline_result.frame
+        detections = pipeline_result.detections
+        depth_map = pipeline_result.depth_map
 
-        # 1. Depth estimation (opcional)
-        depth_start = time.perf_counter() if self.profile_enabled else 0.0
-        depth_map = None
-        if self.depth_estimator is not None and getattr(self.depth_estimator, 'model', None) is not None:
-            try:
-                if self.frames_processed % self.depth_frame_skip == 0:
-                    depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
-                    if depth_candidate is not None:
-                        self.latest_depth_map = depth_candidate
-                depth_map = self.latest_depth_map
-            except Exception as err:
-                print(f"[WARN] Depth estimation skipped: {err}")
         if self.profile_enabled:
-            self._profile_acc['depth'] += time.perf_counter() - depth_start
-
-        # 2. YOLO Detection
-        yolo_start = time.perf_counter() if self.profile_enabled else 0.0
-        detections = self.yolo_processor.process_frame(processed_frame, depth_map)
-        if self.profile_enabled:
-            self._profile_acc['yolo'] += time.perf_counter() - yolo_start
+            timings = pipeline_result.timings
+            self._profile_acc['enhance'] += timings.get('enhance', 0.0)
+            self._profile_acc['depth'] += timings.get('depth', 0.0)
+            self._profile_acc['yolo'] += timings.get('yolo', 0.0)
 
         # 3. Navigation Analysis
         nav_start = time.perf_counter() if self.profile_enabled else 0.0
-        navigation_objects = self._analyze_navigation_objects(detections)
+        navigation_objects = self.decision_engine.analyze(detections)
 
         # 4. Audio Commands (con motion-aware cooldown)
-        self._generate_audio_commands(navigation_objects, motion_state)
+        decision = self.decision_engine.evaluate(navigation_objects, motion_state)
+        if decision is not None:
+            self._route_audio_decision(decision)
         if self.profile_enabled:
             self._profile_acc['nav_audio'] += time.perf_counter() - nav_start
+
+        self.last_announcement_time = self.decision_engine.last_announcement_time
 
         # 5. Frame Rendering (si está disponible)
         render_start = time.perf_counter() if self.profile_enabled else 0.0
@@ -242,29 +206,70 @@ class Coordinator:
 
         return annotated_frame
 
+    def _route_audio_decision(self, decision: AudioDecision) -> None:
+        metadata = dict(decision.metadata or {})
+
+        cooldown_value = metadata.get('cooldown', 0.0)
+        try:
+            cooldown = float(cooldown_value or 0.0)
+        except (TypeError, ValueError):
+            cooldown = 0.0
+
+        routed = False
+        router = self.audio_router
+
+        if router is not None and hasattr(router, 'enqueue_from_rgb'):
+            if getattr(router, '_running', True):
+                if hasattr(router, 'set_source_cooldown'):
+                    try:
+                        cast(Any, router).set_source_cooldown('rgb', cooldown)
+                    except Exception as err:
+                        print(f"[WARN] Audio router cooldown failed: {err}")
+                        router = None
+                if router is not None:
+                    try:
+                        cast(Any, router).enqueue_from_rgb(
+                            message=decision.message,
+                            priority=decision.priority,
+                            metadata=metadata,
+                        )
+                        routed = True
+                    except Exception as err:
+                        print(f"[WARN] Audio router enqueue failed, falling back to TTS: {err}")
+                        router = None
+
+        if not routed:
+            self.audio_system.set_repeat_cooldown(cooldown)
+            if hasattr(self.audio_system, 'set_announcement_cooldown'):
+                self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
+            self.audio_system.queue_message(decision.message)
+
+        self.last_announcement_time = self.decision_engine.last_announcement_time
+
     # ------------------------------------------------------------------
     # Peripheral vision (SLAM) integration
     # ------------------------------------------------------------------
 
     def attach_peripheral_system(
         self,
-        slam_workers: Dict[CameraSource, SlamDetectionWorker],
-        audio_router: Optional[NavigationAudioRouter] = None,
+        slam_workers: Dict[Any, Any],
+        audio_router: Optional[Any] = None,
     ) -> None:
         if CameraSource is None:
             print("[WARN] Peripheral system not available (missing dependencies)")
             return
 
         self.peripheral_enabled = True
-        self.slam_workers = slam_workers
+        self.slam_state.workers = slam_workers
         if audio_router is not None:
             self.audio_router = audio_router
+            self.slam_router = SlamAudioRouter(audio_router)
 
         for source, worker in slam_workers.items():
             worker.start()
-            self.slam_frame_counters[source] = 0
-            self._last_slam_indices[source] = -1
-            self.latest_slam_events[source] = []
+            self.slam_state.frame_counters[source] = 0
+            self.slam_state.last_indices[source] = -1
+            self.slam_state.latest_events[source] = []
 
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
@@ -279,92 +284,21 @@ class Coordinator:
         if not self.peripheral_enabled or CameraSource is None:
             return
 
-        if slam1_frame is not None and CameraSource.SLAM1 in self.slam_workers:
-            self._submit_and_route(CameraSource.SLAM1, slam1_frame)
+        slam1_source = getattr(CameraSource, 'SLAM1', None)
+        slam2_source = getattr(CameraSource, 'SLAM2', None)
 
-        if slam2_frame is not None and CameraSource.SLAM2 in self.slam_workers:
-            self._submit_and_route(CameraSource.SLAM2, slam2_frame)
+        if slam1_frame is not None and slam1_source in self.slam_state.workers:
+            self.slam_router.submit_and_route(self.slam_state, slam1_source, slam1_frame)
 
-    def _submit_and_route(self, source: CameraSource, frame: np.ndarray) -> None:
-        worker = self.slam_workers[source]
-        self.slam_frame_counters[source] += 1
-        worker.submit(frame, self.slam_frame_counters[source])
-
-        events = worker.latest_events()
-        if not events:
-            # Limpiar eventos previos cuando no hay nuevas detecciones para evitar overlays persistentes
-            self.latest_slam_events[source] = []
-            return
-
-        latest_index = events[0].frame_index
-        if latest_index == self._last_slam_indices.get(source, -1):
-            return
-
-        self._last_slam_indices[source] = latest_index
-        self.latest_slam_events[source] = events
-
-        if self.audio_router:
-            for event in events:
-                priority = self._determine_slam_priority(event)
-                message = self._build_slam_message(event)
-                self.audio_router.enqueue_from_slam(event, message, priority)
-
-    def _determine_slam_priority(self, event: SlamDetectionEvent) -> EventPriority:
-        if EventPriority is None:
-            return EventPriority.HIGH  # type: ignore[return-value]
-
-        distance = event.distance
-        name = event.object_name
-
-        if name in {"car", "truck", "bus", "motorcycle"} and distance in {"close", "very_close"}:
-            return EventPriority.CRITICAL
-        if name == "person" and distance in {"close", "very_close"}:
-            return EventPriority.HIGH
-        if name in {"bicycle", "motorbike"}:
-            return EventPriority.HIGH
-        return EventPriority.MEDIUM
-
-    def _build_slam_message(self, event: SlamDetectionEvent) -> str:
-        zone_map = {
-            "far_left": "far left side",
-            "left": "left side",
-            "right": "right side",
-            "far_right": "far right side",
-        }
-        object_map = {
-            "person": "person",
-            "car": "car",
-            "truck": "truck",
-            "bus": "bus",
-            "bicycle": "bicycle",
-            "motorcycle": "motorcycle",
-            "motorbike": "motorbike",
-        }
-
-        zone_text = zone_map.get(event.zone, event.zone)
-        name = object_map.get(event.object_name, event.object_name)
-        distance = (event.distance or "").lower()
-
-        if distance in {"close", "very_close"} and event.object_name in {"car", "truck", "bus"}:
-            return f"Warning, {name} approaching on the {zone_text}"
-        if event.object_name == "person" and distance in {"close", "very_close"}:
-            return f"Person close on the {zone_text}"
-        if distance and distance != "unknown":
-            if distance == "medium":
-                distance_text = "at medium distance"
-            elif distance == "far":
-                distance_text = "far"
-            else:
-                distance_text = distance.replace("_", " ")
-            return f"{name.capitalize()} {distance_text} on the {zone_text}"
-        return f"{name.capitalize()} on the {zone_text}"
+        if slam2_frame is not None and slam2_source in self.slam_state.workers:
+            self.slam_router.submit_and_route(self.slam_state, slam2_source, slam2_frame)
 
     def get_slam_events(self) -> Dict[str, List[dict]]:
         if not self.peripheral_enabled:
             return {}
 
         event_dict: Dict[str, List[dict]] = {}
-        for source, events in self.latest_slam_events.items():
+        for source, events in self.slam_state.latest_events.items():
             simplified = []
             for event in events:
                 simplified.append(
@@ -374,7 +308,7 @@ class Coordinator:
                         'confidence': event.confidence,
                         'zone': event.zone,
                         'distance': event.distance,
-                        'message': self._build_slam_message(event),
+                        'message': self.slam_router.describe_event(event),
                     }
                 )
             event_dict[source.value] = simplified
@@ -395,260 +329,7 @@ class Coordinator:
 
     def get_latest_depth_map(self) -> Optional[np.ndarray]:
         """Obtener el último depth map estimado"""
-        return self.latest_depth_map
-    
-    def _analyze_navigation_objects(self, detections):
-        """
-        🧠 Analizar detecciones para navegación
-        
-        Args:
-            detections: Lista de objetos detectados por YOLO
-            
-        Returns:
-            list: Objetos relevantes con metadatos de navegación
-        """
-        navigation_objects = []
-        
-        for detection in detections:
-            class_name = detection['name']
-            
-            # Solo procesar objetos relevantes para navegación
-            if class_name not in self.object_priorities:
-                continue
-            
-            # Calcular zona espacial
-            bbox = detection['bbox']
-            x_center = bbox[0] + bbox[2] / 2
-            zone = self._calculate_zone(x_center)
-            
-            # Estimar distancia relativa
-            distance_category = self._estimate_distance(bbox, class_name)
-            
-            # Calcular prioridad final
-            base_priority = self.object_priorities[class_name]['priority']
-            final_priority = self._calculate_final_priority(
-                base_priority, zone, distance_category
-            )
-            
-            navigation_obj = {
-                'class': class_name,
-                'spanish_name': self.object_priorities[class_name]['spanish'],
-                'bbox': bbox,
-                'confidence': detection['confidence'],
-                'zone': zone,
-                'distance': distance_category,
-                'priority': final_priority,
-                'original_priority': base_priority
-            }
-            
-            navigation_objects.append(navigation_obj)
-        
-        # Ordenar por prioridad descendente
-        navigation_objects.sort(key=lambda x: x['priority'], reverse=True)
-        
-        return navigation_objects
-    
-    def _calculate_zone(self, x_center):
-        """
-        📍 Calcular zona espacial de un objeto
-        
-        Args:
-            x_center: Coordenada X del centro del objeto
-            
-        Returns:
-            str: 'left', 'center', o 'right'
-        """
-        if x_center < self.zones['left'][1]:
-            return 'left'
-        elif x_center < self.zones['center'][1]:
-            return 'center'
-        else:
-            return 'right'
-    
-    def _estimate_distance(self, bbox, class_name):
-        """
-        📏 Estimar distancia relativa basada en tamaño del bbox
-        
-        Args:
-            bbox: Bounding box [x, y, w, h]
-            class_name: Tipo de objeto
-            
-        Returns:
-            str: 'cerca', 'medio', 'lejos'
-        """
-        height = bbox[3]
-        
-        # Umbrales específicos por tipo de objeto
-        if class_name == 'person':
-            if height > 200:
-                return 'cerca'
-            elif height > 100:
-                return 'medio'
-            else:
-                return 'lejos'
-        elif class_name in ['car', 'truck', 'bus']:
-            if height > 150:
-                return 'cerca'
-            elif height > 75:
-                return 'medio'
-            else:
-                return 'lejos'
-        else:
-            # Default para otros objetos
-            if height > 100:
-                return 'cerca'
-            elif height > 50:
-                return 'medio'
-            else:
-                return 'lejos'
-    
-    def _calculate_final_priority(self, base_priority, zone, distance):
-        """
-        ⚖️ Calcular prioridad final con modificadores
-        
-        Args:
-            base_priority: Prioridad base del objeto
-            zone: Zona espacial del objeto
-            distance: Categoría de distancia
-            
-        Returns:
-            float: Prioridad final modificada
-        """
-        priority = float(base_priority)
-        
-        # Modificador por distancia
-        distance_multipliers = {
-            'cerca': 2.0,
-            'medio': 1.5,
-            'lejos': 1.0
-        }
-        priority *= distance_multipliers.get(distance, 1.0)
-        
-        # Modificador por zona (centro es más importante)
-        zone_multipliers = {
-            'center': 1.3,
-            'left': 1.0,
-            'right': 1.0
-        }
-        priority *= zone_multipliers.get(zone, 1.0)
-        
-        return priority
-    
-    def _generate_audio_commands(self, navigation_objects, motion_state="stationary"):
-        """
-        🔊 Generar comandos de audio basados en objetos detectados
-        MEJORADO: Ahora incluye motion-aware cooldown
-        
-        Args:
-            navigation_objects: Lista de objetos ordenados por prioridad
-            motion_state: Estado de movimiento del usuario
-        """
-        if not navigation_objects:
-            return
-
-        top_object = navigation_objects[0]
-
-        if top_object['priority'] < 8.0:
-            return
-
-        # Cooldown adaptativo según movimiento
-        cooldown = 1.5 if motion_state == "walking" else 3.0
-
-        message = self._create_audio_message(top_object)
-        metadata: Dict[str, Any] = {
-            'class': top_object.get('class'),
-            'spanish_name': top_object.get('spanish_name'),
-            'priority': top_object.get('priority'),
-            'zone': top_object.get('zone'),
-            'distance': top_object.get('distance'),
-            'motion_state': motion_state,
-            'cooldown': cooldown,
-        }
-
-        event_priority = self._map_priority_for_audio(top_object)
-
-        if self.audio_router and hasattr(self.audio_router, 'enqueue_from_rgb'):
-            if hasattr(self.audio_router, 'set_source_cooldown'):
-                self.audio_router.set_source_cooldown('rgb', cooldown)
-            self.audio_router.enqueue_from_rgb(
-                message=message,
-                priority=event_priority,
-                metadata=metadata,
-            )
-        else:
-            # Fallback directo al sistema TTS sin router
-            self.audio_system.set_repeat_cooldown(cooldown)
-            if hasattr(self.audio_system, 'set_announcement_cooldown'):
-                self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
-            self.audio_system.queue_message(message)
-
-        self.last_announcement_time = time.time()
-    
-    def _create_audio_message(self, nav_object):
-        """
-        📢 Create English audio prompts for the TTS engine
-        
-        Args:
-            nav_object: Objeto de navegación con metadatos
-            
-        Returns:
-            str: English message for TTS
-        """
-        zone = nav_object['zone']
-        distance = nav_object['distance']
-        class_name = (nav_object.get('class') or '').strip()
-
-        speech_labels = {
-            'person': 'person',
-            'car': 'car',
-            'truck': 'truck',
-            'bus': 'bus',
-            'bicycle': 'bicycle',
-            'motorcycle': 'motorcycle',
-            'motorbike': 'motorbike',
-            'stop sign': 'stop sign',
-            'traffic light': 'traffic light',
-            'chair': 'chair',
-            'door': 'door',
-            'stairs': 'stairs',
-        }
-        name = speech_labels.get(class_name, class_name if class_name else 'object')
-
-        zone_english = {
-            'left': 'left side',
-            'center': 'straight ahead',
-            'right': 'right side',
-        }
-        zone_text = zone_english.get(zone, zone)
-
-        distance_english = {
-            'cerca': 'very close',
-            'muy_cerca': 'very close',
-            'very_close': 'very close',
-            'close': 'close',
-            'medio': 'at medium distance',
-            'medium': 'at medium distance',
-            'lejos': 'far',
-            'far': 'far',
-        }
-        distance_text = distance_english.get(distance, distance)
-
-        if distance_text in {'very close', 'close'} and nav_object['priority'] >= 9:
-            return f"Warning, {name} {distance_text} on the {zone_text}"
-        return f"{name.capitalize()} on the {zone_text}, {distance_text}"
-
-    def _map_priority_for_audio(self, nav_object: Dict[str, Any]) -> EventPriority:
-        """Mapear prioridad numérica a EventPriority"""
-        priority_value = float(nav_object.get('priority', 0.0) or 0.0)
-        distance = (nav_object.get('distance') or '').lower()
-
-        if priority_value >= 10.0 or distance in {'muy_cerca', 'very_close'}:
-            return EventPriority.CRITICAL
-        if priority_value >= 9.0 or distance in {'cerca', 'close'}:
-            return EventPriority.HIGH
-        if priority_value >= 8.0:
-            return EventPriority.MEDIUM
-        return EventPriority.LOW
+        return self.pipeline.get_latest_depth_map()
     
     def get_status(self):
         """
@@ -671,7 +352,11 @@ class Coordinator:
             'current_detections_count': len(self.current_detections),
             'audio_queue_size': audio_queue_size,
             'has_dashboard': self.dashboard is not None,
-            'slam_events': sum(len(events) for events in self.latest_slam_events.values()) if self.peripheral_enabled else 0,
+            'slam_events': (
+                sum(len(events) for events in self.slam_state.latest_events.values())
+                if self.peripheral_enabled
+                else 0
+            ),
             'has_frame_renderer': self.frame_renderer is not None,
             'has_image_enhancer': self.image_enhancer is not None,
             'last_announcement': self.last_announcement_time
@@ -735,11 +420,17 @@ class Coordinator:
             except Exception as err:
                 print(f"  ⚠️ Peripheral audio router cleanup error: {err}")
 
-            for source, worker in self.slam_workers.items():
+            for source, worker in self.slam_state.workers.items():
                 try:
                     worker.stop()
                 except Exception as err:
                     print(f"  ⚠️ SLAM worker {source.value} cleanup error: {err}")
+            self.slam_state = SlamRoutingState(
+                workers={},
+                frame_counters={},
+                last_indices={},
+                latest_events={},
+            )
 
         try:
             if self.audio_system:

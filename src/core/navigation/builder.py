@@ -2,6 +2,8 @@
 🏗️ Simple Builder Pattern - TFM Navigation System
 """
 
+from typing import Optional
+
 from core.vision.yolo_processor import YoloProcessor
 from core.audio.audio_system import AudioSystem
 from core.audio.navigation_audio_router import NavigationAudioRouter
@@ -9,6 +11,8 @@ from core.vision.slam_detection_worker import SlamDetectionWorker, CameraSource
 from presentation.renderers.frame_renderer import FrameRenderer
 from core.vision.image_enhancer import ImageEnhancer
 from core.navigation.coordinator import Coordinator
+from core.navigation.navigation_pipeline import NavigationPipeline
+from core.navigation.navigation_decision_engine import NavigationDecisionEngine
 from utils.config import Config
 
 class Builder:
@@ -36,7 +40,18 @@ class Builder:
     def build_image_enhancer(self):
         print("  📦 Creando Image Enhancer...")
         return ImageEnhancer()  # Sin parámetros, lee Config internamente
-    
+
+    def build_navigation_pipeline(self, yolo_processor, image_enhancer) -> NavigationPipeline:
+        print("  📦 Creando NavigationPipeline...")
+        return NavigationPipeline(
+            yolo_processor=yolo_processor,
+            image_enhancer=image_enhancer,
+        )
+
+    def build_decision_engine(self) -> NavigationDecisionEngine:
+        print("  📦 Creando NavigationDecisionEngine...")
+        return NavigationDecisionEngine()
+
     def build_coordinator(
         self,
         yolo_processor,
@@ -45,6 +60,8 @@ class Builder:
         image_enhancer,
         dashboard=None,
         audio_router=None,
+        navigation_pipeline: Optional[NavigationPipeline] = None,
+        decision_engine: Optional[NavigationDecisionEngine] = None,
     ):
         print("  📦 Creando Coordinator...")
         return Coordinator(
@@ -54,6 +71,8 @@ class Builder:
             image_enhancer=image_enhancer,
             dashboard=dashboard,
             audio_router=audio_router,
+            navigation_pipeline=navigation_pipeline,
+            decision_engine=decision_engine,
         )
     
     # def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer):
@@ -76,6 +95,8 @@ class Builder:
         frame_renderer = self.build_frame_renderer()
         image_enhancer = self.build_image_enhancer()
         audio_router = self.build_audio_router(audio_system)
+        navigation_pipeline = self.build_navigation_pipeline(yolo_processor, image_enhancer)
+        decision_engine = self.build_decision_engine()
 
         # Coordinator sin dashboard - Observer maneja el suyo
         coordinator = self.build_coordinator(
@@ -84,6 +105,8 @@ class Builder:
             frame_renderer,
             image_enhancer,
             audio_router=audio_router,
+            navigation_pipeline=navigation_pipeline,
+            decision_engine=decision_engine,
         )
 
         if getattr(Config, "PERIPHERAL_VISION_ENABLED", False) and CameraSource is not None:
