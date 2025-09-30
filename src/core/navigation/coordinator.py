@@ -13,14 +13,14 @@ Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
 import numpy as np
 import time
 from enum import Enum
-from typing import Optional, Dict, List, Any, cast
+from typing import Optional, Dict, List, Any
 
 from utils.config import Config
 
 from core.navigation.navigation_decision_engine import (
-    AudioDecision,
     NavigationDecisionEngine,
 )
+from core.navigation.rgb_audio_router import RgbAudioRouter
 from core.navigation.navigation_pipeline import NavigationPipeline
 from core.navigation.slam_audio_router import SlamAudioRouter, SlamRoutingState
 
@@ -123,6 +123,8 @@ class Coordinator:
             last_indices={},
             latest_events={},
         )
+        # Capa simétrica a SlamAudioRouter: formatea eventos RGB antes de encolarlos.
+        self.rgb_router = RgbAudioRouter(audio_system, self.audio_router)
         self.slam_router = SlamAudioRouter(self.audio_router)
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
@@ -165,9 +167,9 @@ class Coordinator:
         navigation_objects = self.decision_engine.analyze(detections)
 
         # 4. Audio Commands (con motion-aware cooldown)
-        decision = self.decision_engine.evaluate(navigation_objects, motion_state)
-        if decision is not None:
-            self._route_audio_decision(decision)
+        decision_candidate = self.decision_engine.evaluate(navigation_objects, motion_state)
+        if decision_candidate is not None:
+            self.rgb_router.route(decision_candidate)
         if self.profile_enabled:
             self._profile_acc['nav_audio'] += time.perf_counter() - nav_start
 
@@ -206,46 +208,6 @@ class Coordinator:
 
         return annotated_frame
 
-    def _route_audio_decision(self, decision: AudioDecision) -> None:
-        metadata = dict(decision.metadata or {})
-
-        cooldown_value = metadata.get('cooldown', 0.0)
-        try:
-            cooldown = float(cooldown_value or 0.0)
-        except (TypeError, ValueError):
-            cooldown = 0.0
-
-        routed = False
-        router = self.audio_router
-
-        if router is not None and hasattr(router, 'enqueue_from_rgb'):
-            if getattr(router, '_running', True):
-                if hasattr(router, 'set_source_cooldown'):
-                    try:
-                        cast(Any, router).set_source_cooldown('rgb', cooldown)
-                    except Exception as err:
-                        print(f"[WARN] Audio router cooldown failed: {err}")
-                        router = None
-                if router is not None:
-                    try:
-                        cast(Any, router).enqueue_from_rgb(
-                            message=decision.message,
-                            priority=decision.priority,
-                            metadata=metadata,
-                        )
-                        routed = True
-                    except Exception as err:
-                        print(f"[WARN] Audio router enqueue failed, falling back to TTS: {err}")
-                        router = None
-
-        if not routed:
-            self.audio_system.set_repeat_cooldown(cooldown)
-            if hasattr(self.audio_system, 'set_announcement_cooldown'):
-                self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
-            self.audio_system.queue_message(decision.message)
-
-        self.last_announcement_time = self.decision_engine.last_announcement_time
-
     # ------------------------------------------------------------------
     # Peripheral vision (SLAM) integration
     # ------------------------------------------------------------------
@@ -263,6 +225,7 @@ class Coordinator:
         self.slam_state.workers = slam_workers
         if audio_router is not None:
             self.audio_router = audio_router
+            self.rgb_router.set_audio_router(self.audio_router)
             self.slam_router = SlamAudioRouter(audio_router)
 
         for source, worker in slam_workers.items():

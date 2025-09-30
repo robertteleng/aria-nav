@@ -19,16 +19,16 @@ except Exception:
 
 
 @dataclass
-class AudioDecision:
-    """Structured audio decision ready for routing."""
+class DecisionCandidate:
+    """Navigation decision that still needs audio formatting."""
 
-    message: str
+    nav_object: Dict[str, Any]
     metadata: Dict[str, Any]
     priority: EventPriority
 
 
 class NavigationDecisionEngine:
-    """Analyzes detections and produces prioritized audio events."""
+    """Analyzes detections and produces prioritized navigation candidates."""
 
     def __init__(
         self,
@@ -94,7 +94,11 @@ class NavigationDecisionEngine:
         navigation_objects.sort(key=lambda item: item["priority"], reverse=True)
         return navigation_objects
 
-    def evaluate(self, navigation_objects: List[Dict[str, Any]], motion_state: str = "stationary") -> Optional[AudioDecision]:
+    def evaluate(
+        self,
+        navigation_objects: List[Dict[str, Any]],
+        motion_state: str = "stationary",
+    ) -> Optional[DecisionCandidate]:
         if not navigation_objects:
             return None
 
@@ -107,7 +111,7 @@ class NavigationDecisionEngine:
         if now - self.last_announcement_time < cooldown:
             return None
 
-        message = self._create_audio_message(top_object)
+        # Datos mínimos que necesita la capa de audio para formatear el mensaje.
         metadata: Dict[str, Any] = {
             "class": top_object.get("class"),
             "spanish_name": top_object.get("spanish_name"),
@@ -121,8 +125,8 @@ class NavigationDecisionEngine:
         priority_enum = self._map_priority_for_audio(top_object)
         self.last_announcement_time = now
 
-        return AudioDecision(
-            message=message,
+        return DecisionCandidate(
+            nav_object=top_object,
             metadata=metadata,
             priority=priority_enum,
         )
@@ -176,50 +180,6 @@ class NavigationDecisionEngine:
         priority *= zone_multipliers.get(zone, 1.0)
         return priority
 
-    def _create_audio_message(self, nav_object: Dict[str, Any]) -> str:
-        zone = nav_object["zone"]
-        distance = nav_object["distance"]
-        class_name = (nav_object.get("class") or "").strip()
-
-        speech_labels = {
-            "person": "person",
-            "car": "car",
-            "truck": "truck",
-            "bus": "bus",
-            "bicycle": "bicycle",
-            "motorcycle": "motorcycle",
-            "motorbike": "motorbike",
-            "stop sign": "stop sign",
-            "traffic light": "traffic light",
-            "chair": "chair",
-            "door": "door",
-            "stairs": "stairs",
-        }
-        name = speech_labels.get(class_name, class_name if class_name else "object")
-
-        zone_english = {
-            "left": "left side",
-            "center": "straight ahead",
-            "right": "right side",
-        }
-        zone_text = zone_english.get(zone, zone)
-
-        distance_english = {
-            "cerca": "very close",
-            "muy_cerca": "very close",
-            "very_close": "very close",
-            "close": "close",
-            "medio": "at medium distance",
-            "medium": "at medium distance",
-            "lejos": "far",
-            "far": "far",
-        }
-        distance_text = distance_english.get(distance, distance)
-
-        if distance_text in {"very close", "close"} and nav_object.get("priority", 0) >= 9:
-            return f"Warning, {name} {distance_text} on the {zone_text}"
-        return f"{name.capitalize()} on the {zone_text}, {distance_text}"
-
     def _map_priority_for_audio(self, nav_object: Dict[str, Any]) -> EventPriority:
         priority_value = float(nav_object.get("priority", 0.0) or 0.0)
         distance = (nav_object.get("distance") or "").lower()
@@ -234,6 +194,6 @@ class NavigationDecisionEngine:
 
 
 __all__ = [
-    "AudioDecision",
+    "DecisionCandidate",
     "NavigationDecisionEngine",
 ]

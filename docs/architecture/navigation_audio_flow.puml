@@ -1,0 +1,50 @@
+@startuml NavigationAudioFlow
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Courier
+skinparam arrowThickness 1.2
+skinparam rectangle {
+  BackgroundColor White
+  BorderColor Black
+}
+
+rectangle "NavigationPipeline" as pipeline
+rectangle "NavigationDecisionEngine" as decision
+rectangle "DecisionCandidate\n(data + cooldown)" as candidate
+rectangle "RgbAudioRouter" as rgb
+rectangle "SlamDetectionWorker" as slam_worker
+rectangle "SlamAudioRouter" as slam_router
+rectangle "NavigationAudioRouter" as shared_router
+rectangle "AudioSystem" as audio
+rectangle "Fallback Queue\n(AudioSystem only)" as fallback
+
+pipeline --> decision : detections
+decision --> candidate : analyze + evaluate
+candidate --> rgb : DecisionCandidate
+rgb --> shared_router : formatted message
+
+slam_worker --> slam_router : SlamDetectionEvent
+slam_router --> shared_router : message + priority
+
+shared_router --> audio : speak_async
+rgb -[#grey,dashed]-> fallback : router unavailable
+fallback -[#grey,dashed]-> audio : queue_message
+
+note right of rgb
+  - Construye mensaje en inglés
+  - Ajusta cooldown por source
+  - Reusa fallback legado
+end note
+
+note left of decision
+  - Ranking por prioridad
+  - Aplica cooldown por movimiento
+  - No construye mensaje
+end note
+
+note bottom of shared_router
+  Cola priorizada común (RGB + SLAM).
+  Gestiona cooldown global y métricas.
+end note
+
+@enduml
