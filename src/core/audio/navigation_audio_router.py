@@ -66,7 +66,8 @@ class NavigationAudioRouter:
 
         self._metrics_lock = threading.Lock()
         self._log_lock = threading.Lock()
-        self.log_path = Path("logs/audio_telemetry.jsonl")
+        project_root = Path(__file__).resolve().parents[3]
+        self.log_path = project_root / "logs" / "audio_telemetry.jsonl"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._session_start_ts = time.time()
 
