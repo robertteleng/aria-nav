@@ -23,6 +23,7 @@ class PipelineResult:
     frame: np.ndarray
     detections: Any
     depth_map: Optional[np.ndarray]
+    depth_raw: Optional[np.ndarray]
     timings: Dict[str, float]
 
 
@@ -42,6 +43,7 @@ class NavigationPipeline:
 
         self.depth_frame_skip = max(1, getattr(Config, "DEPTH_FRAME_SKIP", 1))
         self.latest_depth_map: Optional[np.ndarray] = None
+        self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
 
     # ------------------------------------------------------------------
@@ -67,21 +69,35 @@ class NavigationPipeline:
                 timings["enhance"] = time.perf_counter() - enhance_start
 
         depth_map = None
+        depth_raw = None
         if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
             depth_start = time.perf_counter() if profile else None
             try:
                 if self.frames_processed % self.depth_frame_skip == 0:
-                    depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
-                    if depth_candidate is not None:
-                        self.latest_depth_map = depth_candidate
+                    depth_prediction = None
+                    if hasattr(self.depth_estimator, "estimate_depth_with_details"):
+                        depth_prediction = self.depth_estimator.estimate_depth_with_details(processed_frame)
+                        if depth_prediction is not None:
+                            self.latest_depth_map = depth_prediction.map_8bit
+                            self.latest_depth_raw = getattr(depth_prediction, "raw", None)
+                    else:
+                        depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
+                        if depth_candidate is not None:
+                            self.latest_depth_map = depth_candidate
+                            self.latest_depth_raw = None
                 depth_map = self.latest_depth_map
+                depth_raw = self.latest_depth_raw
             except Exception as err:
                 print(f"[WARN] Depth estimation skipped: {err}")
             if profile and depth_start is not None:
                 timings["depth"] = time.perf_counter() - depth_start
 
         yolo_start = time.perf_counter() if profile else None
-        detections = self.yolo_processor.process_frame(processed_frame, depth_map)
+        detections = self.yolo_processor.process_frame(
+            processed_frame,
+            depth_map,
+            depth_raw,
+        )
         if profile and yolo_start is not None:
             timings["yolo"] = time.perf_counter() - yolo_start
 
@@ -89,11 +105,15 @@ class NavigationPipeline:
             frame=processed_frame,
             detections=detections,
             depth_map=depth_map,
+            depth_raw=depth_raw,
             timings=timings,
         )
 
     def get_latest_depth_map(self) -> Optional[np.ndarray]:
         return self.latest_depth_map
+
+    def get_latest_depth_raw(self) -> Optional[np.ndarray]:
+        return self.latest_depth_raw
 
     # ------------------------------------------------------------------
     # helpers

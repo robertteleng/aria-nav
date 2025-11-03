@@ -27,6 +27,7 @@ class DetectionMetric:
     confidence: float
     distance_bucket: Optional[str] = None  # Categoría (very_close, medium...)
     distance_normalized: Optional[float] = None  # Profundidad normalizada (0-1)
+    distance_raw: Optional[float] = None  # Profundidad cruda (escala del modelo)
     distance_meters: Optional[float] = None  # Reservado para futuras calibraciones
 
 
@@ -144,6 +145,7 @@ class TelemetryLogger:
         confidence: float,
         distance_bucket: Optional[str] = None,
         distance_normalized: Optional[float] = None,
+        distance_raw: Optional[float] = None,
         distance_meters: Optional[float] = None,
     ) -> None:
         """
@@ -156,6 +158,7 @@ class TelemetryLogger:
             confidence: Confianza de la detección (0.0-1.0)
             distance_bucket: Categoría simbólica de distancia
             distance_normalized: Valor normalizado 0-1 basado en profundidad/área
+            distance_raw: Valor crudo promedio del mapa de profundidad
             distance_meters: Distancia estimada en metros (si se calibra)
         
         Thread-safe: Puede ser llamado desde cualquier thread.
@@ -168,6 +171,7 @@ class TelemetryLogger:
             confidence=confidence,
             distance_bucket=distance_bucket,
             distance_normalized=distance_normalized,
+            distance_raw=distance_raw,
             distance_meters=distance_meters,
         )
         
@@ -200,6 +204,7 @@ class TelemetryLogger:
                 confidence=det.get('confidence', 0.0),
                 distance_bucket=det.get('distance'),
                 distance_normalized=det.get('distance_normalized'),
+                distance_raw=det.get('distance_raw'),
                 distance_meters=det.get('distance_meters'),
             )
     
@@ -293,6 +298,7 @@ class TelemetryLogger:
         detections_by_source: Dict[str, int] = {}
         detections_by_bucket: Dict[str, int] = {}
         distance_norm_values: List[float] = []
+        distance_raw_values: List[float] = []
         for det in det_copy:
             detections_by_class[det.object_class] = detections_by_class.get(det.object_class, 0) + 1
             detections_by_source[det.source] = detections_by_source.get(det.source, 0) + 1
@@ -300,6 +306,8 @@ class TelemetryLogger:
                 detections_by_bucket[det.distance_bucket] = detections_by_bucket.get(det.distance_bucket, 0) + 1
             if det.distance_normalized is not None:
                 distance_norm_values.append(det.distance_normalized)
+            if det.distance_raw is not None:
+                distance_raw_values.append(det.distance_raw)
         
         # Contar eventos de audio
         audio_by_action: Dict[str, int] = {}
@@ -325,6 +333,10 @@ class TelemetryLogger:
             "avg_distance_normalized": (
                 sum(distance_norm_values) / len(distance_norm_values)
                 if distance_norm_values else None
+            ),
+            "avg_distance_raw": (
+                sum(distance_raw_values) / len(distance_raw_values)
+                if distance_raw_values else None
             ),
             "total_audio_events": len(audio_copy),
             "audio_by_action": audio_by_action,
@@ -382,6 +394,7 @@ class TelemetryLogger:
             by_source: Dict[str, int] = {}
             by_bucket: Dict[str, int] = {}
             normalized_values: List[float] = []
+            raw_values: List[float] = []
             
             for det in self.detection_buffer:
                 by_class[det.object_class] = by_class.get(det.object_class, 0) + 1
@@ -390,6 +403,8 @@ class TelemetryLogger:
                     by_bucket[det.distance_bucket] = by_bucket.get(det.distance_bucket, 0) + 1
                 if det.distance_normalized is not None:
                     normalized_values.append(det.distance_normalized)
+                if det.distance_raw is not None:
+                    raw_values.append(det.distance_raw)
         
         return {
             "total_detections": len(self.detection_buffer),
@@ -399,6 +414,10 @@ class TelemetryLogger:
             "avg_distance_normalized": (
                 sum(normalized_values) / len(normalized_values)
                 if normalized_values else None
+            ),
+            "avg_distance_raw": (
+                sum(raw_values) / len(raw_values)
+                if raw_values else None
             ),
         }
     

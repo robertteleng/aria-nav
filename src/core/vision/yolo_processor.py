@@ -3,7 +3,7 @@ import torch
 import torchvision
 import time
 from dataclasses import asdict, dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ultralytics import YOLO
 
 from utils.config import Config
@@ -201,6 +201,7 @@ class YoloProcessor:
         }
 
         self.detection_count = 0
+        self._last_depth_stats: Optional[Tuple[float, float]] = None
 
             # print(
             #     f"[INFO] ✓ YOLOv11 processor initialized ({self.runtime_config.profile_name}) on {self.device_str} "
@@ -217,7 +218,12 @@ class YoloProcessor:
         """Convenience factory that builds a processor for a named profile."""
         return cls(profile=profile, **overrides)
 
-    def process_frame(self, frame: np.ndarray, depth_map: np.ndarray | None = None) -> List[dict]:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        depth_map: np.ndarray | None = None,
+        depth_raw: np.ndarray | None = None,
+    ) -> List[dict]:
         """Run YOLO inference with optional frame skipping."""
         self._frame_index += 1
 
@@ -244,7 +250,22 @@ class YoloProcessor:
                 results = self._cached_results
 
             post_start = time.perf_counter() if self._profile else 0.0
-            detected_objects = self._analyze_detections(results, frame.shape[1], depth_map)
+
+            depth_stats: Optional[Tuple[float, float]] = None
+            if depth_raw is not None:
+                depth_stats = self._compute_depth_stats(depth_raw)
+                if depth_stats is not None:
+                    self._last_depth_stats = depth_stats
+            elif self._last_depth_stats is not None:
+                depth_stats = self._last_depth_stats
+
+            detected_objects = self._analyze_detections(
+                results,
+                frame.shape[1],
+                depth_map,
+                depth_raw,
+                depth_stats,
+            )
             if self._profile:
                 self._post_acc += time.perf_counter() - post_start
                 self._profile_frames += 1
@@ -261,6 +282,7 @@ class YoloProcessor:
                         "zone": obj.zone,
                         "distance": obj.distance_bucket,
                         "distance_normalized": obj.depth_value,
+                        "distance_raw": obj.depth_raw,
                         "relevance_score": obj.relevance_score,
                     }
                 )
@@ -289,6 +311,8 @@ class YoloProcessor:
         yolo_results,
         frame_width: int,
         depth_map: np.ndarray | None = None,
+        depth_raw: np.ndarray | None = None,
+        depth_stats: Optional[Tuple[float, float]] = None,
     ) -> List[DetectedObject]:
         """Convert raw YOLO output to structured detection objects."""
         objects: List[DetectedObject] = []
@@ -312,11 +336,13 @@ class YoloProcessor:
             zone = self._classify_zone(center_x, center_y, frame_width)
 
             bbox = (int(x1), int(y1), int(x2), int(y2))
-            depth_value = 0.5
 
-            if depth_map is not None:
-                depth_value = self._calculate_depth_from_map(depth_map, bbox)
-
+            depth_value, depth_raw_mean = self._extract_depth_features(
+                bbox=bbox,
+                depth_map=depth_map,
+                depth_raw=depth_raw,
+                depth_stats=depth_stats,
+            )
             distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
 
             base_priority = self.navigation_objects[class_name]["priority"]
@@ -337,12 +363,75 @@ class YoloProcessor:
                 distance_bucket=distance_bucket,
                 relevance_score=relevance_score,
                 depth_value=depth_value,
+                depth_raw=depth_raw_mean,
             )
 
             objects.append(obj)
 
         objects.sort(key=lambda item: item.relevance_score, reverse=True)
         return objects[:1]
+
+    def _compute_depth_stats(
+        self,
+        depth_raw: np.ndarray,
+    ) -> Optional[Tuple[float, float]]:
+        downsample = getattr(Config, "DEPTH_NORMALIZE_DOWNSAMPLE", 4)
+        if downsample > 1:
+            depth_sample = depth_raw[::downsample, ::downsample]
+        else:
+            depth_sample = depth_raw
+
+        finite = depth_sample[np.isfinite(depth_sample)]
+        if finite.size == 0:
+            return None
+
+        low_pct = float(getattr(Config, "DEPTH_NORMALIZE_LOW_PCT", 5.0))
+        high_pct = float(getattr(Config, "DEPTH_NORMALIZE_HIGH_PCT", 95.0))
+        if high_pct <= low_pct:
+            high_pct = low_pct + 1.0
+
+        low = float(np.percentile(finite, low_pct))
+        high = float(np.percentile(finite, high_pct))
+        if high - low < 1e-6:
+            return None
+        return (low, high)
+
+    def _extract_depth_features(
+        self,
+        bbox: tuple,
+        depth_map: np.ndarray | None,
+        depth_raw: np.ndarray | None,
+        depth_stats: Optional[Tuple[float, float]],
+    ) -> Tuple[float, Optional[float]]:
+        depth_value = 0.5
+        raw_mean: Optional[float] = None
+
+        if depth_raw is not None:
+            crop_raw = self._crop_region(depth_raw, bbox)
+            if crop_raw.size > 0:
+                finite_crop = crop_raw[np.isfinite(crop_raw)]
+                if finite_crop.size > 0:
+                    raw_mean = float(np.mean(finite_crop))
+
+        if raw_mean is not None and depth_stats is not None:
+            low, high = depth_stats
+            span = high - low
+            if span > 1e-6:
+                depth_value = float(np.clip((raw_mean - low) / span, 0.0, 1.0))
+
+        if (raw_mean is None or depth_stats is None) and depth_map is not None:
+            depth_value = self._calculate_depth_from_map(depth_map, bbox)
+
+        return depth_value, raw_mean
+
+    @staticmethod
+    def _crop_region(array: np.ndarray, bbox: tuple) -> np.ndarray:
+        x1, y1, x2, y2 = bbox
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = max(x1 + 1, x2)
+        y2 = max(y1 + 1, y2)
+        return array[y1:y2, x1:x2]
 
     def _classify_zone(self, center_x: float, center_y: float, frame_width: int) -> str:
         from utils.config import Config as LocalConfig
@@ -372,8 +461,7 @@ class YoloProcessor:
         return "bottom_left" if center_x < mid_x else "bottom_right"
 
     def _calculate_depth_from_map(self, depth_map: np.ndarray, bbox: tuple) -> float:
-        x1, y1, x2, y2 = bbox
-        crop = depth_map[max(y1, 0):max(y2, 1), max(x1, 0):max(x2, 1)]
+        crop = self._crop_region(depth_map, bbox)
         if crop.size == 0:
             return 0.5
         return float(np.mean(crop) / 255.0)

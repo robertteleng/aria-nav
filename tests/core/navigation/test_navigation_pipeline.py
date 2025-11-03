@@ -32,8 +32,8 @@ class FakeYolo:
     def __init__(self):
         self.calls = []
 
-    def process_frame(self, frame, depth_map):
-        self.calls.append((frame, depth_map))
+    def process_frame(self, frame, depth_map, depth_raw=None):
+        self.calls.append((frame, depth_map, depth_raw))
         return [{"name": "person"}]
 
 
@@ -62,8 +62,12 @@ def test_process_runs_all_stages(monkeypatch: pytest.MonkeyPatch, numpy_frame: n
     assert enhancer.calls == 1
     assert depth_estimator.calls == 1
     assert len(yolo.calls) == 1
+    _, depth_map_called, depth_raw_called = yolo.calls[0]
     assert np.array_equal(result.frame, numpy_frame + 1)
     assert np.array_equal(result.depth_map, np.ones_like(numpy_frame) * 42)
+    assert result.depth_raw is None
+    assert np.array_equal(depth_map_called, np.ones_like(numpy_frame) * 42)
+    assert depth_raw_called is None
     assert set(result.timings.keys()) == {"enhance", "depth", "yolo"}
 
 
@@ -83,6 +87,7 @@ def test_process_respects_depth_frame_skip(monkeypatch: pytest.MonkeyPatch, nump
     assert first.depth_map is None
     assert second.depth_map is not None
     assert pipeline.get_latest_depth_map() is second.depth_map
+    assert second.depth_raw is None
 
 
 def test_process_handles_missing_depth(monkeypatch: pytest.MonkeyPatch, numpy_frame: np.ndarray) -> None:
@@ -94,5 +99,6 @@ def test_process_handles_missing_depth(monkeypatch: pytest.MonkeyPatch, numpy_fr
     result = pipeline.process(numpy_frame)
 
     assert result.depth_map is None
+    assert result.depth_raw is None
     assert pipeline.get_latest_depth_map() is None
     assert len(yolo.calls) == 1
