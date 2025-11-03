@@ -25,6 +25,8 @@ from core.navigation.coordinator import Coordinator  # Solo Pipeline
 from core.navigation.builder import Builder  # Factory
 from presentation.presentation_manager import PresentationManager  # Solo UI
 
+# Telemetría centralizada
+from core.telemetry.telemetry_logger import TelemetryLogger
 
 def main():
     """
@@ -64,9 +66,14 @@ def main():
     observer = None
     coordinator = None
     presentation = None
+    telemetry = None
     
     try:
         print("\n🔧 Inicializando componentes...")
+
+        # 0. Inicializar telemetría PRIMERO
+        print("  📊 Inicializando TelemetryLogger...")
+        telemetry = TelemetryLogger()
         
         # 1. Aria Device Setup
         print("  📱 Conectando con Aria glasses...")
@@ -102,9 +109,15 @@ def main():
         # 5. Main Processing Loop
         frames_processed = 0
         last_stats_print = time.time()
+        fps_start_time = time.time() 
+
         
         while not ctrl_handler.should_stop:
             try:
+
+                 # Timestamp inicio del frame
+                frame_start_time = time.time()
+
                 # Obtener datos del Observer (Solo SDK)
                 frame = observer.get_latest_frame('rgb')
                 slam1_frame = observer.get_latest_frame('slam1')
@@ -122,10 +135,35 @@ def main():
                     depth_map = coordinator.get_latest_depth_map()
                     slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
                     
+                     # ✅ NUEVO: Calcular métricas de performance
+                    frame_end_time = time.time()
+                    frame_latency_ms = (frame_end_time - frame_start_time) * 1000
+                    elapsed_total = frame_end_time - fps_start_time
+                    current_fps = frames_processed / elapsed_total if elapsed_total > 0 else 0
+                    
+                    # ✅ NUEVO: Log performance
+                    telemetry.log_frame_performance(
+                        frame_number=frames_processed,
+                        fps=current_fps,
+                        latency_ms=frame_latency_ms
+                    )
+                    
+                    # ✅ NUEVO: Log detecciones RGB
+                    current_detections = coordinator.get_current_detections()
+                    if current_detections:
+                        telemetry.log_detections_batch(
+                            frame_number=frames_processed,
+                            source="rgb",
+                            detections=current_detections
+                        )
+
+
+
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
                         frame=processed_frame,
-                        detections=coordinator.get_current_detections(),
+                        # detections=coordinator.get_current_detections(),
+                        detections=current_detections,
                         motion_state=motion_state,
                         coordinator_stats=coordinator.get_status(),
                         depth_map=depth_map,
@@ -147,6 +185,10 @@ def main():
                 current_time = time.time()
                 if current_time - last_stats_print > 10.0:  # Cada 10 segundos
                     print(f"[STATUS] Frames: {frames_processed}, Motion: {motion_state}")
+                    # ✅ NUEVO: Stats de performance en consola
+                    if telemetry:
+                        perf = telemetry.get_performance_summary()
+                        print(f"[PERF] FPS: {perf.get('avg_fps', 0):.1f}, Latencia: {perf.get('avg_latency_ms', 0):.0f}ms")
                     last_stats_print = current_time
                 
             except Exception as e:
@@ -176,6 +218,26 @@ def main():
         # Cleanup ordenado de todos los componentes
         print("\n🧹 Iniciando limpieza de recursos...")
         
+        # Finalizar telemetría PRIMERO
+        try:
+            if telemetry:
+                print("  📊 Finalizando telemetría...")
+                summary = telemetry.finalize_session()
+                print("\n" + "="*60)
+                print("📊 RESUMEN DE SESIÓN")
+                print("="*60)
+                print(f"  ⏱️  Duración: {summary['duration_seconds']:.1f}s")
+                print(f"  🎞️  Frames totales: {summary['total_frames']}")
+                print(f"  📹 FPS promedio: {summary['avg_fps']:.2f}")
+                print(f"  ⚡ Latencia promedio: {summary['avg_latency_ms']:.1f}ms")
+                print(f"  🎯 Detecciones totales: {summary['total_detections']}")
+                if summary.get('detections_by_class'):
+                    print(f"  📦 Por clase: {summary['detections_by_class']}")
+                print(f"\n📁 Logs guardados en: {telemetry.output_dir}")
+                print("="*60 + "\n")
+        except Exception as e:
+            print(f"  ⚠️ Telemetry finalize error: {e}")
+
         try:
             if coordinator:
                 coordinator.cleanup()

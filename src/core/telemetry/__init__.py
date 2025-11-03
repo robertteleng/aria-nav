@@ -1,0 +1,1 @@
+"""Sistema de telemetría para captura de métricas."""

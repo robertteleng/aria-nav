@@ -226,6 +226,7 @@ class YoloProcessor:
 
             if run_inference:
                 start_inf = time.perf_counter() if self._profile else 0.0
+                
                 results = self.model.predict(
                     source=frame,
                     device=self.device_str,
@@ -270,10 +271,9 @@ class YoloProcessor:
                 empty_mps_cache()
 
             return detections
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"[WARN] YOLO processing failed: {exc}")
             return []
-
     def _log_local_profile(self) -> None:
         frames = max(1, self._profile_frames)
         inf_ms = (self._inference_acc / frames) * 1000.0

@@ -3,19 +3,29 @@
 class Config:
     """System configuration constants"""
     
+    # # Video processing
+    # TARGET_FPS = 30
+    # YOLO_MODEL = "yolo12n.pt"
+    # YOLO_CONFIDENCE = 0.50
+    # YOLO_DEVICE = "mps"  # Avoid MPS bug
+    # YOLO_IMAGE_SIZE = 320
+    # YOLO_MAX_DETECTIONS = 12
+    # YOLO_IOU_THRESHOLD = 0.45
+    # YOLO_FRAME_SKIP = 3
+    # YOLO_FORCE_MPS = True
+    
     # Video processing
     TARGET_FPS = 30
-    YOLO_MODEL = "yolo12n.pt"
+    YOLO_MODEL = "yolo12n.pt"              # ✅ Mantener nano
     YOLO_CONFIDENCE = 0.50
-    YOLO_DEVICE = "mps"  # Avoid MPS bug
-    YOLO_IMAGE_SIZE = 320
-    YOLO_MAX_DETECTIONS = 12
+    YOLO_DEVICE = "mps"                    # 🧪 Probar CPU primero
+    YOLO_IMAGE_SIZE = 416                  # ✅ CAMBIO: Balance 416 (más rápido que 640)
+    YOLO_MAX_DETECTIONS = 8                # ✅ CAMBIO: Reducir de 12 → 8
     YOLO_IOU_THRESHOLD = 0.45
-    YOLO_FRAME_SKIP = 3
+    YOLO_FRAME_SKIP = 2                    # ✅ Mantener skip=2
     YOLO_FORCE_MPS = True
 
     # Peripheral vision (SLAM)
-
     PERIPHERAL_VISION_ENABLED = True
     SLAM_TARGET_FPS = 8
     
