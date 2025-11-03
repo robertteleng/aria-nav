@@ -1,0 +1,2 @@
+{"timestamp": 1762184278.835596, "frame_number": 1, "source": "rgb", "object_class": "person", "confidence": 0.92, "distance_bucket": "very_close", "distance_normalized": 0.85, "distance_meters": null}
+{"timestamp": 1762184278.8358169, "frame_number": 2, "source": "slam1", "object_class": "car", "confidence": 0.87, "distance_bucket": "close", "distance_normalized": 0.6, "distance_meters": null}

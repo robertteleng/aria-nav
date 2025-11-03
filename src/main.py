@@ -17,7 +17,9 @@ Version: 2.0 - Clean Separated Architecture
 import cv2
 import time
 from utils.ctrl_handler import CtrlCHandler
+from utils.config import Config
 from core.hardware.device_manager import DeviceManager
+
 
 # Componentes separados de la nueva arquitectura
 from core.observer import Observer  # Solo SDK
@@ -90,7 +92,10 @@ def main():
         # 3. Navigation Coordinator Setup (Solo Pipeline)
         print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")
         builder = Builder()
-        coordinator = builder.build_full_system(enable_dashboard=False)  # Sin dashboard propio
+        coordinator = builder.build_full_system(
+            enable_dashboard=False,
+            telemetry=telemetry,
+        )  # Sin dashboard propio
         
         # 4. Presentation Manager Setup (Solo UI)
         print("  🎨 Inicializando PresentationManager (UI Layer)...")
@@ -130,8 +135,13 @@ def main():
                     
                     # Procesar con Coordinator (Solo Pipeline)
                     processed_frame = coordinator.process_frame(frame, motion_state)
-                    if hasattr(coordinator, 'handle_slam_frames'):
-                        coordinator.handle_slam_frames(slam1_frame, slam2_frame)
+                    # if hasattr(coordinator, 'handle_slam_frames'):
+                    #     coordinator.handle_slam_frames(slam1_frame, slam2_frame)
+
+                    slam_skip = getattr(Config, 'SLAM_FRAME_SKIP', 3)
+                    if frames_processed % slam_skip == 0:
+                        if hasattr(coordinator, 'handle_slam_frames'):
+                            coordinator.handle_slam_frames(slam1_frame, slam2_frame)   
                     depth_map = coordinator.get_latest_depth_map()
                     slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
                     
@@ -156,8 +166,6 @@ def main():
                             source="rgb",
                             detections=current_detections
                         )
-
-
 
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
@@ -317,7 +325,10 @@ def main_debug():
         
         # Solo coordinator y presentation para testing
         builder = Builder()
-        coordinator = builder.build_full_system(enable_dashboard=False)
+        coordinator = builder.build_full_system(
+            enable_dashboard=False,
+            telemetry=None,
+        )
         presentation = PresentationManager(enable_dashboard=False)
         observer = MockObserver()
         

@@ -30,8 +30,9 @@ class StubSlamDetectionWorker:
 
 
 class StubAudioRouter:
-    def __init__(self, audio_system):
+    def __init__(self, audio_system, telemetry=None):
         self.audio_system = audio_system
+        self.telemetry = telemetry
         self.started = False
 
     def start(self):
@@ -83,3 +84,16 @@ def test_build_full_system_attaches_slam(monkeypatch: pytest.MonkeyPatch, stubbe
     workers, audio_router = coordinator.peripheral_calls[0]
     assert all(isinstance(worker, StubSlamDetectionWorker) for worker in workers.values())
     assert audio_router is coordinator.kwargs["audio_router"]
+
+
+def test_build_full_system_passes_telemetry(monkeypatch: pytest.MonkeyPatch, stubbed_builder):
+    monkeypatch.setattr(Config, "PERIPHERAL_VISION_ENABLED", False, raising=False)
+    telemetry = object()
+
+    coordinator = stubbed_builder.build_full_system(
+        enable_dashboard=False,
+        telemetry=telemetry,
+    )
+
+    audio_router = coordinator.kwargs["audio_router"]
+    assert audio_router.telemetry is telemetry

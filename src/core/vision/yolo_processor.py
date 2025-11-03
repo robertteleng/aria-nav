@@ -260,6 +260,7 @@ class YoloProcessor:
                         "confidence": obj.confidence,
                         "zone": obj.zone,
                         "distance": obj.distance_bucket,
+                        "distance_normalized": obj.depth_value,
                         "relevance_score": obj.relevance_score,
                     }
                 )

@@ -19,15 +19,17 @@ class Config:
     YOLO_MODEL = "yolo12n.pt"              # ✅ Mantener nano
     YOLO_CONFIDENCE = 0.50
     YOLO_DEVICE = "mps"                    # 🧪 Probar CPU primero
-    YOLO_IMAGE_SIZE = 416                  # ✅ CAMBIO: Balance 416 (más rápido que 640)
+    YOLO_IMAGE_SIZE = 256                  # ✅ CAMBIO: Balance 416 (más rápido que 640)
     YOLO_MAX_DETECTIONS = 8                # ✅ CAMBIO: Reducir de 12 → 8
     YOLO_IOU_THRESHOLD = 0.45
-    YOLO_FRAME_SKIP = 2                    # ✅ Mantener skip=2
+    YOLO_FRAME_SKIP = 3                    # ✅ Mantener skip=2
     YOLO_FORCE_MPS = True
 
     # Peripheral vision (SLAM)
     PERIPHERAL_VISION_ENABLED = True
     SLAM_TARGET_FPS = 8
+    SLAM_FRAME_SKIP = 8              # ✅ NUEVO: Procesar SLAM cada 6 frames
+
     
     # Audio system
     TTS_RATE = 190
@@ -59,12 +61,11 @@ class Config:
     RGB_CAMERA_COLOR_SPACE = "RGB"  # "RGB" or "BGR"
 
     # Model depth estimation
-
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     DEPTH_ENABLED = True        # Activar profundidad con MPS
-    DEPTH_FRAME_SKIP = 3        # Profundidad cada 4 frames para equilibrar rendimiento
-    DEPTH_INPUT_SIZE = 128     # Tamaño de entrada para el modelo de profundidad
+    DEPTH_FRAME_SKIP = 8        # Profundidad cada 8 frames para equilibrar rendimiento
+    DEPTH_INPUT_SIZE = 80     # Tamaño de entrada para el modelo de profundidad
 
     #MiDas
     MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
@@ -84,8 +85,7 @@ class Config:
     CENTER_ZONE_HEIGHT_RATIO = 0.25  # 25% del alto total
     CENTER_ZONE_PRIORITY_BOOST = 1.5  # Multiplicador de prioridad para zona central
 
-    # IMAGE ENHANCEMENT SETTINGS - Day 6
-
+    # IMAGE ENHANCEMENT SETTINGS
     # Low-light enhancement activation
     LOW_LIGHT_ENHANCEMENT = True    # Enable/disable enhancement system
 

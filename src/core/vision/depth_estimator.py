@@ -131,6 +131,32 @@ class DepthEstimator:
             print(f"[ERROR] Depth estimation failed: {err}")
             return None
 
+    # def _run_midas(self, rgb_input: np.ndarray) -> np.ndarray:
+    #     assert self.transform is not None
+
+    #     if self.input_size and max(rgb_input.shape[:2]) > self.input_size:
+    #         scale = self.input_size / max(rgb_input.shape[:2])
+    #         new_size = (int(rgb_input.shape[1] * scale), int(rgb_input.shape[0] * scale))
+    #         rgb_resized = cv2.resize(rgb_input, new_size, interpolation=cv2.INTER_AREA)
+    #     else:
+    #         rgb_resized = rgb_input
+
+    #     input_tensor = self.transform(rgb_resized).to(self.device)
+
+    #     with torch.inference_mode():
+    #         prediction = self.model(input_tensor)
+
+    #         if prediction.device.type == "mps":
+    #             prediction = prediction.to("cpu")
+
+    #         prediction = torch.nn.functional.interpolate(
+    #             prediction.unsqueeze(1),
+    #             size=rgb_input.shape[:2],
+    #             mode="bicubic",
+    #             align_corners=False,
+    #         ).squeeze()
+
+    
     def _run_midas(self, rgb_input: np.ndarray) -> np.ndarray:
         assert self.transform is not None
 
@@ -146,15 +172,24 @@ class DepthEstimator:
         with torch.inference_mode():
             prediction = self.model(input_tensor)
 
-            if prediction.device.type == "mps":
+            # ✅ Intentar interpolate en MPS con bilinear
+            try:
+                prediction = torch.nn.functional.interpolate(
+                    prediction.unsqueeze(1),
+                    size=rgb_input.shape[:2],
+                    mode="bilinear",  # ✅ CAMBIO: bicubic → bilinear (compatible MPS)
+                    align_corners=False,
+                ).squeeze()
+            except RuntimeError as e:
+                # Fallback a CPU solo si falla
+                print(f"[DEPTH] MPS interpolate failed, using CPU: {e}")
                 prediction = prediction.to("cpu")
-
-            prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=rgb_input.shape[:2],
-                mode="bicubic",
-                align_corners=False,
-            ).squeeze()
+                prediction = torch.nn.functional.interpolate(
+                    prediction.unsqueeze(1),
+                    size=rgb_input.shape[:2],
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze()
 
         return prediction.cpu().numpy()
 
@@ -175,14 +210,53 @@ class DepthEstimator:
         with torch.inference_mode():
             depth = self.model(**inputs).predicted_depth
 
-            if depth.device.type == "mps":
+            # ✅ Intentar interpolate en MPS primero
+            try:
+                depth = interpolate(
+                    depth.unsqueeze(1),
+                    size=rgb_input.shape[:2],
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze()
+            except RuntimeError as e:
+                # Fallback a CPU solo si MPS falla
+                print(f"[DEPTH] MPS interpolate failed, using CPU: {e}")
                 depth = depth.to("cpu")
-
-            depth = interpolate(
-                depth.unsqueeze(1),
-                size=rgb_input.shape[:2],
-                mode="bicubic",
-                align_corners=False,
-            ).squeeze()
+                depth = interpolate(
+                    depth.unsqueeze(1),
+                    size=rgb_input.shape[:2],
+                    mode="bicubic",
+                    align_corners=False,
+                ).squeeze()
 
         return depth.cpu().numpy()
+
+
+    # def _run_depth_anything(self, rgb_input: np.ndarray) -> np.ndarray:
+    #     assert self.processor is not None
+
+    #     from torch.nn.functional import interpolate
+
+    #     if self.input_size and max(rgb_input.shape[:2]) > self.input_size:
+    #         scale = self.input_size / max(rgb_input.shape[:2])
+    #         new_size = (int(rgb_input.shape[1] * scale), int(rgb_input.shape[0] * scale))
+    #         rgb_resized = cv2.resize(rgb_input, new_size, interpolation=cv2.INTER_AREA)
+    #     else:
+    #         rgb_resized = rgb_input
+
+    #     inputs = self.processor(images=rgb_resized, return_tensors="pt").to(self.device)
+
+    #     with torch.inference_mode():
+    #         depth = self.model(**inputs).predicted_depth
+
+    #         if depth.device.type == "mps":
+    #             depth = depth.to("cpu")
+
+    #         depth = interpolate(
+    #             depth.unsqueeze(1),
+    #             size=rgb_input.shape[:2],
+    #             mode="bicubic",
+    #             align_corners=False,
+    #         ).squeeze()
+
+    #     return depth.cpu().numpy()

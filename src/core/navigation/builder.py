@@ -7,6 +7,7 @@ from typing import Optional
 from core.vision.yolo_processor import YoloProcessor
 from core.audio.audio_system import AudioSystem
 from core.audio.navigation_audio_router import NavigationAudioRouter
+from core.telemetry.telemetry_logger import TelemetryLogger
 from core.vision.slam_detection_worker import SlamDetectionWorker, CameraSource
 from presentation.renderers.frame_renderer import FrameRenderer
 from core.vision.image_enhancer import ImageEnhancer
@@ -29,9 +30,13 @@ class Builder:
         print("  📦 Creando Audio System...")
         return AudioSystem()  # Sin parámetros, lee Config internamente
 
-    def build_audio_router(self, audio_system: AudioSystem) -> NavigationAudioRouter:
+    def build_audio_router(
+        self,
+        audio_system: AudioSystem,
+        telemetry: Optional[TelemetryLogger] = None,
+    ) -> NavigationAudioRouter:
         print("  📦 Creando NavigationAudioRouter...")
-        return NavigationAudioRouter(audio_system)
+        return NavigationAudioRouter(audio_system, telemetry)
     
     def build_frame_renderer(self):
         print("  📦 Creando Frame Renderer...")
@@ -86,7 +91,11 @@ class Builder:
     #         dashboard=None  # Sin dashboard interno
     #     )
 
-    def build_full_system(self, enable_dashboard=False):  # False por defecto
+    def build_full_system(
+        self,
+        enable_dashboard: bool = False,
+        telemetry: Optional[TelemetryLogger] = None,
+    ):
         print("🏗️ Construyendo sistema completo...")
         
         # Crear componentes SIN dashboard
@@ -94,7 +103,7 @@ class Builder:
         audio_system = self.build_audio_system()
         frame_renderer = self.build_frame_renderer()
         image_enhancer = self.build_image_enhancer()
-        audio_router = self.build_audio_router(audio_system)
+        audio_router = self.build_audio_router(audio_system, telemetry=telemetry)
         navigation_pipeline = self.build_navigation_pipeline(yolo_processor, image_enhancer)
         decision_engine = self.build_decision_engine()
 
@@ -127,10 +136,16 @@ class Builder:
         return coordinator
 
 # 🔧 FUNCIÓN FUERA DE LA CLASE
-def build_navigation_system(enable_dashboard=True):
+def build_navigation_system(
+    enable_dashboard: bool = True,
+    telemetry: Optional[TelemetryLogger] = None,
+):
     """Función de conveniencia para crear sistema completo"""
     builder = Builder()
-    return builder.build_full_system(enable_dashboard=enable_dashboard)
+    return builder.build_full_system(
+        enable_dashboard=enable_dashboard,
+        telemetry=telemetry,
+    )
 
 # Testing
 if __name__ == "__main__":
