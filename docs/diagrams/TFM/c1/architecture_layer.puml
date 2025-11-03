@@ -1,0 +1,98 @@
+@startuml architecture_layers_simple
+!theme plain
+title Sistema de Navegación - Arquitectura por Capas
+
+' Definir estilos
+skinparam package {
+    BackgroundColor LightBlue
+    BorderColor Black
+    FontSize 14
+    FontStyle bold
+}
+
+skinparam component {
+    BackgroundColor White
+    BorderColor Black
+}
+
+skinparam arrow {
+    Color Black
+    Thickness 2
+}
+
+' ====== HARDWARE LAYER ======
+package "HARDWARE LAYER (Captura)" {
+    [DeviceManager] as DM
+    [Observer] as OBS
+    
+    DM --> OBS : streams\nRGB/SLAM/IMU
+    
+    note right of OBS
+        Buffers Thread-Safe:
+        • RGB (640×480@60fps)
+        • SLAM1 (left)
+        • SLAM2 (right)
+        • IMU data
+    end note
+}
+
+' ====== PROCESSING LAYER ======
+package "PROCESSING LAYER (Lógica Negocio)" #LightGreen {
+    [NavigationPipeline] as PIPE
+    [ImageEnhancer] as ENH
+    [DepthEstimator\n(MPS)] as DEPTH
+    [YoloProcessor\n(CPU)] as YOLO
+    [DecisionEngine] as DEC
+    [SlamWorkers\n(parallel)] as SLAM
+    
+    PIPE --> ENH : 1. enhance
+    ENH --> DEPTH : 2. depth
+    DEPTH --> YOLO : 3. detect
+    YOLO --> DEC : 4. decide
+    SLAM --> DEC : events
+    
+    note bottom of PIPE
+        Pipeline: 15-30 FPS
+        Latency: ~100-150ms
+        CPU: 50-70%
+        MPS: 30-50%
+    end note
+}
+
+' ====== PRESENTATION LAYER ======
+package "PRESENTATION LAYER (Audio/UI)" #LightYellow {
+    [AudioRouter\n(priority queue)] as ROUTER
+    [AudioSystem\n(TTS async)] as AUDIO
+    [PresentationManager] as PRES
+    [Dashboards] as DASH
+    
+    ROUTER --> AUDIO : commands
+    PRES --> DASH : updates
+    
+    note right of ROUTER
+        Priority Queue:
+        • RGB (high priority)
+        • SLAM (dynamic)
+        • Per-source cooldowns
+    end note
+}
+
+' ====== CONEXIONES ENTRE CAPAS ======
+OBS --> PIPE : RGB frames
+OBS --> SLAM : SLAM frames
+DEC --> ROUTER : decisions
+DEC --> PRES : annotated\nframes
+
+' ====== NOTAS GENERALES ======
+note top of DM
+    **Aria SDK**
+    USB-C / WiFi
+end note
+
+note bottom of AUDIO
+    **macOS TTS**
+    Non-blocking
+    ~300ms latency
+end note
+
+@enduml

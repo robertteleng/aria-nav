@@ -1,20 +1,13 @@
-git clone [tu-repo-url]
-git checkout dev
-git checkout -b feature-name
-git add .
-git commit -m "feature-name: description"
-git checkout dev
-git merge feature-name
 # Aria Navigation System
 
-Sistema de navegación asistida para personas con discapacidad visual usando gafas Meta Aria. El proyecto implementa un pipeline modular que combina visión por computador, análisis espacial y comandos de audio priorizados.
+Sistema de navegación asistida para personas con discapacidad visual usando gafas Meta Aria. El proyecto implementa un pipeline modular que combina visión por computador, análisis espacial y comandos de audio con prioridades y cooldown por fuente.
 
 ## 🧭 Resumen rápido
-- ✅ Pipeline RGB completo: `ImageEnhancer` → `DepthEstimator` → `YoloProcessor` → `NavigationDecisionEngine`.
-- ✅ Audio unificado: `NavigationAudioRouter` gestiona eventos RGB/SLAM y aplica cooldowns; `AudioSystem` reproduce TTS en macOS.
-- ✅ Coordinador refactorizado: `Coordinator` orquesta pipeline, SLAM, routing y métricas de profiling.
-- 🔄 Visión periférica (SLAM) activa y en evolución: eventos dedicados con prioridades y logs.
-- 🔄 Próximo paso: aislar el helper de routing SLAM y ejecutar sesiones end-to-end para afinar cooldowns.
+- ✅ Pipeline RGB modular: `ImageEnhancer` → `DepthEstimator` (MiDaS/Depth-Anything) → `YoloProcessor` (perfiles RGB/SLAM) → `NavigationDecisionEngine`.
+- ✅ Audio centralizado: `NavigationAudioRouter` coordina `RgbAudioRouter`, `SlamAudioRouter` y `AudioSystem`, aplica cooldowns dinámicos y registra métricas.
+- ✅ Visión periférica asíncrona: `SlamDetectionWorker` procesa SLAM1/SLAM2 en paralelo y genera eventos priorizados.
+- ✅ Presentación desacoplada: `PresentationManager` + `FrameRenderer` ofrecen dashboard OpenCV/Rerun/Web, overlays de navegación y mini-mapa de profundidad.
+- ✅ Suite de pruebas `pytest` cubriendo pipeline, audio router, SLAM, MPS utilities y configuraciones clave.
 
 ## 📚 Índice
 1. [Visión general](#visión-general)
@@ -30,28 +23,28 @@ Sistema de navegación asistida para personas con discapacidad visual usando gaf
 11. [Créditos](#créditos)
 
 ## Visión general
-- **Objetivo**: ofrecer navegación asistida en tiempo real aprovechando las cámaras RGB/SLAM y sensores de las Meta Aria.
-- **Core loop**: captura → mejora → detección → decisión → audio → dashboards.
-- **Modularidad**: cada capa (hardware, pipeline, audio, presentación) está desacoplada para facilitar iteraciones y despliegues híbridos Mac/Jetson.
-
-Para más contexto arquitectónico consulta `docs/architecture/pipeline_overview.md` y `docs/architecture_document.md`.
+- **Objetivo**: ofrecer navegación asistida en tiempo real aprovechando cámaras RGB/SLAM e IMU de las Meta Aria.
+- **Arquitectura**: `DeviceManager` y `Observer` gestionan el SDK; `Coordinator` orquesta pipeline, audio y SLAM; `PresentationManager` maneja UI; `NavigationAudioRouter` unifica prioridades por fuente.
+- **Modularidad**: cada capa está desacoplada para permitir mejoras independientes (hardware ↔ visión ↔ audio ↔ presentación ↔ telemetría).
+- Documentación adicional en `docs/architecture/pipeline_overview.md` y `docs/architecture_document.md`.
 
 ## Arquitectura en breve
-1. `DeviceManager` conecta con las gafas y alimenta al `Observer` (frames RGB, SLAM y estado de movimiento).
-2. `Coordinator.process_frame` ejecuta `NavigationPipeline` (enhancer + depth + YOLO) y genera detecciones con métricas de profiling.
-3. `NavigationDecisionEngine` analiza las detecciones, calcula zonas/distancias/prioridades y decide si emitir un evento de audio (con metadata y `EventPriority`).
-4. `NavigationAudioRouter` (si está disponible) recibe eventos RGB/SLAM, aplica cooldowns por fuente y registra telemetría; en fallback, `AudioSystem` gestiona el TTS directamente.
-5. `PresentationManager` muestra overlays (OpenCV por defecto, opción `rerun` o `web`) y sáturas de estado.
+1. `DeviceManager` configura streaming (USB/Wi-Fi) y obtiene calibración RGB.
+2. `Observer` recibe frames RGB/SLAM e IMU, normaliza orientación y estima `motion_state`.
+3. `NavigationPipeline` (enhancer + depth + YOLO) produce un `PipelineResult` con timings opcionales.
+4. `NavigationDecisionEngine` calcula prioridades; `RgbAudioRouter` formatea mensajes y los envía al `NavigationAudioRouter`, que decide si hablar vía `AudioSystem`.
+5. Si `PERIPHERAL_VISION_ENABLED` está activo, `SlamDetectionWorker` procesa SLAM1/SLAM2 en background y `SlamAudioRouter` integra sus eventos en el audio centralizado.
+6. `PresentationManager` usa `FrameRenderer` y dashboards (OpenCV/Rerun/Web) para overlays RGB, mini-mapa de profundidad, estado de audio y eventos SLAM.
 
 ## Requisitos
 - **Hardware**
-	- Gafas Meta Aria con perfil `profile28` habilitado.
-	- Mac con macOS 13+ (Apple Silicon recomendado) para el modo local.
-	- (Opcional) Jetson/host Linux para procesado remoto vía ImageZMQ (modo híbrido en desarrollo).
+  - Gafas Meta Aria con perfil `profile28` o equivalente habilitado.
+  - Mac con macOS 13+ (Apple Silicon recomendado) para modo local.
+  - (Opcional) Host remoto (Jetson/Linux) para modo híbrido vía ImageZMQ.
 - **Software**
-	- Conda o Mamba.
-	- Python 3.10 (provisionado por `environment.yml`).
-	- Meta Aria SDK instalado y funcionando (ver documentación oficial de Meta).
+  - Python 3.10+ con `pip` o Conda/Mamba.
+  - Paquetes principales: `torch`, `torchvision`, `ultralytics`, `opencv-python`, `numpy`, `projectaria-tools`, `aria-sdk` (suministrado por Meta), `transformers` (opcional, Depth Anything v2), `pytest`.
+  - `say` disponible en macOS para TTS (`which say`).
 
 ## Instalación
 ```bash
@@ -59,105 +52,109 @@ Para más contexto arquitectónico consulta `docs/architecture/pipeline_overview
 git clone https://github.com/<tu-usuario>/aria-navigation.git
 cd aria-navigation
 
-# 2. Crear y activar el entorno Conda
-conda env create -f environment.yml
-conda activate aria-navigation
+# 2. Crear entorno (ejemplo con venv; usa Conda si lo prefieres)
+python3 -m venv .venv
+source .venv/bin/activate  # En Windows: .venv\Scripts\activate
+pip install --upgrade pip wheel
 
-# 3. (Opcional) Verificar versión de Python y disponibilidad de 'say'
-python --version
-which say  # Debe existir en macOS para TTS
+# 3. Instalar dependencias principales
+pip install torch torchvision torchaudio  # Metal MPS soportado por defecto en macOS
+pip install ultralytics opencv-python numpy projectaria-tools transformers pytest
+# Instala aria.sdk siguiendo la guía oficial de Meta Aria (distribución privada).
+
+# 4. (Opcional) Verificar TTS y cámara
+python -c "import torch; print(torch.__version__)"
+which say
 ```
 
 ## Ejecución
 ```bash
-# Modo principal (hardware real)
+# Modo principal con hardware real
 python src/main.py
 
-# Modo debug sin hardware (frames mock + TTS)
+# Modo debug sin hardware (frames sintéticos + TTS)
 python src/main.py debug
 
-# Placeholder modo híbrido Mac → Jetson (en construcción)
+# Modo híbrido Mac → Jetson (ImageZMQ sender, procesamiento remoto en desarrollo)
 python src/main.py hybrid
 ```
 
-Controles en el modo principal:
+Controles principales:
 - `q`: salir del sistema.
-- `t`: disparar prueba del sistema de audio.
+- `t`: prueba del sistema de audio (cola RGB).
 - `Ctrl+C`: parada segura gestionada por `CtrlCHandler`.
 
-El script preguntará si deseas habilitar dashboard y el tipo (`opencv`, `rerun`, `web`). La ruta por defecto usa OpenCV.
+El arranque pregunta por dashboard (`opencv`, `rerun`, `web`) y habilita el flujo correspondiente. En debug se limitan a OpenCV simplificado.
 
 ## Telemetría y observabilidad
-- `logs/audio_telemetry.jsonl`: respaldo del `NavigationAudioRouter` con cada evento (enqueued, spoken, skipped, dropped) y resumen final de sesión.
-- `Coordinator.print_stats()`: métricas agregadas de pipeline y perfilado (`enhance`, `depth`, `yolo`, `nav_audio`, etc.).
-- `PresentationManager.log_audio_command()`: histórico de comandos reproducidos en la UI.
-- Ajusta la ventana de profiling con `Config.PROFILE_WINDOW_FRAMES`.
+- `logs/audio_telemetry.jsonl`: `NavigationAudioRouter` registra eventos (`enqueued`, `spoken`, `skipped`, `dropped`) con metadata y resúmen de sesión.
+- `NavigationAudioRouter.get_metrics()`: métricas por fuente (RGB, SLAM1, SLAM2), tamaños de cola y cooldown efectivo.
+- `Coordinator`: emite métricas `PROFILE` del pipeline (`enhance`, `depth`, `yolo`, `nav_audio`, `render`, `total`) cada `PROFILE_WINDOW_FRAMES`.
+- `PresentationManager.log_audio_command()`: historial de comandos reproducidos en la UI.
 
 ## Estructura del repositorio
 ```
 aria-navigation/
 ├── README.md
-├── environment.yml
 ├── docs/
 │   ├── architecture/
-│   │   └── pipeline_overview.md
-│   └── development_diary.md
+│   └── ...
 ├── experiments/
 │   └── meta_stream_all.py
+├── logs/
+│   └── audio_telemetry.jsonl
 ├── src/
 │   ├── main.py
 │   ├── core/
+│   │   ├── audio/
+│   │   │   ├── audio_system.py
+│   │   │   └── navigation_audio_router.py
+│   │   ├── hardware/
+│   │   │   └── device_manager.py
+│   │   ├── imu/
+│   │   │   └── motion_detector.py
 │   │   ├── navigation/
 │   │   │   ├── builder.py
 │   │   │   ├── coordinator.py
 │   │   │   ├── navigation_decision_engine.py
-│   │   │   └── navigation_pipeline.py
-│   │   ├── audio/
-│   │   │   ├── audio_system.py
-│   │   │   └── navigation_audio_router.py
-│   │   ├── vision/
-│   │   │   ├── yolo_processor.py
-│   │   │   ├── depth_estimator.py
-│   │   │   └── image_enhancer.py
-│   │   ├── hardware/device_manager.py
-│   │   └── observer.py
-│   ├── communication/
-│   │   └── mac_client.py
+│   │   │   ├── navigation_pipeline.py
+│   │   │   ├── rgb_audio_router.py
+│   │   │   └── slam_audio_router.py
+│   │   └── vision/
+│   │       ├── depth_estimator.py
+│   │       ├── image_enhancer.py
+│   │       ├── slam_detection_worker.py
+│   │       └── yolo_processor.py
 │   ├── presentation/
 │   │   ├── presentation_manager.py
-│   │   └── dashboards/
+│   │   └── renderers/frame_renderer.py
 │   └── utils/config.py
-├── logs/
-│   └── audio_telemetry.jsonl
-└── quick_deploy.sh
+└── tests/
+    └── core/...
 ```
 
 ## Configuración
-La configuración central está en `src/utils/config.py` (`Config`):
-- `YOLO_*`: parámetros del detector (modelo, dispositivo MPS, thresholds).
-- `PERIPHERAL_VISION_ENABLED`: activa/desactiva el pipeline SLAM y los `SlamDetectionWorker`.
-- `DEPTH_*`: control del estimador de profundidad (`midas` o `depth_anything_v2`).
-- `AUDIO_*`: cooldown base, tamaño de cola y velocidad de TTS.
-- `PROFILE_*`: ventanas de profiling y métricas para el coordinador.
-
-Actualiza estos valores antes de ejecutar para adaptar el sistema a tu hardware o a campañas de pruebas específicas.
+`src/utils/config.py` centraliza los toggles:
+- `PERIPHERAL_VISION_ENABLED`, `SLAM_TARGET_FPS`: control de visión periférica y workers SLAM.
+- `YOLO_*`: modelo, dispositivo (MPS), thresholds y frame skipping para perfiles RGB/SLAM.
+- `DEPTH_*`, `MIDAS_*`, `DEPTH_ANYTHING_VARIANT`: selección de backend y parámetros de profundidad.
+- `LOW_LIGHT_ENHANCEMENT`, `AUTO_ENHANCEMENT`, `GAMMA_CORRECTION`: estrategia de realce en baja iluminación.
+- `ZONE_SYSTEM`, `CENTER_ZONE_*`: definición de zonas y prioridades espaciales.
+- `PROFILE_PIPELINE`, `PROFILE_WINDOW_FRAMES`: métricas de rendimiento.
+- `STREAMING_INTERFACE`, `STREAMING_PROFILE_*`: configuración de streaming Aria (USB/Wi-Fi).
 
 ## Flujo de trabajo y pruebas
-- `Builder.build_full_system()` fabrica todas las dependencias con wiring actualizado (pipeline + decision engine + audio router + SLAM).
-- `main_debug()` permite validar la integración sin hardware real (frames sintéticos, toggles de audio).
-- Se recomienda ejecutar sesiones cortas tras cualquier cambio en cooldowns o prioridades para revisar `logs/audio_telemetry.jsonl`.
-- Pipeline de tests automatizados aún no disponible; las validaciones son manuales/experimentales.
+- `Builder.build_full_system()` crea todas las dependencias (pipeline, audio router, frame renderer, SLAM workers).
+- `main_debug()` permite validar integración sin hardware real (frames mock, SLAM sintetizado, TTS).
+- Tests unitarios/integración en `tests/` (usar `pytest`). Incluyen pruebas para pipeline, routers RGB/SLAM, audio queue, MPS utils y motion detection.
+- Recomendación: tras cambios en cooldowns o thresholds, ejecutar una sesión corta y revisar `logs/audio_telemetry.jsonl`.
 
 ## Roadmap
-- [ ] Extraer el helper de routing SLAM a un módulo independiente con métricas dedicadas.
-- [ ] Ejecutar sesiones end-to-end con usuarios internos para ajustar cooldowns y prioridades.
-- [ ] Completar modo híbrido Mac ↔ Jetson usando ImageZMQ.
-- [ ] Documentar guías de troubleshooting para Aria SDK y sincronización SLAM.
+- [ ] Empaquetar dependencias (requirements/environment) para instalación reproducible.
+- [ ] Completar modo híbrido end-to-end (Mac sender ↔ Jetson processor) y compartir telemetría.
+- [ ] Integrar métricas de `NavigationAudioRouter` y profundidad en dashboards interactivos.
+- [ ] Documentar troubleshooting de Aria SDK, calibraciones SLAM y requisitos de red.
 
 ## Créditos
 - **Autor**: Roberto Rojas Sahuquillo (TFM 2025).
 - **Agradecimientos**: Comunidad Project Aria y colaboradores del laboratorio de accesibilidad.
-
----
-
-> Última actualización: septiembre 2025.

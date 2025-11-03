@@ -1,0 +1,156 @@
+@startuml arquitectura_sistema_aria
+!theme plain
+title Arquitectura del Sistema de Navegación con Meta Aria Glasses
+
+package "Hardware Layer" {
+    component [Meta Aria Glasses] as Aria
+    note right of Aria
+        - Cámara RGB (60fps)
+        - SLAM1/SLAM2 (periférico)
+        - IMU (movimiento)
+    end note
+}
+
+package "StreamingService" {
+    component [DeviceManager] as DM
+    component [Observer] as Obs
+    
+    note right of DM
+        Adquisición de datos
+        - Conexión USB/WiFi
+        - Streaming profiles
+        - Calibración RGB
+    end note
+    
+    note right of Obs
+        - Callbacks RGB/SLAM/IMU
+        - Thread-safe buffers
+        - Rotación + conversión
+    end note
+}
+
+package "DetectionService" {
+    component [YoloProcessor] as YOLO
+    component [ImageEnhancer] as Enhancer
+    component [DepthEstimator] as Depth
+    
+    note right of YOLO
+        Detección de objetos
+        - YOLOv11n (CPU)
+        - Confidence > 0.6
+        - Objetos navegación
+    end note
+    
+    note right of Enhancer
+        - CLAHE low-light
+        - Auto-detection
+        - Gamma correction
+    end note
+    
+    note right of Depth
+        - MiDaS/Depth Anything
+        - Device MPS/CPU
+        - Distancias métricas
+    end note
+}
+
+package "DecisionService" {
+    component [NavigationPipeline] as Pipeline
+    component [DecisionEngine] as Engine
+    component [MotionDetector] as Motion
+    
+    note right of Pipeline
+        Interpretación detecciones
+        - Enhancement → Depth → YOLO
+        - Cache depth map
+        - Stage timings
+    end note
+    
+    note right of Engine
+        - Zonificación espacial (5 zonas)
+        - Estimación distancia
+        - Prioridad + relevancia
+        - Motion-aware cooldown
+    end note
+    
+    note right of Motion
+        - IMU magnitude
+        - Stationary/Walking
+        - Adaptive behavior
+    end note
+}
+
+package "SpeechService" {
+    component [AudioSystem] as Audio
+    component [NavigationAudioRouter] as Router
+    component [RgbAudioRouter] as RgbRouter
+    component [SlamAudioRouter] as SlamRouter
+    
+    note right of Audio
+        Retroalimentación auditiva
+        - macOS TTS (say)
+        - Queue async
+        - Cooldown tracking
+    end note
+    
+    note right of Router
+        - Priority queue RGB+SLAM
+        - Per-source cooldowns
+        - Metrics JSONL
+    end note
+}
+
+package "Presentation Layer" {
+    component [PresentationManager] as Presentation
+    component [FrameRenderer] as Renderer
+    component [OpenCVDashboard] as Dashboard
+    
+    note right of Presentation
+        - UI façade
+        - FPS tracking
+        - Keyboard input
+    end note
+}
+
+' Relaciones entre componentes
+Aria --> DM : "Datos raw"
+DM --> Obs : "Streaming"
+Obs --> Pipeline : "RGB frames"
+Obs --> Motion : "IMU data"
+
+Pipeline --> Enhancer : "Frame"
+Enhancer --> Depth : "Enhanced"
+Depth --> YOLO : "Frame + depth"
+YOLO --> Engine : "Detections"
+Motion --> Engine : "Motion state"
+
+Engine --> RgbRouter : "Decision candidates"
+Engine --> SlamRouter : "SLAM events"
+RgbRouter --> Router : "RGB commands"
+SlamRouter --> Router : "SLAM commands"
+Router --> Audio : "Prioritized commands"
+
+Audio --> "Usuario" : "🔊 Audio feedback"
+
+Pipeline --> Renderer : "Annotated frame"
+Renderer --> Dashboard : "Visual"
+Dashboard --> Presentation : "Display"
+Presentation --> "Usuario" : "👁️ Visual feedback"
+
+' Configuración centralizada
+package "Utils" {
+    component [Config] as Cfg
+    note right of Cfg
+        - Single source of truth
+        - YOLO_CONFIDENCE
+        - TARGET_FPS
+        - ZONE_SYSTEM
+    end note
+}
+
+YOLO ..> Cfg : "lee"
+Audio ..> Cfg : "lee"
+Enhancer ..> Cfg : "lee"
+Engine ..> Cfg : "lee"
+
+@enduml
