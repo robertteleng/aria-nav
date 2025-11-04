@@ -3,33 +3,21 @@
 class Config:
     """System configuration constants"""
     
-    # # Video processing
-    # TARGET_FPS = 30
-    # YOLO_MODEL = "yolo12n.pt"
-    # YOLO_CONFIDENCE = 0.50
-    # YOLO_DEVICE = "mps"  # Avoid MPS bug
-    # YOLO_IMAGE_SIZE = 320
-    # YOLO_MAX_DETECTIONS = 12
-    # YOLO_IOU_THRESHOLD = 0.45
-    # YOLO_FRAME_SKIP = 3
-    # YOLO_FORCE_MPS = True
-    
     # Video processing
     TARGET_FPS = 30
-    YOLO_MODEL = "yolo12n.pt"              # ✅ Mantener nano
+    YOLO_MODEL = "yolo12n.pt"              
     YOLO_CONFIDENCE = 0.50
-    YOLO_DEVICE = "mps"                    # 🧪 Probar CPU primero
-    YOLO_IMAGE_SIZE = 256                  # ✅ CAMBIO: Balance 416 (más rápido que 640)
-    YOLO_MAX_DETECTIONS = 8                # ✅ CAMBIO: Reducir de 12 → 8
+    YOLO_DEVICE = "mps"                    
+    YOLO_IMAGE_SIZE = 256                  
+    YOLO_MAX_DETECTIONS = 8                
     YOLO_IOU_THRESHOLD = 0.45
-    YOLO_FRAME_SKIP = 3                    # ✅ Mantener skip=2
+    YOLO_FRAME_SKIP = 3                    
     YOLO_FORCE_MPS = True
 
     # Peripheral vision (SLAM)
     PERIPHERAL_VISION_ENABLED = True
     SLAM_TARGET_FPS = 8
-    SLAM_FRAME_SKIP = 8              # ✅ NUEVO: Procesar SLAM cada 6 frames
-
+    SLAM_FRAME_SKIP = 12              
     
     # Audio system
     TTS_RATE = 190
@@ -45,12 +33,18 @@ class Config:
     DISTANCE_CLOSE = 0.04
     DISTANCE_MEDIUM = 0.015
     
+    # Navigation detection filtering
+    NAVIGATION_MIN_CONFIDENCE = 0.4
+    NAVIGATION_MIN_RELEVANCE = 0.18
+    NAVIGATION_MAX_OBJECTS = 3
+    NAVIGATION_SIZE_RATIO = 0.08
+    
     # Aria streaming
     STREAMING_PROFILE = "profile28"
-    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
+    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
-    STREAMING_PROFILE_WIFI = "profile28"
-    STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
+    STREAMING_PROFILE_WIFI = "profile18"
+    STREAMING_WIFI_DEVICE_IP = "192.168.0.201"
     
     # Performance
     DETECTION_HISTORY_SIZE = 8
@@ -64,7 +58,7 @@ class Config:
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     DEPTH_ENABLED = True        # Activar profundidad con MPS
-    DEPTH_FRAME_SKIP = 8        # Profundidad cada 8 frames para equilibrar rendimiento
+    DEPTH_FRAME_SKIP = 12        # Profundidad cada 12 frames para equilibrar rendimiento
     DEPTH_INPUT_SIZE = 80     # Tamaño de entrada para el modelo de profundidad
 
     #MiDas

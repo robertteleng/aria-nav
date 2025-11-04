@@ -178,9 +178,8 @@ class YoloProcessor:
             self.iou_threshold,
             self.frame_skip,
             self.max_det,
-)
+        )
 
-        
         self.latest_detections: List[dict] = []
         self._cached_results = None
         self._frame_index = 0
@@ -189,19 +188,53 @@ class YoloProcessor:
         self._post_acc = 0.0
         self._profile_frames = 0
 
+        # # Outdoor objects relevant for navigation
+        # self.navigation_objects = {
+        #     "person": {"priority": 1.0, "name": "person"},
+        #     "car": {"priority": 0.9, "name": "car"},
+        #     "bicycle": {"priority": 0.8, "name": "bicycle"},
+        #     "bus": {"priority": 0.9, "name": "bus"},
+        #     "truck": {"priority": 0.8, "name": "truck"},
+        #     "motorcycle": {"priority": 0.7, "name": "motorcycle"},
+        #     "stop sign": {"priority": 0.9, "name": "stop sign"},
+        #     "traffic light": {"priority": 0.6, "name": "traffic light"},
+        # }
+
+        # Indoor objects relevant for navigation
         self.navigation_objects = {
+            # TIER 1: CRÍTICO - Personas
             "person": {"priority": 1.0, "name": "person"},
-            "car": {"priority": 0.9, "name": "car"},
-            "bicycle": {"priority": 0.8, "name": "bicycle"},
-            "bus": {"priority": 0.9, "name": "bus"},
-            "truck": {"priority": 0.8, "name": "truck"},
-            "motorcycle": {"priority": 0.7, "name": "motorcycle"},
-            "stop sign": {"priority": 0.9, "name": "stop sign"},
-            "traffic light": {"priority": 0.6, "name": "traffic light"},
+            
+            # TIER 2: ALTO - Obstáculos grandes/riesgo tropiezo
+            "chair": {"priority": 0.9, "name": "chair"},
+            "couch": {"priority": 0.8, "name": "couch"},
+            "backpack": {"priority": 0.8, "name": "backpack"},
+            "bottle": {"priority": 0.7, "name": "bottle"},       
+            
+            # TIER 3: MEDIO - Referencias espaciales
+            "dining table": {"priority": 0.7, "name": "table"},
+            "laptop": {"priority": 0.6, "name": "laptop"},
+            "handbag": {"priority": 0.6, "name": "handbag"},
+            
+            # TIER 4: BAJO - Objetos pequeños/contextuales
+            "keyboard": {"priority": 0.5, "name": "keyboard"},
+            "mouse": {"priority": 0.4, "name": "mouse"},
+            "cell phone": {"priority": 0.2, "name": "phone"},
         }
 
         self.detection_count = 0
-        self._last_depth_stats: Optional[Tuple[float, float]] = None
+        self.min_confidence = max(
+            0.0, float(getattr(Config, "NAVIGATION_MIN_CONFIDENCE", 0.4))
+        )
+        self.min_relevance = max(
+            0.0, float(getattr(Config, "NAVIGATION_MIN_RELEVANCE", 0.18))
+        )
+        self.max_navigation_objects = max(
+            1, int(getattr(Config, "NAVIGATION_MAX_OBJECTS", 3))
+        )
+        self.size_ratio_reference = max(
+            1e-6, float(getattr(Config, "NAVIGATION_SIZE_RATIO", 0.08))
+        )
 
             # print(
             #     f"[INFO] ✓ YOLOv11 processor initialized ({self.runtime_config.profile_name}) on {self.device_str} "
@@ -209,7 +242,7 @@ class YoloProcessor:
             # )
 
         log.info(
-        "✓ YOLOv11 processor initialized (%s) on %s | imgsz=%s | max_det=%s | skip=%s",
+        "✓ YOLOv12 processor initialized (%s) on %s | imgsz=%s | max_det=%s | skip=%s",
         self.runtime_config.profile_name, self.device_str, self.img_size, self.max_det, self.frame_skip
         )
 
@@ -251,20 +284,12 @@ class YoloProcessor:
 
             post_start = time.perf_counter() if self._profile else 0.0
 
-            depth_stats: Optional[Tuple[float, float]] = None
-            if depth_raw is not None:
-                depth_stats = self._compute_depth_stats(depth_raw)
-                if depth_stats is not None:
-                    self._last_depth_stats = depth_stats
-            elif self._last_depth_stats is not None:
-                depth_stats = self._last_depth_stats
-
             detected_objects = self._analyze_detections(
                 results,
                 frame.shape[1],
+                frame.shape[0],
                 depth_map,
                 depth_raw,
-                depth_stats,
             )
             if self._profile:
                 self._post_acc += time.perf_counter() - post_start
@@ -310,9 +335,9 @@ class YoloProcessor:
         self,
         yolo_results,
         frame_width: int,
+        frame_height: int,
         depth_map: np.ndarray | None = None,
         depth_raw: np.ndarray | None = None,
-        depth_stats: Optional[Tuple[float, float]] = None,
     ) -> List[DetectedObject]:
         """Convert raw YOLO output to structured detection objects."""
         objects: List[DetectedObject] = []
@@ -326,14 +351,14 @@ class YoloProcessor:
             if class_name not in self.navigation_objects:
                 continue
 
-            if confidence < 0.6:
+            if confidence < self.min_confidence:
                 continue
 
             center_x = (x1 + x2) / 2
             center_y = (y1 + y2) / 2
             area = (x2 - x1) * (y2 - y1)
 
-            zone = self._classify_zone(center_x, center_y, frame_width)
+            zone = self._classify_zone(center_x, center_y, frame_width, frame_height)
 
             bbox = (int(x1), int(y1), int(x2), int(y2))
 
@@ -341,15 +366,20 @@ class YoloProcessor:
                 bbox=bbox,
                 depth_map=depth_map,
                 depth_raw=depth_raw,
-                depth_stats=depth_stats,
             )
             distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
 
             base_priority = self.navigation_objects[class_name]["priority"]
-            size_factor = min(area / (frame_width * 300), 1.0)
-            relevance_score = base_priority * float(confidence) * (0.3 + 0.7 * size_factor)
+            frame_area = max(1.0, float(frame_width) * float(frame_height))
+            area_ratio = max(0.0, area / frame_area)
+            size_factor = min(area_ratio / self.size_ratio_reference, 1.0)
+            relevance_score = (
+                base_priority
+                * float(confidence)
+                * (0.6 + 0.4 * size_factor)
+            )
 
-            if relevance_score < 0.6:
+            if relevance_score < self.min_relevance:
                 continue
 
             obj = DetectedObject(
@@ -369,39 +399,13 @@ class YoloProcessor:
             objects.append(obj)
 
         objects.sort(key=lambda item: item.relevance_score, reverse=True)
-        return objects[:1]
-
-    def _compute_depth_stats(
-        self,
-        depth_raw: np.ndarray,
-    ) -> Optional[Tuple[float, float]]:
-        downsample = getattr(Config, "DEPTH_NORMALIZE_DOWNSAMPLE", 4)
-        if downsample > 1:
-            depth_sample = depth_raw[::downsample, ::downsample]
-        else:
-            depth_sample = depth_raw
-
-        finite = depth_sample[np.isfinite(depth_sample)]
-        if finite.size == 0:
-            return None
-
-        low_pct = float(getattr(Config, "DEPTH_NORMALIZE_LOW_PCT", 5.0))
-        high_pct = float(getattr(Config, "DEPTH_NORMALIZE_HIGH_PCT", 95.0))
-        if high_pct <= low_pct:
-            high_pct = low_pct + 1.0
-
-        low = float(np.percentile(finite, low_pct))
-        high = float(np.percentile(finite, high_pct))
-        if high - low < 1e-6:
-            return None
-        return (low, high)
+        return objects[: self.max_navigation_objects]
 
     def _extract_depth_features(
         self,
         bbox: tuple,
         depth_map: np.ndarray | None,
         depth_raw: np.ndarray | None,
-        depth_stats: Optional[Tuple[float, float]],
     ) -> Tuple[float, Optional[float]]:
         depth_value = 0.5
         raw_mean: Optional[float] = None
@@ -413,13 +417,7 @@ class YoloProcessor:
                 if finite_crop.size > 0:
                     raw_mean = float(np.mean(finite_crop))
 
-        if raw_mean is not None and depth_stats is not None:
-            low, high = depth_stats
-            span = high - low
-            if span > 1e-6:
-                depth_value = float(np.clip((raw_mean - low) / span, 0.0, 1.0))
-
-        if (raw_mean is None or depth_stats is None) and depth_map is not None:
+        if depth_map is not None:
             depth_value = self._calculate_depth_from_map(depth_map, bbox)
 
         return depth_value, raw_mean
@@ -433,10 +431,10 @@ class YoloProcessor:
         y2 = max(y1 + 1, y2)
         return array[y1:y2, x1:x2]
 
-    def _classify_zone(self, center_x: float, center_y: float, frame_width: int) -> str:
+    def _classify_zone(
+        self, center_x: float, center_y: float, frame_width: int, frame_height: int
+    ) -> str:
         from utils.config import Config as LocalConfig
-
-        frame_height = int(frame_width * 0.75)
 
         if LocalConfig.ZONE_SYSTEM == "five_zones":
             center_margin_x = frame_width * LocalConfig.CENTER_ZONE_WIDTH_RATIO
