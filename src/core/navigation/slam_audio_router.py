@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 try:
     from core.audio.navigation_audio_router import EventPriority, NavigationAudioRouter
     from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
+    from utils.config import Config
 except Exception:  # pragma: no cover - fallback for import issues in docs
     NavigationAudioRouter = None  # type: ignore[assignment]
     CameraSource = None  # type: ignore[assignment]
+    Config = None  # type: ignore[assignment]
 
     from enum import Enum
 
@@ -30,10 +33,27 @@ class SlamRoutingState:
 
 
 class SlamAudioRouter:
-    """Encapsulates SLAM submission and audio routing logic."""
+    """Encapsulates SLAM submission and audio routing logic with critical-only filtering."""
 
     def __init__(self, audio_router: Optional[NavigationAudioRouter]) -> None:
         self.audio_router = audio_router
+        # Track RGB frontal announcements to avoid SLAM duplicates
+        self._rgb_class_history: Dict[str, float] = {}
+        self.duplicate_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
+        self.critical_only = getattr(Config, "SLAM_CRITICAL_ONLY", True)
+        self.critical_distances_walking = getattr(Config, "CRITICAL_DISTANCE_WALKING", {"very_close", "close"})
+        self.critical_distances_stationary = getattr(Config, "CRITICAL_DISTANCE_STATIONARY", {"very_close"})
+    
+    def register_rgb_announcement(self, class_name: str) -> None:
+        """Register an RGB frontal announcement to avoid SLAM duplicates."""
+        self._rgb_class_history[class_name] = time.time()
+    
+    def _is_duplicate_with_rgb(self, class_name: str) -> bool:
+        """Check if this class was recently announced from RGB frontal."""
+        if class_name not in self._rgb_class_history:
+            return False
+        elapsed = time.time() - self._rgb_class_history[class_name]
+        return elapsed < self.duplicate_grace
 
     def submit_and_route(
         self,
@@ -59,6 +79,20 @@ class SlamAudioRouter:
 
         if self.audio_router:
             for event in events:
+                # Filter: skip if not critical distance when SLAM_CRITICAL_ONLY is enabled
+                if self.critical_only:
+                    distance = (event.distance or "").lower()
+                    is_critical_distance = (
+                        distance in self.critical_distances_walking
+                        or distance in self.critical_distances_stationary
+                    )
+                    if not is_critical_distance:
+                        continue
+                
+                # Filter: skip if recently announced from RGB frontal
+                if self._is_duplicate_with_rgb(event.object_name):
+                    continue
+                
                 priority = self._determine_slam_priority(event)
                 message = self._build_slam_message(event)
                 self.audio_router.enqueue_from_slam(event, message, priority)

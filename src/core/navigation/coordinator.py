@@ -124,8 +124,8 @@ class Coordinator:
             latest_events={},
         )
         # Capa simétrica a SlamAudioRouter: formatea eventos RGB antes de encolarlos.
-        self.rgb_router = RgbAudioRouter(audio_system, self.audio_router)
         self.slam_router = SlamAudioRouter(self.audio_router)
+        self.rgb_router = RgbAudioRouter(audio_system, self.audio_router, self.slam_router)
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
@@ -225,8 +225,9 @@ class Coordinator:
         self.slam_state.workers = slam_workers
         if audio_router is not None:
             self.audio_router = audio_router
-            self.rgb_router.set_audio_router(self.audio_router)
             self.slam_router = SlamAudioRouter(audio_router)
+            self.rgb_router.set_audio_router(self.audio_router)
+            self.rgb_router.set_slam_router(self.slam_router)
 
         for source, worker in slam_workers.items():
             worker.start()

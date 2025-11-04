@@ -5,6 +5,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from collections import defaultdict
+
+from utils.config import Config
 
 try:
     from core.audio.navigation_audio_router import EventPriority
@@ -52,11 +55,20 @@ class NavigationDecisionEngine:
             "stop sign": {"priority": 9, "spanish": "señal de stop"},
             "traffic light": {"priority": 6, "spanish": "semáforo"},
             "chair": {"priority": 3, "spanish": "silla"},
+            "table": {"priority": 3, "spanish": "mesa"},
             "door": {"priority": 4, "spanish": "puerta"},
+            "bottle": {"priority": 2, "spanish": "botella"},
+            "laptop": {"priority": 2, "spanish": "laptop"},
             "stairs": {"priority": 5, "spanish": "escaleras"},
         }
 
         self.last_announcement_time = 0.0
+        self.last_critical_time = 0.0
+        self.last_critical_class = None
+        
+        # Tracking de persistencia para objetos normales
+        self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
+        self.last_normal_announcement: Dict[str, float] = {}  # class -> timestamp
 
     # ------------------------------------------------------------------
     # analysis
@@ -99,37 +111,180 @@ class NavigationDecisionEngine:
         navigation_objects: List[Dict[str, Any]],
         motion_state: str = "stationary",
     ) -> Optional[DecisionCandidate]:
+        """Evaluate detections and return candidate if announcement criteria are met.
+        
+        Now supports two priority levels:
+        - CRITICAL: immediate risks (person, vehicles) at critical distances
+        - NORMAL: obstacles (chair, table, bottle) with persistence and yellow zone
+        """
         if not navigation_objects:
+            # Decay detection history when no objects present
+            self.detection_history.clear()
             return None
 
-        top_object = navigation_objects[0]
-        if top_object.get("priority", 0.0) < 8.0:
-            return None
-
-        cooldown = 1.5 if motion_state == "walking" else 3.0
         now = time.time()
-        if now - self.last_announcement_time < cooldown:
-            return None
-
-        # Datos mínimos que necesita la capa de audio para formatear el mensaje.
-        metadata: Dict[str, Any] = {
-            "class": top_object.get("class"),
-            "spanish_name": top_object.get("spanish_name"),
-            "priority": top_object.get("priority"),
-            "zone": top_object.get("zone"),
-            "distance": top_object.get("distance"),
-            "motion_state": motion_state,
-            "cooldown": cooldown,
-        }
-
-        priority_enum = self._map_priority_for_audio(top_object)
-        self.last_announcement_time = now
-
-        return DecisionCandidate(
-            nav_object=top_object,
-            metadata=metadata,
-            priority=priority_enum,
-        )
+        
+        # Update detection history for persistence tracking
+        current_classes = {obj.get("class") for obj in navigation_objects}
+        for class_name in list(self.detection_history.keys()):
+            if class_name not in current_classes:
+                self.detection_history[class_name] = 0
+        
+        # Evaluate CRITICAL candidates first
+        critical_candidate = self._evaluate_critical(navigation_objects, motion_state, now)
+        if critical_candidate is not None:
+            return critical_candidate
+        
+        # Then evaluate NORMAL candidates (if critical didn't trigger)
+        normal_candidate = self._evaluate_normal(navigation_objects, motion_state, now)
+        return normal_candidate
+    
+    def _evaluate_critical(
+        self,
+        navigation_objects: List[Dict[str, Any]],
+        motion_state: str,
+        now: float,
+    ) -> Optional[DecisionCandidate]:
+        """Evaluate critical-priority objects (immediate risks)."""
+        critical_classes = getattr(Config, "CRITICAL_ALLOWED_CLASSES", {"person", "car", "truck", "bus", "bicycle", "motorcycle"})
+        critical_distances_walking = getattr(Config, "CRITICAL_DISTANCE_WALKING", {"very_close", "close"})
+        critical_distances_stationary = getattr(Config, "CRITICAL_DISTANCE_STATIONARY", {"very_close"})
+        center_tolerance = getattr(Config, "CRITICAL_CENTER_TOLERANCE", 0.30)
+        bbox_coverage_threshold = getattr(Config, "CRITICAL_BBOX_COVERAGE_THRESHOLD", 0.35)
+        repeat_grace = getattr(Config, "CRITICAL_REPEAT_GRACE", 1.5)
+        require_yellow_zone = getattr(Config, "CRITICAL_REQUIRE_YELLOW_ZONE", False)  # NEW: optional filter
+        
+        critical_distances = critical_distances_walking if motion_state == "walking" else critical_distances_stationary
+        
+        for obj in navigation_objects:
+            class_name = obj.get("class", "").lower()
+            if class_name not in critical_classes:
+                continue
+            
+            distance = obj.get("distance", "").lower()
+            bbox = obj.get("bbox")
+            
+            # Check if in critical distance
+            if distance not in critical_distances:
+                # Exception: allow "close" if bbox coverage is high (large object blocking)
+                if distance == "close" and bbox:
+                    frame_width = 640  # TODO: get from config or frame
+                    center_x = bbox[0] + bbox[2] / 2
+                    zone_width = frame_width * center_tolerance * 2
+                    bbox_coverage = bbox[2] / zone_width
+                    if bbox_coverage < bbox_coverage_threshold:
+                        continue
+                else:
+                    continue
+            
+            # Check if in yellow zone (center ±tolerance) - OPTIONAL
+            if require_yellow_zone and not self._in_yellow_zone(bbox, center_tolerance):
+                continue
+            
+            # Check repeat grace for same class
+            if (self.last_critical_class == class_name and 
+                now - self.last_critical_time < repeat_grace):
+                continue
+            
+            # Critical candidate found - SUCCESS!
+            cooldown = getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0)
+            
+            metadata: Dict[str, Any] = {
+                "class": class_name,
+                "spanish_name": self.object_priorities.get(class_name, {}).get("spanish", class_name),
+                "priority": obj.get("priority"),
+                "zone": obj.get("zone"),
+                "distance": distance,
+                "motion_state": motion_state,
+                "cooldown": cooldown,
+                "level": "critical",
+            }
+            
+            self.last_announcement_time = now
+            self.last_critical_time = now
+            self.last_critical_class = class_name
+            
+            return DecisionCandidate(
+                nav_object=obj,
+                metadata=metadata,
+                priority=EventPriority.CRITICAL,
+            )
+        
+        return None
+    
+    def _evaluate_normal(
+        self,
+        navigation_objects: List[Dict[str, Any]],
+        motion_state: str,
+        now: float,
+    ) -> Optional[DecisionCandidate]:
+        """Evaluate normal-priority objects (obstacles, furniture)."""
+        normal_classes = getattr(Config, "NORMAL_ALLOWED_CLASSES", {"chair", "table", "bottle", "door", "laptop"})
+        normal_distances = getattr(Config, "NORMAL_DISTANCE", {"close", "medium"})
+        center_tolerance = getattr(Config, "NORMAL_CENTER_TOLERANCE", 0.30)
+        require_yellow_zone = getattr(Config, "NORMAL_REQUIRE_YELLOW_ZONE", True)
+        persistence_threshold = getattr(Config, "NORMAL_PERSISTENCE_FRAMES", 2)
+        normal_cooldown = getattr(Config, "NORMAL_COOLDOWN", 2.5)
+        
+        for obj in navigation_objects:
+            class_name = obj.get("class", "").lower()
+            if class_name not in normal_classes:
+                continue
+            
+            distance = obj.get("distance", "").lower()
+            if distance not in normal_distances:
+                continue
+            
+            bbox = obj.get("bbox")
+            if require_yellow_zone and not self._in_yellow_zone(bbox, center_tolerance):
+                continue
+            
+            # Update persistence counter
+            self.detection_history[class_name] += 1
+            
+            # Check persistence threshold
+            if self.detection_history[class_name] < persistence_threshold:
+                continue
+            
+            # Check cooldown for this specific class
+            last_time = self.last_normal_announcement.get(class_name, 0.0)
+            if now - last_time < normal_cooldown:
+                continue
+            
+            # Normal candidate found
+            metadata: Dict[str, Any] = {
+                "class": class_name,
+                "spanish_name": self.object_priorities.get(class_name, {}).get("spanish", class_name),
+                "priority": obj.get("priority"),
+                "zone": obj.get("zone"),
+                "distance": distance,
+                "motion_state": motion_state,
+                "cooldown": normal_cooldown,
+                "level": "normal",
+            }
+            
+            self.last_announcement_time = now
+            self.last_normal_announcement[class_name] = now
+            
+            return DecisionCandidate(
+                nav_object=obj,
+                metadata=metadata,
+                priority=EventPriority.MEDIUM,  # NORMAL uses MEDIUM priority
+            )
+        
+        return None
+    
+    def _in_yellow_zone(self, bbox, center_tolerance: float) -> bool:
+        """Check if bbox center is within yellow zone (center ±tolerance)."""
+        if not bbox:
+            return False
+        
+        frame_width = 640  # TODO: get from config or frame dimensions
+        center_x = bbox[0] + bbox[2] / 2
+        frame_center = frame_width / 2
+        
+        zone_half_width = frame_width * center_tolerance
+        return abs(center_x - frame_center) <= zone_half_width
 
     # ------------------------------------------------------------------
     # helpers
@@ -147,28 +302,29 @@ class NavigationDecisionEngine:
 
         if class_name == "person":
             if height > 200:
-                return "cerca"
+                return "very_close"
             if height > 100:
-                return "medio"
-            return "lejos"
+                return "close"
+            return "far"
         if class_name in {"car", "truck", "bus"}:
             if height > 150:
-                return "cerca"
+                return "very_close"
             if height > 75:
-                return "medio"
-            return "lejos"
+                return "close"
+            return "far"
         if height > 100:
-            return "cerca"
+            return "close"
         if height > 50:
-            return "medio"
-        return "lejos"
+            return "medium"
+        return "far"
 
     def _calculate_final_priority(self, base_priority: float, zone: str, distance: str) -> float:
         priority = float(base_priority)
         distance_multipliers = {
-            "cerca": 2.0,
-            "medio": 1.5,
-            "lejos": 1.0,
+            "very_close": 2.5,
+            "close": 2.0,
+            "medium": 1.5,
+            "far": 1.0,
         }
         priority *= distance_multipliers.get(distance, 1.0)
 
@@ -179,18 +335,6 @@ class NavigationDecisionEngine:
         }
         priority *= zone_multipliers.get(zone, 1.0)
         return priority
-
-    def _map_priority_for_audio(self, nav_object: Dict[str, Any]) -> EventPriority:
-        priority_value = float(nav_object.get("priority", 0.0) or 0.0)
-        distance = (nav_object.get("distance") or "").lower()
-
-        if priority_value >= 10.0 or distance in {"muy_cerca", "very_close"}:
-            return EventPriority.CRITICAL
-        if priority_value >= 9.0 or distance in {"cerca", "close"}:
-            return EventPriority.HIGH
-        if priority_value >= 8.0:
-            return EventPriority.MEDIUM
-        return EventPriority.LOW
 
 
 __all__ = [

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from core.audio.audio_system import AudioSystem
 from core.audio.navigation_audio_router import NavigationAudioRouter
 from core.navigation.navigation_decision_engine import DecisionCandidate
+
+if TYPE_CHECKING:
+    from core.navigation.slam_audio_router import SlamAudioRouter
 
 
 class RgbAudioRouter:
@@ -16,18 +19,37 @@ class RgbAudioRouter:
         self,
         audio_system: AudioSystem,
         audio_router: Optional[NavigationAudioRouter] = None,
+        slam_router: Optional["SlamAudioRouter"] = None,
     ) -> None:
         self.audio_system = audio_system
         self.audio_router = audio_router
+        self.slam_router = slam_router
 
     def set_audio_router(self, audio_router: Optional[NavigationAudioRouter]) -> None:
         """Allow the coordinator to swap the shared audio router at runtime."""
         self.audio_router = audio_router
+    
+    def set_slam_router(self, slam_router: Optional["SlamAudioRouter"]) -> None:
+        """Set reference to SLAM router for duplicate tracking."""
+        self.slam_router = slam_router
 
     def route(self, candidate: DecisionCandidate) -> None:
         """Build the RGB message and send it through the appropriate channel."""
         metadata = dict(candidate.metadata or {})
-        message = self._build_rgb_message(candidate.nav_object)
+        zone = str(candidate.nav_object.get("zone", "center")).strip()
+        class_name = str((candidate.nav_object.get("class") or "")).strip()
+        
+        # Determine if critical based on priority
+        from core.audio.navigation_audio_router import EventPriority
+        is_critical = (candidate.priority == EventPriority.CRITICAL or 
+                      (isinstance(candidate.priority, EventPriority) and 
+                       candidate.priority.value == 1))
+        
+        # Play spatial beep FIRST (instant directional feedback)
+        self.audio_system.play_spatial_beep(zone, is_critical=is_critical)
+        
+        # Build simplified TTS message (just object name)
+        message = self._build_simple_message(candidate.nav_object)
         cooldown = self._parse_cooldown(metadata)
 
         router = self.audio_router
@@ -46,6 +68,9 @@ class RgbAudioRouter:
                             priority=candidate.priority,
                             metadata=metadata,
                         )
+                        # Notify SLAM router to avoid duplicates
+                        if self.slam_router and class_name:
+                            self.slam_router.register_rgb_announcement(class_name)
                         return
                     except Exception as err:
                         print(f"[WARN] Audio router enqueue failed, falling back to TTS: {err}")
@@ -56,6 +81,33 @@ class RgbAudioRouter:
         if hasattr(self.audio_system, "set_announcement_cooldown"):
             self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
         self.audio_system.queue_message(message)
+        
+        # Notify SLAM router even in fallback path
+        if self.slam_router and class_name:
+            self.slam_router.register_rgb_announcement(class_name)
+    
+    @staticmethod
+    def _build_simple_message(nav_object: Dict[str, object]) -> str:
+        """Build simple TTS message with just the object name."""
+        class_name = str((nav_object.get("class") or "")).strip()
+        
+        speech_labels = {
+            "person": "Person",
+            "car": "Car",
+            "truck": "Truck",
+            "bus": "Bus",
+            "bicycle": "Bicycle",
+            "motorcycle": "Motorcycle",
+            "chair": "Chair",
+            "table": "Table",
+            "bottle": "Bottle",
+            "door": "Door",
+            "laptop": "Laptop",
+            "couch": "Couch",
+            "bed": "Bed",
+        }
+        
+        return speech_labels.get(class_name, class_name.capitalize() if class_name else "Object")
 
     @staticmethod
     def _parse_cooldown(metadata: Dict[str, object]) -> float:
@@ -83,7 +135,12 @@ class RgbAudioRouter:
             "stop sign": "stop sign",
             "traffic light": "traffic light",
             "chair": "chair",
+            "table": "table",
+            "bottle": "bottle",
             "door": "door",
+            "laptop": "laptop",
+            "couch": "couch",
+            "bed": "bed",
             "stairs": "stairs",
         }
         name = speech_labels.get(class_name, class_name if class_name else "object")
@@ -96,19 +153,16 @@ class RgbAudioRouter:
         zone_text = zone_english.get(zone, zone or "straight ahead")
 
         distance_english = {
-            "cerca": "very close",
-            "muy_cerca": "very close",
             "very_close": "very close",
-            "close": "very close",
-            "medio": "at medium distance",
+            "close": "close",
             "medium": "at medium distance",
-            "lejos": "far",
             "far": "far",
         }
         distance_text = distance_english.get(distance, distance or "at medium distance")
 
         priority = float(nav_object.get("priority", 0.0) or 0.0)
-        if distance_text in {"very close", "close"} and priority >= 9:
+        # Only add "Warning" prefix for critical objects at very close distance
+        if distance == "very_close" and priority >= 9:
             return f"Warning, {name} {distance_text} on the {zone_text}"
         return f"{name.capitalize()} on the {zone_text}, {distance_text}"
 

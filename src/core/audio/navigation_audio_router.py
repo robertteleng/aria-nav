@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
+from utils.config import Config
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
 from core.telemetry.telemetry_logger import TelemetryLogger
@@ -54,6 +55,9 @@ class NavigationAudioRouter:
 
         self._last_global_announcement = 0.0
         self._last_source_announcement: Dict[str, float] = {}
+        self._last_message: Optional[str] = None  # Track last message for anti-stutter
+        self._last_message_time: float = 0.0
+        self._speaking_started: float = 0.0  # When current message started
 
         self.default_source_cooldown = 2.0
         self.source_cooldown: Dict[str, float] = {
@@ -61,7 +65,8 @@ class NavigationAudioRouter:
             SLAM2_SOURCE: 3.0,
             RGB_SOURCE: 1.2,
         }
-        self.global_cooldown = 0.8
+        self.global_cooldown = getattr(Config, "AUDIO_GLOBAL_COOLDOWN", 0.8)
+        self.interrupt_grace = getattr(Config, "AUDIO_INTERRUPT_GRACE", 0.25)  # Anti-entrecorte grace
 
         self.events_enqueued = 0
         self.events_processed = 0
@@ -273,6 +278,11 @@ class NavigationAudioRouter:
                     now = time.time()
                     self._last_global_announcement = now
                     self._last_source_announcement[event.source] = now
+                    
+                    # Track speaking state for anti-stutter logic
+                    self._speaking_started = now
+                    self._last_message = event.message
+                    self._last_message_time = now
                     self._update_metrics(event, "spoken")
                 else:
                     self._update_metrics(event, "skipped", reason="tts_rejected")
@@ -280,6 +290,13 @@ class NavigationAudioRouter:
                 self._update_metrics(event, "skipped", reason=trigger)
 
     def _should_announce(self, event: NavigationEvent) -> Tuple[bool, str]:
+        """Determine if event should be announced with anti-entrecorte logic.
+        
+        New logic:
+        - CRITICAL can interrupt anything after interrupt_grace period
+        - MEDIUM/LOW cannot interrupt CRITICAL
+        - Same message within grace period is skipped to avoid stuttering
+        """
         now = time.time()
 
         metadata = event.metadata or {}
@@ -292,26 +309,51 @@ class NavigationAudioRouter:
             if cooldown_value is not None:
                 self.source_cooldown[event.source] = cooldown_value
 
+        # Anti-stutter: skip if same message was just announced
+        if self._last_message == event.message and now - self._last_message_time < 2.0:
+            return False, "duplicate_message"
+
+        # CRITICAL priority can interrupt after grace period
+        if event.priority == EventPriority.CRITICAL:
+            # Check if currently speaking
+            if self.audio.is_speaking:
+                time_speaking = now - self._speaking_started
+                if time_speaking < self.interrupt_grace:
+                    # Too soon to interrupt, even for critical
+                    return False, "interrupt_grace_active"
+                # Allow interrupt after grace period
+            
+            # Check global cooldown (reduced for critical)
+            if now - self._last_global_announcement < (self.global_cooldown * 0.5):
+                return False, "global_cooldown"
+            
+            return True, "priority_critical"
+
+        # Non-critical events respect global cooldown fully
         if now - self._last_global_announcement < self.global_cooldown:
             return False, "global_cooldown"
 
-        if event.priority == EventPriority.CRITICAL:
-            return True, "priority_critical"
+        # Cannot interrupt if TTS is speaking (for non-critical)
+        if self.audio.is_speaking:
+            return False, "audio_busy"
 
+        # Check source-specific cooldown
         last_source = self._last_source_announcement.get(event.source, 0.0)
         source_cooldown = self.source_cooldown.get(event.source, self.default_source_cooldown)
         if now - last_source < source_cooldown:
             return False, "source_cooldown"
 
+        # SLAM-specific logic
         if not event.source.startswith("slam"):
             return True, "non_slam"
 
         # Para eventos periféricos, comprobar separación entre ambos canales
+        slam_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
         primary_last = max(
             self._last_source_announcement.get(SLAM1_SOURCE, 0.0),
             self._last_source_announcement.get(SLAM2_SOURCE, 0.0),
         )
-        if now - primary_last < 4.0:
+        if now - primary_last < slam_grace:
             return False, "slam_spacing"
 
         return True, "slam_allowed"

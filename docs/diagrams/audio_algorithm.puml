@@ -1,0 +1,50 @@
+@startuml
+skinparam classAttributeIconSize 0
+title MVP Critical-Only Audio Flow
+
+actor User
+
+rectangle "Sensors" {
+  rectangle "RGB YOLO\nDetections" as RGB
+  rectangle "IMU / Motion\nWalking vs Parado" as IMU
+}
+
+rectangle "Decision Core" {
+  rectangle "1) Normalizar detección\n- bbox → centro_ratio\n- distancia → {very_close, close, ...}" as Step1
+  rectangle "2) Filtrar clase permitida\n(person, chair, table, bottle,\ndoor, laptop)" as Step2
+  rectangle "3) Consultar estado\nwalking = IMU indica movimiento" as Step3
+  rectangle "4) Regla crítica\nWalking: dist ∈ {close, very_close}\n y |centro-0.5| ≤ 0.2\nParado: dist = very_close\n y |centro-0.5| ≤ 0.15" as Step4
+  rectangle "5) Construir evento crítico\nmetadata: class, zone, distance,\ncooldown (1s walking / 2s parado)" as Step5
+}
+
+rectangle "Signature Gate" {
+  rectangle "Repetidos\n- Firma = (class, zone)\n- Gracia = 1s\n- Rechaza duplicados recientes" as Gate
+}
+
+rectangle "Audio Router" {
+  rectangle "Cola única\n- Global cooldown 2s\n- Sólo críticos encolados" as Queue
+  rectangle "Speech Engine\n- Interrupt only if critical\n- Reproduce mensaje" as Speech
+}
+
+rectangle "Outputs" {
+  rectangle "Direccional Audio" as Audio
+  note right of Audio
+    Sólo mensajes críticos.\n
+    No hay exploratorios en el MVP.
+  end note
+}
+
+RGB --> Step1
+IMU --> Step3
+Step1 --> Step2
+Step2 --> Step3
+Step3 --> Step4
+Step4 --> Step5 : si cumple regla
+Step5 --> Gate
+Gate --> Queue : evento crítico
+Queue --> Speech
+Speech --> Audio
+Audio --> User : alerta crítica
+User -[#red,dashed]-> Queue : No se hablan objetos normales/bajos
+
+@enduml
