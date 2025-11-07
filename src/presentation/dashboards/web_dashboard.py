@@ -43,6 +43,10 @@ class WebDashboard:
             'slam1_events': 0,
             'slam2_events': 0,
             'current_detections_count': 0,
+            'critical_beeps': 0,
+            'normal_beeps': 0,
+            'critical_frequency': 0,
+            'normal_frequency': 0,
         }
         self.slam_messages: List[str] = []
         # System logs with levels
@@ -136,12 +140,21 @@ class WebDashboard:
                           mimetype='multipart/x-mixed-replace; boundary=frame')
     
     def _get_dashboard_html(self):
-        """Generate dashboard HTML - Optimized design"""
+        """Generate dashboard HTML - Professional design without emojis"""
+        try:
+            from presentation.dashboards.dashboard_html_template import DASHBOARD_HTML
+            return DASHBOARD_HTML
+        except ImportError:
+            # Fallback to inline HTML if template file is missing
+            return self._get_fallback_html()
+    
+    def _get_fallback_html(self):
+        """Fallback HTML if template not available"""
         return '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🚀 Aria Navigation Web Dashboard</title>
+    <title>Aria Navigation Dashboard</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -676,10 +689,22 @@ class WebDashboard:
         
         return server_thread
     
-    def update_performance_stats(self, fps: float = 0.0, frames_processed: int = 0):
-        """Update performance statistics"""
+    def update_performance_stats(self, fps: float = 0.0, frames_processed: int = 0, coordinator_stats: Optional[Dict] = None):
+        """Update performance statistics including beep stats from coordinator"""
         self.stats['fps'] = fps
         self.stats['frames_processed'] = frames_processed
+        
+        # Update beep stats if available in coordinator_stats
+        if coordinator_stats:
+            self.stats['critical_beeps'] = coordinator_stats.get('critical_beeps', 0)
+            self.stats['normal_beeps'] = coordinator_stats.get('normal_beeps', 0)
+            self.stats['critical_frequency'] = coordinator_stats.get('critical_frequency', 0)
+            self.stats['normal_frequency'] = coordinator_stats.get('normal_frequency', 0)
+        
+        # Debug output occasionally
+        if frames_processed % 100 == 0 and frames_processed > 0:
+            print(f"[WEB] Stats: FPS={fps:.1f}, Frames={frames_processed}, Det={self.stats['detections_total']}, " +
+                  f"CritBeeps={self.stats['critical_beeps']}, NormBeeps={self.stats['normal_beeps']}")
         # Debug output occasionally
         if frames_processed % 100 == 0 and frames_processed > 0:
             print(f"[WEB] Stats update: FPS={fps:.1f}, Frames={frames_processed}, Det={self.stats['detections_total']}")

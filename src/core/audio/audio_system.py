@@ -29,6 +29,14 @@ class AudioSystem:
         self._last_debug_ts = 0.0
         self._debug_interval = 2.0
         
+        # Beep statistics
+        self.beep_stats = {
+            'critical_beeps': 0,
+            'normal_beeps': 0,
+            'critical_frequency': 0,  # Hz
+            'normal_frequency': 0,     # Hz
+        }
+        
         # Frame dimensions (updated by observer)
         self.frame_width = None
         self.frame_height = None
@@ -170,6 +178,9 @@ class AudioSystem:
             freq = getattr(Config, "BEEP_CRITICAL_FREQUENCY", 1000)
             duration = getattr(Config, "BEEP_CRITICAL_DURATION", 0.3)
             self._play_tone(freq, duration, zone)
+            # Update stats
+            self.beep_stats['critical_beeps'] += 1
+            self.beep_stats['critical_frequency'] = freq
         else:
             # NORMAL: Two short low-pitched beeps
             freq = getattr(Config, "BEEP_NORMAL_FREQUENCY", 500)
@@ -181,6 +192,9 @@ class AudioSystem:
                 self._play_tone(freq, duration, zone)
                 if i < count - 1:
                     time.sleep(gap)
+            # Update stats
+            self.beep_stats['normal_beeps'] += count
+            self.beep_stats['normal_frequency'] = freq
     
     def _play_tone(self, frequency: float, duration: float, zone: str) -> None:
         """Generate and play a tone with spatial positioning using macOS afplay.
@@ -261,6 +275,14 @@ class AudioSystem:
             
         except Exception as e:
             print(f"[WARN] Failed to play spatial beep: {e}")
+    
+    def get_beep_stats(self) -> dict:
+        """Get beep statistics for dashboard display"""
+        return dict(self.beep_stats)
+    
+    def get_queue_size(self) -> int:
+        """Get current audio queue size"""
+        return len(self.audio_queue)
     
     def close(self):
         """Cleanup TTS resources"""

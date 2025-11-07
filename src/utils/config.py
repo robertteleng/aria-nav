@@ -79,7 +79,7 @@ class Config:
     
     # Aria streaming
     STREAMING_PROFILE = "profile28"
-    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
+    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
     STREAMING_PROFILE_WIFI = "profile18"
     STREAMING_WIFI_DEVICE_IP = "192.168.0.201"

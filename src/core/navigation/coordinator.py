@@ -303,15 +303,20 @@ class Coordinator:
             dict: Estado con métricas y información
         """
         audio_queue_size = 0
+        beep_stats = {}
         try:
             if hasattr(self.audio_system, 'get_queue_size'):
                 audio_queue_size = self.audio_system.get_queue_size()
             elif hasattr(self.audio_system, 'audio_queue'):
                 audio_queue_size = len(self.audio_system.audio_queue)
+            
+            # Get beep statistics if available
+            if hasattr(self.audio_system, 'get_beep_stats'):
+                beep_stats = self.audio_system.get_beep_stats()
         except:
             pass
         
-        return {
+        status = {
             'frames_processed': self.frames_processed,
             'current_detections_count': len(self.current_detections),
             'audio_queue_size': audio_queue_size,
@@ -325,6 +330,11 @@ class Coordinator:
             'has_image_enhancer': self.image_enhancer is not None,
             'last_announcement': self.last_announcement_time
         }
+        
+        # Add beep statistics
+        status.update(beep_stats)
+        
+        return status
     
     def get_current_detections(self):
         """

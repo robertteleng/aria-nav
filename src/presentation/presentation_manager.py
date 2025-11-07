@@ -219,7 +219,8 @@ class PresentationManager:
             
             self.dashboard.update_performance_stats(
                 fps=self.current_fps,
-                frames_processed=frames_processed
+                frames_processed=frames_processed,
+                coordinator_stats=coordinator_stats
             )
         
         # Log system message con estadísticas
