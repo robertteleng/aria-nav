@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🎨 Presentation Manager - Capa UI Separada
 Maneja toda la parte de UI/visualización que antes estaba en el Observer
-
-Responsabilidades:
-- Gestión de dashboards (OpenCV, Rerun)
-- Display de frames procesados
-- Logging de eventos y métricas
-- UI controls y keyboard input
-- Coordinación entre datos y visualización
-
-Fecha: Septiembre 2025
-Versión: 1.0 - UI Layer Separation
 """
 
 import cv2
@@ -36,26 +25,9 @@ class UIState:
 
 
 class PresentationManager:
-    """
-    🎨 Gestor de presentación y UI
-    
-    Esta clase maneja TODA la parte visual/UI que antes estaba mezclada
-    en el Observer original:
-    - Dashboard management
-    - OpenCV display windows
-    - UI controls y keyboard input
-    - Logging visual de eventos
-    - Coordinación entre datos del sistema y visualización
-    """
+    """ Gestor de presentación y UI """
     
     def __init__(self, enable_dashboard: bool = False, dashboard_type: str = "opencv"):
-        """
-        Inicializar el gestor de presentación
-        
-        Args:
-            enable_dashboard: Habilitar dashboard
-            dashboard_type: Tipo de dashboard ("opencv", "rerun", "web")
-        """
         self.ui_state = UIState(dashboard_enabled=enable_dashboard)
         self.dashboard_type = dashboard_type
         self.dashboard = None

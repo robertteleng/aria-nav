@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🎯 Observer Desacoplado - Solo Aria SDK Interface
 Maneja únicamente la conexión con Aria SDK y streaming de datos
-
-Responsabilidades ÚNICAMENTE:
-- Recibir callbacks del Aria SDK
-- Procesar frames RGB, SLAM1, SLAM2  
-- Procesar datos IMU
-- Almacenar frames más recientes
-- NO procesamiento, NO audio, NO dashboard
-
-Fecha: Septiembre 2025
-Versión: 2.0 - Decoupled Architecture
 """
 
 import numpy as np
@@ -30,27 +19,9 @@ from utils.config import Config
 class Observer:
     """
     Observer puramente dedicado al Aria SDK
-    
-    Este Observer SOLO maneja:
-    - Callbacks del SDK (on_image_received, on_imu_received)
-    - Rotación y almacenamiento de frames
-    - Threading thread-safe para acceso a frames
-    - Estadísticas básicas de captura
-    
-    NO maneja:
-    - Procesamiento YOLO
-    - Audio commands
-    - Dashboards o UI
-    - Navigation logic
     """
     
     def __init__(self, rgb_calib=None):
-        """
-        Inicializar Observer puro para Aria SDK
-        
-        Args:
-            rgb_calib: Calibración RGB opcional del dispositivo
-        """
         self.rgb_calib = rgb_calib
         
         # Frame storage thread-safe

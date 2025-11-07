@@ -45,15 +45,9 @@ class AudioMetric:
 class TelemetryLogger:
     """
     Logger centralizado de métricas del sistema (thread-safe).
-    
-    Captura automáticamente:
     - Performance: FPS, latencia
     - Detecciones: objetos, confianza, distancia
     - Audio: eventos de navegación, prioridades
-    
-    Cada sesión genera una carpeta única en logs/session_XXXXX/
-    
-    Thread-safety: Puede ser llamado desde múltiples threads de forma segura.
     """
     
     def __init__(self, output_dir: Optional[Path] = None):

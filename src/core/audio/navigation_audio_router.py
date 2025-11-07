@@ -39,7 +39,6 @@ class NavigationEvent:
 
 class NavigationAudioRouter:
     """Priority queue for navigation events across RGB and SLAM feeds."""
-
     def __init__(
         self, 
         audio_system: AudioSystem,

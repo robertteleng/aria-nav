@@ -87,7 +87,7 @@ class NavigationDecisionEngine:
                 continue
 
             zone = self._calculate_zone(bbox[0] + bbox[2] / 2)
-            distance_category = self._estimate_distance(bbox, class_name)
+            distance_category = self._estimate_distance(bbox, class_name, detection)
             base_priority = self.object_priorities[class_name]["priority"]
             final_priority = self._calculate_final_priority(base_priority, zone, distance_category)
 
@@ -297,9 +297,9 @@ class NavigationDecisionEngine:
             return "center"
         return "right"
 
-    def _estimate_distance(self, bbox, class_name: str) -> str:
+    def _estimate_distance(self, bbox, class_name: str, detection: Optional[Dict[str, Any]] = None) -> str:
+        # Solo usar la altura del bbox para estimar distancia
         height = bbox[3]
-
         if class_name == "person":
             if height > 200:
                 return "very_close"
