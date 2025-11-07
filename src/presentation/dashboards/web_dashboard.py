@@ -42,6 +42,7 @@ class WebDashboard:
             'frames_processed': 0,
             'slam1_events': 0,
             'slam2_events': 0,
+            'current_detections_count': 0,
         }
         self.slam_messages: List[str] = []
         # System logs with levels
@@ -66,10 +67,17 @@ class WebDashboard:
         
         @self.app.route('/stats')
         def get_stats():
-            self.stats['uptime'] = time.time() - self.start_time
-            payload = dict(self.stats)
-            payload['slam_messages'] = self.slam_messages[-6:]
-            return jsonify(payload)
+            try:
+                self.stats['uptime'] = time.time() - self.start_time
+                payload = dict(self.stats)
+                payload['slam_messages'] = self.slam_messages[-6:]
+                # Debug: print stats to console occasionally
+                if payload.get('frames_processed', 0) % 100 == 0 and payload.get('frames_processed', 0) > 0:
+                    print(f"[WEB] Stats endpoint: FPS={payload['fps']:.1f}, Frames={payload['frames_processed']}, Det={payload['detections_total']}")
+                return jsonify(payload)
+            except Exception as e:
+                print(f"[WEB ERROR] Stats endpoint failed: {e}")
+                return jsonify({'error': str(e), 'fps': 0, 'frames_processed': 0}), 500
         
         @self.app.route('/logs')  
         def get_logs():
@@ -341,6 +349,10 @@ class WebDashboard:
                     <div class="stat-value" id="uptime">0s</div>
                     <div class="stat-label">Uptime</div>
                 </div>
+                <div class="stat">
+                    <div class="stat-value" id="frames">0</div>
+                    <div class="stat-label">Frames</div>
+                </div>
             </div>
         </div>
 
@@ -389,20 +401,29 @@ class WebDashboard:
             fetch('/stats')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('fps').textContent = data.fps.toFixed(1);
-                    document.getElementById('detections').textContent = data.detections_total;
-                    document.getElementById('audio').textContent = data.audio_commands;
+                    // Debug log
+                    console.log('Stats update:', data);
+                    
+                    document.getElementById('fps').textContent = data.fps ? data.fps.toFixed(1) : '0.0';
+                    document.getElementById('detections').textContent = data.detections_total || 0;
+                    document.getElementById('audio').textContent = data.audio_commands || 0;
                     document.getElementById('slam1-count').textContent = data.slam1_events || 0;
                     document.getElementById('slam2-count').textContent = data.slam2_events || 0;
+                    document.getElementById('frames').textContent = data.frames_processed || 0;
+                    
                     const eventsBox = document.getElementById('slam-events');
                     if (data.slam_messages && data.slam_messages.length) {
                         eventsBox.innerHTML = data.slam_messages.map(msg => `<div>${msg}</div>`).join('');
                     } else {
                         eventsBox.innerHTML = '<div>No hay eventos SLAM recientes…</div>';
                     }
-                    document.getElementById('uptime').textContent = formatUptime(data.uptime);
+                    document.getElementById('uptime').textContent = formatUptime(data.uptime || 0);
                 })
-                .catch(err => console.log('Stats error:', err));
+                .catch(err => {
+                    console.error('Stats error:', err);
+                    // Show error in UI
+                    document.getElementById('fps').textContent = 'ERR';
+                });
             
             // Update logs
             fetch('/logs')
@@ -541,7 +562,7 @@ class WebDashboard:
                     self.stats['slam2_events'] = 0
                 self.current_slam2_frame = frame_copy
     
-    def log_detections(self, detections: List[Dict], frame_shape: tuple = None):
+    def log_detections(self, detections: List[Dict], frame_shape: Optional[tuple] = None):
         """Log detections - Observer pattern compatibility"""
         if detections:
             # Add timestamp to detections
@@ -556,6 +577,10 @@ class WebDashboard:
             
             # Update stats
             self.stats['detections_total'] += len(detections)
+            self.stats['current_detections_count'] = len(detections)
+        else:
+            # No detections in this frame
+            self.stats['current_detections_count'] = 0
     
     def log_system_message(self, message: str, level: str = "INFO"):
         """Log system message - Observer pattern compatibility"""
@@ -653,10 +678,11 @@ class WebDashboard:
     
     def update_performance_stats(self, fps: float = 0.0, frames_processed: int = 0):
         """Update performance statistics"""
-        self.stats.update({
-            'fps': fps,
-            'frames_processed': frames_processed
-        })
+        self.stats['fps'] = fps
+        self.stats['frames_processed'] = frames_processed
+        # Debug output occasionally
+        if frames_processed % 100 == 0 and frames_processed > 0:
+            print(f"[WEB] Stats update: FPS={fps:.1f}, Frames={frames_processed}, Det={self.stats['detections_total']}")
 
 
 # Test function compatible with Observer pattern

@@ -213,6 +213,10 @@ class PresentationManager:
             frames_processed = 0
             if coordinator_stats:
                 frames_processed = coordinator_stats.get('frames_processed', 0)
+            else:
+                # Fallback: use internal frame counter
+                frames_processed = self.frame_count
+            
             self.dashboard.update_performance_stats(
                 fps=self.current_fps,
                 frames_processed=frames_processed
