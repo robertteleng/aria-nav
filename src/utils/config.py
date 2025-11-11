@@ -1,5 +1,25 @@
 """Centralized configuration for the navigation system"""
 
+import torch
+import platform
+
+def detect_device():
+    """Detecta el mejor device: CUDA > MPS > CPU."""
+    if torch.cuda.is_available():
+        device = "cuda"
+        is_wsl = "microsoft" in platform.uname().release.lower()
+        print(f"🚀 GPU: {torch.cuda.get_device_name(0)}{' (WSL2)' if is_wsl else ''}")
+        torch.backends.cudnn.benchmark = True
+        return device
+    elif torch.backends.mps.is_available():
+        print("🍎 Apple MPS")
+        return "mps"
+    else:
+        print("⚠️ CPU")
+        return "cpu"
+
+DEVICE = detect_device()
+
 class Config:
     """System configuration constants"""
     
@@ -7,12 +27,12 @@ class Config:
     TARGET_FPS = 30
     YOLO_MODEL = "yolo12n.pt"              
     YOLO_CONFIDENCE = 0.50
-    YOLO_DEVICE = "mps"                    
+    YOLO_DEVICE = DEVICE                    # AUTO: cuda/mps/cpu
     YOLO_IMAGE_SIZE = 256                  
     YOLO_MAX_DETECTIONS = 8                
     YOLO_IOU_THRESHOLD = 0.45
     YOLO_FRAME_SKIP = 3                    
-    YOLO_FORCE_MPS = True
+    YOLO_FORCE_MPS = False                  # Desactivado
 
     # Peripheral vision (SLAM)
     PERIPHERAL_VISION_ENABLED = True
@@ -92,24 +112,34 @@ class Config:
     # Camera input (Aria RGB camera delivers RGB ordering)
     RGB_CAMERA_COLOR_SPACE = "RGB"  # "RGB" or "BGR"
 
-    # Model depth estimation
+      # ===================================================================
+    # DEPTH ESTIMATION CONFIGURATION
+    # ===================================================================
+    
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
-    DEPTH_ENABLED = True        # Activar profundidad con MPS
-    DEPTH_FRAME_SKIP = 12        # Profundidad cada 12 frames para equilibrar rendimiento
-    DEPTH_INPUT_SIZE = 80     # Tamaño de entrada para el modelo de profundidad
-
-    #MiDas
-    MIDAS_MODEL = "MiDaS_small"  # Opciones: MiDaS_small, MiDaS, DPT_Large
-    MIDAS_DEVICE = "mps"         # Evitar problemas MPS
-
-    # Depth Anything v2
-    DEPTH_BACKEND = "midas"     # "midas" o "depth_anything_v2"
-    DEPTH_ANYTHING_VARIANT = "Small"
+    DEPTH_ENABLED = True
+    DEPTH_FRAME_SKIP = 12           # Process depth every N frames
+    DEPTH_INPUT_SIZE = 80           # Input resolution for depth model
     
-    # Distance calculation with depth
-    DEPTH_CLOSE_THRESHOLD = 0.7   # Profundidad normalizada para "cerca"
-    DEPTH_MEDIUM_THRESHOLD = 0.4  # Profundidad normalizada para "medio"
+    # Backend selection
+    DEPTH_BACKEND = "midas"         # "midas" or "depth_anything_v2"
+    
+    # MiDaS Configuration
+    # Models: MiDaS_small (fastest), MiDaS, DPT_Large (most accurate)
+    MIDAS_MODEL = "MiDaS_small"
+    MIDAS_DEVICE = DEVICE           # AUTO: cuda/mps/cpu
+    
+    # Depth Anything V2 Configuration
+    # Models: Small (fastest), Base, Large (most accurate)
+    DEPTH_ANYTHING_MODEL = "Small"
+    DEPTH_ANYTHING_DEVICE = DEVICE  # AUTO: cuda/mps/cpu
+    
+    # Distance thresholds (normalized depth values 0-1)
+    DEPTH_CLOSE_THRESHOLD = 0.7     # Objects closer than this = "close"
+    DEPTH_MEDIUM_THRESHOLD = 0.4    # Objects closer than this = "medium"
+    
+    # ===================================================================
 
     # Spatial zone configuration (improved with center zone)
     ZONE_SYSTEM = "five_zones"  # "four_quadrants" or "five_zones"
@@ -123,12 +153,12 @@ class Config:
 
     # Gamma correction settings  
     GAMMA_CORRECTION = 1.1          # 1.0 = no correction, >1.0 = brighter
-                                # Recommended: 1.1-1.8
+                                    # Recommended: 1.1-1.8
 
     # Auto detection settings
     AUTO_ENHANCEMENT = True         # Auto-detect low light conditions
     LOW_LIGHT_THRESHOLD = 120.0     # Brightness threshold (0-255)
-                                # Lower = more sensitive to darkness
+                                    # Lower = more sensitive to darkness
 
     # Performance settings
     ENHANCEMENT_DEBUG = True        # Show debug messages
