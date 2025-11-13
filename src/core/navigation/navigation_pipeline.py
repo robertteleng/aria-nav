@@ -80,11 +80,15 @@ class NavigationPipeline:
                         if depth_prediction is not None:
                             self.latest_depth_map = depth_prediction.map_8bit
                             self.latest_depth_raw = getattr(depth_prediction, "raw", None)
+                            if self.frames_processed % 100 == 0:  # Log cada 100 frames
+                                print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_prediction.map_8bit.shape}, inference={depth_prediction.inference_ms:.1f}ms")
                     else:
                         depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
                         if depth_candidate is not None:
                             self.latest_depth_map = depth_candidate
                             self.latest_depth_raw = None
+                            if self.frames_processed % 100 == 0:
+                                print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_candidate.shape}")
                 depth_map = self.latest_depth_map
                 depth_raw = self.latest_depth_raw
             except Exception as err:

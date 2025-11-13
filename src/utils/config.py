@@ -24,20 +24,20 @@ class Config:
     """System configuration constants"""
     
     # Video processing
-    TARGET_FPS = 30
+    TARGET_FPS = 60                         # GPU NVIDIA: 60 FPS
     YOLO_MODEL = "yolo12n.pt"              
     YOLO_CONFIDENCE = 0.50
     YOLO_DEVICE = DEVICE                    # AUTO: cuda/mps/cpu
-    YOLO_IMAGE_SIZE = 256                  
-    YOLO_MAX_DETECTIONS = 8                
+    YOLO_IMAGE_SIZE = 256                   # Modelo small: 256x256
+    YOLO_MAX_DETECTIONS = 20                # GPU NVIDIA: Más detecciones simultáneas
     YOLO_IOU_THRESHOLD = 0.45
-    YOLO_FRAME_SKIP = 3                    
+    YOLO_FRAME_SKIP = 1                     # Procesar casi todos los frames
     YOLO_FORCE_MPS = False                  # Desactivado
 
     # Peripheral vision (SLAM)
     PERIPHERAL_VISION_ENABLED = True
-    SLAM_TARGET_FPS = 8
-    SLAM_FRAME_SKIP = 12              
+    SLAM_TARGET_FPS = 15                    # Modelo small: 15 FPS para SLAM
+    SLAM_FRAME_SKIP = 4                     # Procesar cada 4 frames              
     
     # Audio system
     TTS_RATE = 190
@@ -99,13 +99,13 @@ class Config:
     
     # Aria streaming
     STREAMING_PROFILE = "profile28"
-    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
+    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
-    STREAMING_PROFILE_WIFI = "profile18"
-    STREAMING_WIFI_DEVICE_IP = "192.168.0.201"
+    STREAMING_PROFILE_WIFI = "profile28"
+    STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
     
     # Performance
-    DETECTION_HISTORY_SIZE = 8
+    DETECTION_HISTORY_SIZE = 30             # GPU NVIDIA: Mayor historial
     CONSISTENCY_THRESHOLD = 2
     DEBUG_FRAME_INTERVAL = 100
 
@@ -119,20 +119,20 @@ class Config:
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     DEPTH_ENABLED = True
-    DEPTH_FRAME_SKIP = 12           # Process depth every N frames
-    DEPTH_INPUT_SIZE = 80           # Input resolution for depth model
+    DEPTH_FRAME_SKIP = 3            # Modelo small: Cada 3 frames
+    DEPTH_INPUT_SIZE = 256          # Modelo small: 256 resolución
     
     # Backend selection
-    DEPTH_BACKEND = "midas"         # "midas" or "depth_anything_v2"
+    DEPTH_BACKEND = "depth_anything_v2"  # "midas" or "depth_anything_v2"
     
     # MiDaS Configuration
     # Models: MiDaS_small (fastest), MiDaS, DPT_Large (most accurate)
-    MIDAS_MODEL = "MiDaS_small"
+    MIDAS_MODEL = "MiDaS_small"             # Modelo small para estabilidad
     MIDAS_DEVICE = DEVICE           # AUTO: cuda/mps/cpu
     
     # Depth Anything V2 Configuration
     # Models: Small (fastest), Base, Large (most accurate)
-    DEPTH_ANYTHING_MODEL = "Small"
+    DEPTH_ANYTHING_MODEL = "Small"          # Modelo small para estabilidad
     DEPTH_ANYTHING_DEVICE = DEVICE  # AUTO: cuda/mps/cpu
     
     # Distance thresholds (normalized depth values 0-1)

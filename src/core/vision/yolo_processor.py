@@ -8,7 +8,7 @@ from ultralytics import YOLO
 
 from utils.config import Config
 from .detected_object import DetectedObject
-from .mps_utils import (
+from .gpu_utils import (
     configure_mps_environment,
     empty_mps_cache,
     get_preferred_device,
