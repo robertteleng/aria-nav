@@ -30,6 +30,9 @@ from presentation.presentation_manager import PresentationManager  # Solo UI
 # Telemetría centralizada
 from core.telemetry.telemetry_logger import TelemetryLogger
 
+# Depth logger
+from utils.depth_logger import init_depth_logger
+
 def main():
     """
     🎯 Punto de entrada principal con arquitectura limpia separada
@@ -76,6 +79,10 @@ def main():
         # 0. Inicializar telemetría PRIMERO
         print("  📊 Inicializando TelemetryLogger...")
         telemetry = TelemetryLogger()
+        
+        # 0b. Inicializar depth logger con la misma sesión
+        print("  🔍 Inicializando DepthLogger...")
+        init_depth_logger(session_dir=telemetry.output_dir)
         
         # 1. Aria Device Setup
         print("  📱 Conectando con Aria glasses...")

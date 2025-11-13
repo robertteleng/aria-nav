@@ -2,7 +2,7 @@
 🏗️ Simple Builder Pattern - TFM Navigation System
 """
 
-from typing import Optional
+from typing import Optional, Any
 
 from core.vision.yolo_processor import YoloProcessor
 from core.audio.audio_system import AudioSystem
@@ -61,12 +61,14 @@ class Builder:
         self,
         yolo_processor,
         audio_system,
-        frame_renderer,
-        image_enhancer,
+        frame_renderer=None,
+        image_enhancer=None,
         dashboard=None,
-        audio_router=None,
+        *,
+        audio_router: Optional[Any] = None,
         navigation_pipeline: Optional[NavigationPipeline] = None,
         decision_engine: Optional[NavigationDecisionEngine] = None,
+        telemetry=None,
     ):
         print("  📦 Creando Coordinator...")
         return Coordinator(
@@ -78,6 +80,7 @@ class Builder:
             audio_router=audio_router,
             navigation_pipeline=navigation_pipeline,
             decision_engine=decision_engine,
+            telemetry=telemetry,
         )
     
     # def build_coordinator(self, yolo_processor, audio_system, frame_renderer, image_enhancer):
@@ -116,6 +119,7 @@ class Builder:
             audio_router=audio_router,
             navigation_pipeline=navigation_pipeline,
             decision_engine=decision_engine,
+            telemetry=telemetry,
         )
 
         if getattr(Config, "PERIPHERAL_VISION_ENABLED", False) and CameraSource is not None:

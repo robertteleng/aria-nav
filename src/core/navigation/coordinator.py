@@ -70,6 +70,7 @@ class Coordinator:
         audio_router: Optional[Any] = None,
         navigation_pipeline: Optional[NavigationPipeline] = None,
         decision_engine: Optional[NavigationDecisionEngine] = None,
+        telemetry=None,
     ):
         """
         Inicializar coordinator con dependencias inyectadas
@@ -86,6 +87,7 @@ class Coordinator:
         self.frame_renderer = frame_renderer
         self.dashboard = dashboard
         self.audio_router: Optional[Any] = audio_router
+        self.telemetry = telemetry
 
         self.pipeline = navigation_pipeline or NavigationPipeline(
             yolo_processor=yolo_processor,
@@ -283,10 +285,25 @@ class Coordinator:
         averaged = {
             key: (value / frame_count) * 1000.0 for key, value in self._profile_acc.items()
         }
-        print(
-            "[PROFILE] enhance={enhance:.1f}ms | depth={depth:.1f}ms | yolo={yolo:.1f}ms | "
-            "nav+audio={nav_audio:.1f}ms | render={render:.1f}ms | total={total:.1f}ms".format(**averaged)
-        )
+        msg = "[PROFILE] enhance={enhance:.1f}ms | depth={depth:.1f}ms | yolo={yolo:.1f}ms | nav+audio={nav_audio:.1f}ms | render={render:.1f}ms | total={total:.1f}ms".format(**averaged)
+        print(msg)
+        
+        # Log to telemetry if available
+        if hasattr(self, 'telemetry') and self.telemetry:
+            try:
+                self.telemetry.log_system_event({
+                    'event_type': 'profile_metrics',
+                    'enhance_ms': averaged['enhance'],
+                    'depth_ms': averaged['depth'],
+                    'yolo_ms': averaged['yolo'],
+                    'nav_audio_ms': averaged['nav_audio'],
+                    'render_ms': averaged['render'],
+                    'total_ms': averaged['total'],
+                    'frames_averaged': frame_count
+                })
+            except Exception:
+                pass
+        
         for key in self._profile_acc:
             self._profile_acc[key] = 0.0
         self._profile_frames = 0

@@ -20,7 +20,11 @@ def configure_mps_environment(force_disable_cpu_fallback: bool = False) -> None:
 
 def get_preferred_device(preferred: str = "mps") -> torch.device:
     """Return the preferred torch device when available, else CPU."""
-    preferred_lower = preferred.lower()
+    # Handle both string and torch.device types
+    if isinstance(preferred, torch.device):
+        preferred_lower = preferred.type
+    else:
+        preferred_lower = str(preferred).lower()
     
     # Prioridad: CUDA > MPS > CPU
     if preferred_lower == "cuda" and torch.cuda.is_available():

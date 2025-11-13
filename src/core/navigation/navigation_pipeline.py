@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from utils.config import Config
+from utils.depth_logger import get_depth_logger
 
 try:
     from core.vision.depth_estimator import DepthEstimator
@@ -45,6 +46,14 @@ class NavigationPipeline:
         self.latest_depth_map: Optional[np.ndarray] = None
         self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
+        
+        # Log depth estimator status
+        if self.depth_estimator is None:
+            print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
+        elif getattr(self.depth_estimator, "model", None) is None:
+            print("[WARN] ⚠️ Depth estimator model failed to load - depth estimation disabled")
+        else:
+            print(f"[INFO] ✅ Depth estimator initialized: {getattr(self.depth_estimator, 'backend', 'unknown')}")
 
     # ------------------------------------------------------------------
     # public API
@@ -124,15 +133,42 @@ class NavigationPipeline:
     # ------------------------------------------------------------------
 
     def _build_depth_estimator(self):
-        if not getattr(Config, "DEPTH_ENABLED", False) or DepthEstimator is None:
+        logger = get_depth_logger()
+        logger.section("NavigationPipeline: Building Depth Estimator")
+        
+        depth_enabled = getattr(Config, "DEPTH_ENABLED", False)
+        logger.log(f"DEPTH_ENABLED={depth_enabled}")
+        logger.log(f"DepthEstimator class={'Available' if DepthEstimator else 'None'}")
+        print(f"[DEBUG] _build_depth_estimator: DEPTH_ENABLED={depth_enabled}, DepthEstimator={'Available' if DepthEstimator else 'None'}")
+        
+        if not depth_enabled:
+            logger.log("Depth estimation disabled in config - returning None")
+            print("[INFO] Depth estimation disabled in config")
             return None
+        if DepthEstimator is None:
+            logger.log("DepthEstimator class not available (import failed) - returning None")
+            print("[WARN] DepthEstimator class not available (import failed)")
+            return None
+            
         try:
+            logger.log("Creating DepthEstimator instance...")
+            print("[INFO] Creating DepthEstimator instance...")
             estimator = DepthEstimator()
+            
             if getattr(estimator, "model", None) is None:
-                print("[WARN] Depth estimator initialized without model (disabled)")
+                logger.log("⚠️ Estimator created but model is None")
+                print("[WARN] ⚠️ Depth estimator initialized without model (disabled)")
+            else:
+                logger.log(f"✅ Estimator created successfully with backend: {getattr(estimator, 'backend', 'unknown')}")
+            
             return estimator
         except Exception as err:
-            print(f"[WARN] Depth estimator init failed: {err}")
+            logger.log(f"❌ Exception during estimator creation: {err}")
+            print(f"[ERROR] ❌ Depth estimator init failed: {err}")
+            import traceback
+            tb = traceback.format_exc()
+            logger.log(f"Traceback:\n{tb}")
+            traceback.print_exc()
             return None
 
 

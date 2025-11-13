@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from utils.config import Config
+from utils.depth_logger import get_depth_logger
 from .gpu_utils import configure_mps_environment, empty_mps_cache, get_preferred_device
 
 
@@ -25,7 +26,11 @@ class DepthEstimator:
     """MiDaS / Depth-Anything depth estimator with MPS fallbacks."""
 
     def __init__(self) -> None:
+        logger = get_depth_logger()
+        logger.section("DepthEstimator Initialization")
+        
         if not Config.DEPTH_ENABLED:
+            logger.log("DEPTH_ENABLED = False - Depth estimation disabled")
             self.model = None
             self.backend = None
             self.device = torch.device("cpu")
@@ -35,37 +40,54 @@ class DepthEstimator:
             print("[INFO] ⚠️ Depth estimator disabled via configuration")
             return
 
+        logger.log(f"DEPTH_ENABLED = {Config.DEPTH_ENABLED}")
+        
         configure_mps_environment(getattr(Config, "YOLO_FORCE_MPS", False))
 
         self.backend = getattr(Config, "DEPTH_BACKEND", "midas").lower()
+        logger.log(f"Backend selected: {self.backend}")
+        
         # Usar el device correcto: DEPTH_ANYTHING_DEVICE para depth_anything, MIDAS_DEVICE para midas
         if self.backend == "depth_anything_v2":
             device_config = getattr(Config, "DEPTH_ANYTHING_DEVICE", "cuda")
         else:
             device_config = getattr(Config, "MIDAS_DEVICE", "cuda")
         
+        logger.log(f"Device config from Config: {device_config}")
         self.device = get_preferred_device(device_config)
+        logger.log(f"Device resolved: {self.device.type}")
+        
         self.transform = None
         self.processor = None
         self.last_inference_ms = 0.0
         self.input_size = getattr(Config, "DEPTH_INPUT_SIZE", 384)
         self._last_map_8bit: Optional[np.ndarray] = None
 
+        logger.log(f"Input size: {self.input_size}")
+        logger.log(f"Frame skip: {getattr(Config, 'DEPTH_FRAME_SKIP', 1)}")
         print(f"[INFO] 🔍 Initializing depth backend '{self.backend}' on {self.device.type}...")
         print(f"[INFO]   - Input size: {self.input_size}")
         print(f"[INFO]   - Frame skip: {getattr(Config, 'DEPTH_FRAME_SKIP', 1)}")
 
         try:
+            logger.log(f"Loading model for backend: {self.backend}")
             if self.backend == "midas":
                 self._load_midas()
             elif self.backend == "depth_anything_v2":
                 self._load_depth_anything()
             else:
                 raise ValueError(f"Unsupported depth backend: {self.backend}")
+            
+            logger.log(f"✅ Model loaded successfully")
+            logger.log(f"Model device: {self.device}")
+            logger.log(f"Model type: {type(self.model).__name__}")
             print(f"[INFO] ✅ Depth estimator ready ({self.backend})")
         except Exception as err:  # noqa: BLE001
+            logger.log(f"❌ ERROR during model loading: {err}")
             print(f"[ERROR] ❌ Depth loading failed: {err}")
             import traceback
+            tb = traceback.format_exc()
+            logger.log(f"Traceback:\n{tb}")
             traceback.print_exc()
             self.model = None
 
@@ -105,7 +127,10 @@ class DepthEstimator:
         return prediction.map_8bit
 
     def estimate_depth_with_details(self, rgb_frame: np.ndarray) -> Optional[DepthPrediction]:
+        logger = get_depth_logger()
+        
         if self.model is None:
+            logger.log("estimate_depth called but model is None")
             return None
 
         start = time.perf_counter()
