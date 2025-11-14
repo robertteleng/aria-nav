@@ -276,11 +276,18 @@ class MockObserver:
         
         return frame
     
-    def get_latest_frame(self) -> Optional[np.ndarray]:
+    def get_latest_frame(self, camera: str = 'rgb') -> Optional[np.ndarray]:
         """
         Obtiene el frame más reciente del buffer.
         Compatible con API del Observer real.
+        
+        Args:
+            camera: 'rgb', 'slam1', o 'slam2' (solo 'rgb' implementado en mock)
         """
+        # Mock solo soporta RGB, ignora slam1/slam2
+        if camera not in ['rgb', 'slam1', 'slam2']:
+            return None
+        
         with self.frame_lock:
             if not self.frame_buffer:
                 return None
@@ -300,6 +307,19 @@ class MockObserver:
         """Retorna el número de frames en el buffer."""
         with self.frame_lock:
             return len(self.frame_buffer)
+    
+    def get_motion_state(self) -> Dict[str, Any]:
+        """
+        Retorna estado de movimiento simulado.
+        Compatible con API del Observer real.
+        """
+        # Mock simula estado estacionario
+        return {
+            'state': 'stationary',
+            'magnitude': 9.8,  # Gravedad estándar
+            'timestamp': time.time(),
+            'history_length': 0
+        }
     
     def get_stats(self) -> Dict[str, Any]:
         """Retorna estadísticas de operación."""
