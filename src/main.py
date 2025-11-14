@@ -9,9 +9,11 @@ Arquitectura Separada:
 - Coordinator: Solo pipeline de navegación (YOLO + Audio)  
 - PresentationManager: Solo UI/Dashboard/Display
 
+MODO MOCK: Soporta desarrollo sin gafas usando MockObserver
+
 Author: Roberto Rojas Sahuquillo
 Date: Septiembre 2025  
-Version: 2.0 - Clean Separated Architecture
+Version: 2.0 - Clean Separated Architecture + Mock Support
 """
 
 import cv2
@@ -23,6 +25,7 @@ from core.hardware.device_manager import DeviceManager
 
 # Componentes separados de la nueva arquitectura
 from core.observer import Observer  # Solo SDK
+from core.mock_observer import MockObserver  # Mock para desarrollo
 from core.navigation.coordinator import Coordinator  # Solo Pipeline
 from core.navigation.builder import Builder  # Factory
 from presentation.presentation_manager import PresentationManager  # Solo UI
@@ -51,8 +54,38 @@ def main():
     # Setup clean exit handler
     ctrl_handler = CtrlCHandler()
 
+    # 🆕 MOCK MODE: Preguntar si usar gafas reales o mock
+    print("\n📱 Modo de operación:")
+    print("  1. Gafas Aria reales (requiere hardware)")
+    print("  2. Mock sintético (desarrollo sin hardware)")
+    print("  3. Mock con video (replay de sesión grabada)")
+    print("  4. Mock con imagen estática")
+    
+    mode_choice = input("\nSelecciona modo [1]: ").strip() or "1"
+    use_mock = mode_choice != "1"
+    mock_mode = None
+    mock_source = None
+    
+    if use_mock:
+        if mode_choice == "2":
+            mock_mode = "synthetic"
+            print("🤖 Modo MOCK: Sintético (frames generados)")
+        elif mode_choice == "3":
+            mock_mode = "video"
+            mock_source = input("Ruta al video [data/session.mp4]: ").strip() or "data/session.mp4"
+            print(f"🎥 Modo MOCK: Video replay ({mock_source})")
+        elif mode_choice == "4":
+            mock_mode = "static"
+            mock_source = input("Ruta a la imagen [data/frame.jpg]: ").strip() or "data/frame.jpg"
+            print(f"🖼️  Modo MOCK: Imagen estática ({mock_source})")
+        else:
+            print("⚠️  Opción no válida, usando modo sintético")
+            mock_mode = "synthetic"
+    else:
+        print("📱 Modo: Gafas Aria reales")
+
     # UI Configuration
-    enable_dashboard = input("¿Habilitar dashboard? (y/n): ").lower() == 'y'
+    enable_dashboard = input("\n¿Habilitar dashboard? (y/n): ").lower() == 'y'
     dashboard_type = "opencv"  # Default
     
     if enable_dashboard:
@@ -84,17 +117,34 @@ def main():
         print("  🔍 Inicializando DepthLogger...")
         init_depth_logger(session_dir=telemetry.output_dir)
         
-        # 1. Aria Device Setup
-        print("  📱 Conectando con Aria glasses...")
-        device_manager = DeviceManager()
-        device_manager.connect()
-        rgb_calib = device_manager.start_streaming()
-        
-        # 2. Observer Setup (Solo SDK)
-        print("  👁️ Inicializando AriaObserver (SDK only)...")
-        observer = Observer(rgb_calib=rgb_calib)
-        device_manager.register_observer(observer)
-        device_manager.subscribe()
+        # 1. Observer Setup - Real o Mock
+        if use_mock:
+            print(f"  🤖 Inicializando MockObserver (modo: {mock_mode})...")
+            observer_kwargs = {
+                'mode': mock_mode,
+                'fps': 60,
+                'resolution': (1408, 1408),
+            }
+            if mock_mode == 'video':
+                observer_kwargs['video_path'] = mock_source
+            elif mock_mode == 'static':
+                observer_kwargs['image_path'] = mock_source
+            
+            observer = MockObserver(**observer_kwargs)
+            observer.start()
+            print("  ✅ MockObserver iniciado - desarrollo sin hardware")
+        else:
+            # Modo real con Aria glasses
+            print("  📱 Conectando con Aria glasses...")
+            device_manager = DeviceManager()
+            device_manager.connect()
+            rgb_calib = device_manager.start_streaming()
+            
+            print("  👁️ Inicializando AriaObserver (SDK only)...")
+            observer = Observer(rgb_calib=rgb_calib)
+            device_manager.register_observer(observer)
+            device_manager.subscribe()
+            print("  ✅ AriaObserver conectado al hardware real")
         
         # 3. Navigation Coordinator Setup (Solo Pipeline)
         print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")
