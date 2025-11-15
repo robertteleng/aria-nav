@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
+import torch  # FASE 1 / Tarea 4: Para CUDA streams
 
 from utils.config import Config
 from utils.depth_logger import get_depth_logger
@@ -47,6 +48,18 @@ class NavigationPipeline:
         self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
         
+        # FASE 1 / Tarea 4: CUDA Streams para paralelización
+        self.use_cuda_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
+        if self.use_cuda_streams:
+            self.yolo_stream = torch.cuda.Stream()
+            self.depth_stream = torch.cuda.Stream()
+            print("[INFO] ✓ CUDA streams habilitados (YOLO + Depth en paralelo)")
+        else:
+            self.yolo_stream = None
+            self.depth_stream = None
+            if torch.cuda.is_available():
+                print("[INFO] ⚠️ CUDA streams deshabilitados (ejecución secuencial)")
+        
         # Log depth estimator status
         if self.depth_estimator is None:
             print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
@@ -77,42 +90,89 @@ class NavigationPipeline:
             if profile and enhance_start is not None:
                 timings["enhance"] = time.perf_counter() - enhance_start
 
+        # FASE 1 / Tarea 4: Ejecutar Depth y YOLO en paralelo con CUDA streams
         depth_map = None
         depth_raw = None
-        if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
+        
+        if self.use_cuda_streams:
+            # ========== EJECUCIÓN PARALELA ==========
             depth_start = time.perf_counter() if profile else None
-            try:
-                if self.frames_processed % self.depth_frame_skip == 0:
-                    depth_prediction = None
-                    if hasattr(self.depth_estimator, "estimate_depth_with_details"):
-                        depth_prediction = self.depth_estimator.estimate_depth_with_details(processed_frame)
-                        if depth_prediction is not None:
-                            self.latest_depth_map = depth_prediction.map_8bit
-                            self.latest_depth_raw = getattr(depth_prediction, "raw", None)
-                            if self.frames_processed % 100 == 0:  # Log cada 100 frames
-                                print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_prediction.map_8bit.shape}, inference={depth_prediction.inference_ms:.1f}ms")
-                    else:
-                        depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
-                        if depth_candidate is not None:
-                            self.latest_depth_map = depth_candidate
-                            self.latest_depth_raw = None
-                            if self.frames_processed % 100 == 0:
-                                print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_candidate.shape}")
-                depth_map = self.latest_depth_map
-                depth_raw = self.latest_depth_raw
-            except Exception as err:
-                print(f"[WARN] Depth estimation skipped: {err}")
+            yolo_start = time.perf_counter() if profile else None
+            
+            # Stream 1: Depth estimation (operación más lenta)
+            with torch.cuda.stream(self.depth_stream):
+                if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
+                    try:
+                        if self.frames_processed % self.depth_frame_skip == 0:
+                            depth_prediction = None
+                            if hasattr(self.depth_estimator, "estimate_depth_with_details"):
+                                depth_prediction = self.depth_estimator.estimate_depth_with_details(processed_frame)
+                                if depth_prediction is not None:
+                                    self.latest_depth_map = depth_prediction.map_8bit
+                                    self.latest_depth_raw = getattr(depth_prediction, "raw", None)
+                            else:
+                                depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
+                                if depth_candidate is not None:
+                                    self.latest_depth_map = depth_candidate
+                                    self.latest_depth_raw = None
+                    except Exception as err:
+                        print(f"[WARN] Depth estimation skipped: {err}")
+            
+            # Stream 2: YOLO detection (operación más rápida)
+            with torch.cuda.stream(self.yolo_stream):
+                # Usar depth map anterior (el actual se está computando en paralelo)
+                detections = self.yolo_processor.process_frame(
+                    processed_frame,
+                    self.latest_depth_map,
+                    self.latest_depth_raw,
+                )
+            
+            # Sincronizar ambos streams antes de continuar
+            torch.cuda.synchronize()
+            
             if profile and depth_start is not None:
                 timings["depth"] = time.perf_counter() - depth_start
+            if profile and yolo_start is not None:
+                timings["yolo"] = time.perf_counter() - yolo_start
+            
+            depth_map = self.latest_depth_map
+            depth_raw = self.latest_depth_raw
+        else:
+            # ========== EJECUCIÓN SECUENCIAL (fallback) ==========
+            if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
+                depth_start = time.perf_counter() if profile else None
+                try:
+                    if self.frames_processed % self.depth_frame_skip == 0:
+                        depth_prediction = None
+                        if hasattr(self.depth_estimator, "estimate_depth_with_details"):
+                            depth_prediction = self.depth_estimator.estimate_depth_with_details(processed_frame)
+                            if depth_prediction is not None:
+                                self.latest_depth_map = depth_prediction.map_8bit
+                                self.latest_depth_raw = getattr(depth_prediction, "raw", None)
+                                if self.frames_processed % 100 == 0:
+                                    print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_prediction.map_8bit.shape}, inference={depth_prediction.inference_ms:.1f}ms")
+                        else:
+                            depth_candidate = self.depth_estimator.estimate_depth(processed_frame)
+                            if depth_candidate is not None:
+                                self.latest_depth_map = depth_candidate
+                                self.latest_depth_raw = None
+                                if self.frames_processed % 100 == 0:
+                                    print(f"[DEPTH] Frame {self.frames_processed}: Depth computed, shape={depth_candidate.shape}")
+                    depth_map = self.latest_depth_map
+                    depth_raw = self.latest_depth_raw
+                except Exception as err:
+                    print(f"[WARN] Depth estimation skipped: {err}")
+                if profile and depth_start is not None:
+                    timings["depth"] = time.perf_counter() - depth_start
 
-        yolo_start = time.perf_counter() if profile else None
-        detections = self.yolo_processor.process_frame(
-            processed_frame,
-            depth_map,
-            depth_raw,
-        )
-        if profile and yolo_start is not None:
-            timings["yolo"] = time.perf_counter() - yolo_start
+            yolo_start = time.perf_counter() if profile else None
+            detections = self.yolo_processor.process_frame(
+                processed_frame,
+                depth_map,
+                depth_raw,
+            )
+            if profile and yolo_start is not None:
+                timings["yolo"] = time.perf_counter() - yolo_start
 
         return PipelineResult(
             frame=processed_frame,
