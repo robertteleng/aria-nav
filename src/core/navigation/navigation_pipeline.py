@@ -292,24 +292,29 @@ class NavigationPipeline:
                 except queue.Full:
                     self.stats["dropped_slam"] += 1
         
-        # Collect results (espera 3 cámaras)
+        # Collect results - Opción B: Central obligatorio, SLAM best-effort
         results = {}
-        timeout_count = 0
         
-        for _ in range(3):
+        # 1. Central es crítico (depth + navegación principal) - BLOCKING
+        try:
+            central_result = self.result_queue.get(timeout=0.15)  # 150ms máximo
+            if central_result.camera != "central":
+                # Si viene otro primero, guardarlo y esperar central
+                results[central_result.camera] = central_result
+                central_result = self.result_queue.get(timeout=0.15)
+            results[central_result.camera] = central_result
+        except queue.Empty:
+            log.warning(f"Central worker timeout on frame {frame_id}, fallback to sequential")
+            self.stats["timeout_errors"] += 1
+            return self._process_sequential(central_frame, profile)
+        
+        # 2. SLAM es opcional (contexto adicional) - NON-BLOCKING
+        for _ in range(2):  # Intentar recoger hasta 2 resultados SLAM
             try:
-                result = self.result_queue.get(timeout=1.0)
-                results[result.camera] = result
-                timeout_count = 0
+                slam_result = self.result_queue.get_nowait()  # No bloquear
+                results[slam_result.camera] = slam_result
             except queue.Empty:
-                timeout_count += 1
-                self.stats["timeout_errors"] += 1
-                
-                if timeout_count >= 3:
-                    log.error("3 consecutive timeouts, falling back to sequential")
-                    Config.PHASE2_MULTIPROC_ENABLED = False
-                    self.multiproc_enabled = False
-                    return self._process_sequential(central_frame, profile)
+                break  # No hay más, continuar sin bloquear
         
         # Update stats
         self.stats["frames_processed"] += 1
