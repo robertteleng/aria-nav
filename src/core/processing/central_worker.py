@@ -26,76 +26,46 @@ class CentralWorker:
         self.central_queue = central_queue
         self.result_queue = result_queue
         self.stop_event = stop_event
-        self.midas_model: Any = None
-        self.midas_transform: Any = None
+        self.depth_model: Any = None
+        self.depth_processor: Any = None
         self.yolo_processor: YoloProcessor | None = None
         self.depth_stream: Any = None
         self.yolo_stream: Any = None
 
     def _load_models(self) -> None:
-        """Load MiDaS (torch native) + YOLO"""
-        log.info("[CentralWorker] Loading MiDaS small + YOLO...")
+        """Load YOLO only - Depth disabled (HuggingFace incompatible with spawn)"""
+        log.info("[CentralWorker] Loading YOLO (depth disabled)...")
         
-        # MiDaS model (torch native - no HuggingFace issues)
-        self.midas_model = torch.hub.load('intel-isl/MiDaS', 'MiDaS_small', force_reload=False)
-        self.midas_model.eval()
-        self.midas_model.to('cuda')
-        
-        # MiDaS transforms
-        midas_transforms = torch.hub.load('intel-isl/MiDaS', 'transforms', force_reload=False)
-        self.midas_transform = midas_transforms.small_transform
-        
-        # YOLO
+        # YOLO only
         self.yolo_processor = YoloProcessor()
         
-        # CUDA streams for parallel execution
+        # Depth disabled - HuggingFace transformers hangs/crashes with spawn
+        self.depth_model = None
+        self.depth_processor = None
+        
+        # CUDA streams
         self.depth_stream = torch.cuda.Stream()
         self.yolo_stream = torch.cuda.Stream()
         
-        log.info("[CentralWorker] MiDaS + YOLO loaded with CUDA streams")
+        log.info("[CentralWorker] YOLO loaded (depth disabled)")
 
     def _process_frame(self, msg: dict) -> ResultMessage:
         assert self.yolo_processor is not None
-        assert self.midas_model is not None
         assert self.depth_stream is not None and self.yolo_stream is not None
 
         frame = msg["frame"]
         frame_id = msg.get("frame_id", -1)
         start_time = time.perf_counter()
 
+        # Depth disabled
         depth_map = None
         depth_raw = None
         depth_ms = 0.0
-        
-        # Parallel execution: Depth + YOLO with CUDA streams
-        with torch.cuda.stream(self.depth_stream):
-            depth_start = time.perf_counter()
-            
-            # MiDaS inference
-            input_batch = self.midas_transform(frame).to('cuda')
-            with torch.no_grad():
-                prediction = self.midas_model(input_batch)
-                prediction = torch.nn.functional.interpolate(
-                    prediction.unsqueeze(1),
-                    size=frame.shape[:2],
-                    mode="bicubic",
-                    align_corners=False,
-                ).squeeze()
-            
-            # Normalize to 0-255 for depth_map
-            depth_raw = prediction.cpu().numpy()
-            depth_min = depth_raw.min()
-            depth_max = depth_raw.max()
-            if depth_max > depth_min:
-                depth_map = ((depth_raw - depth_min) / (depth_max - depth_min) * 255).astype(np.uint8)
-            else:
-                depth_map = np.zeros_like(depth_raw, dtype=np.uint8)
-            
-            depth_ms = (time.perf_counter() - depth_start) * 1000
 
+        # YOLO only
         with torch.cuda.stream(self.yolo_stream):
             yolo_start = time.perf_counter()
-            detections = self.yolo_processor.process_frame(frame, depth_map, depth_raw)
+            detections = self.yolo_processor.process_frame(frame, None, None)
             yolo_ms = (time.perf_counter() - yolo_start) * 1000
 
         torch.cuda.synchronize()
@@ -121,8 +91,11 @@ class CentralWorker:
         
         log.info("[CentralWorker] Starting run loop")
         try:
+            log.info("[CentralWorker] Step 1: Setting CUDA device...")
             _set_cuda_device()
+            log.info("[CentralWorker] Step 2: CUDA device set, loading models...")
             self._load_models()
+            log.info("[CentralWorker] Step 3: Models loaded, entering main loop...")
 
             while not self.stop_event.is_set():
                 try:
@@ -130,10 +103,14 @@ class CentralWorker:
                 except queue.Empty:
                     continue
 
+                log.info(f"[CentralWorker] Processing frame {msg.get('frame_id', -1)}...")
                 result = self._process_frame(msg)
                 self.result_queue.put(result)
+                log.info(f"[CentralWorker] Frame {msg.get('frame_id', -1)} done, latency={result.latency_ms:.2f}ms")
         except Exception as err:  # noqa: BLE001
             log.critical("[CentralWorker] Fatal error", exc_info=err)
+            import traceback
+            traceback.print_exc()
             self.stop_event.set()
         finally:
             torch.cuda.empty_cache()

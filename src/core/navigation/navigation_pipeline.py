@@ -372,12 +372,12 @@ class NavigationPipeline:
         
         # Validar que tenemos central (mínimo requerido)
         if "central" not in self.pending_results:
-            # Esperar central con timeout (primera vez puede ser lenta por warmup)
+            # Esperar central con timeout normal
             try:
-                central_result = self.result_queue.get(timeout=0.5)
+                central_result = self.result_queue.get(timeout=2.0)
                 self.pending_results[central_result.camera] = central_result
             except queue.Empty:
-                log.error(f"Central worker timeout on frame {frame_id} after 0.5s - worker may have crashed")
+                log.error(f"Central worker timeout on frame {frame_id} after 2s")
                 self.stats["timeout_errors"] += 1
                 raise RuntimeError("Central worker not responding")
         
