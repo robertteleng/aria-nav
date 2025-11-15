@@ -2,6 +2,9 @@
 
 import torch
 import platform
+import logging
+
+log = logging.getLogger(__name__)
 
 def detect_device():
     """Detecta el mejor device: CUDA > MPS > CPU."""
@@ -9,7 +12,14 @@ def detect_device():
         device = "cuda"
         is_wsl = "microsoft" in platform.uname().release.lower()
         print(f"🚀 GPU: {torch.cuda.get_device_name(0)}{' (WSL2)' if is_wsl else ''}")
-        torch.backends.cudnn.benchmark = True
+        
+        # FASE 1: CUDA Optimizations
+        torch.backends.cudnn.benchmark = True  # Auto-tune de algoritmos
+        torch.backends.cuda.matmul.allow_tf32 = True  # TensorFloat-32
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision('high')
+        print("  ✓ CUDA optimizations enabled (cuDNN benchmark, TF32, high precision)")
+        
         return device
     elif torch.backends.mps.is_available():
         print("🍎 Apple MPS")
@@ -23,12 +33,59 @@ DEVICE = detect_device()
 class Config:
     """System configuration constants"""
     
-    # Video processing
+    def __init__(self):
+        """Initialize config with FASE 1 GPU optimizations"""
+        
+        # ========== FASE 1: Resoluciones Aumentadas ==========
+        self.YOLO_IMAGE_SIZE = 640      # ANTES: 256 → AHORA: 640
+        self.DEPTH_INPUT_SIZE = 384     # ANTES: 256 → AHORA: 384
+        
+        log.info(f"✓ Resoluciones aumentadas: YOLO={self.YOLO_IMAGE_SIZE}, Depth={self.DEPTH_INPUT_SIZE}")
+        
+        # ========== FASE 1: CUDA Optimizations ==========
+        self.CUDA_OPTIMIZATIONS = True
+        self.PINNED_MEMORY = True
+        self.NON_BLOCKING_TRANSFER = True
+        self.CUDA_STREAMS = True  # OBLIGATORIO en FASE 1
+        
+        # Habilitar optimizaciones CUDA
+        if self.CUDA_OPTIMIZATIONS and torch.cuda.is_available():
+            self._enable_cuda_optimizations()
+        
+        # Device
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        
+        # ========== Frame Skipping (FASE 1 optimizado) ==========
+        self.YOLO_SKIP_FRAMES = 0       # Procesar todos (0 = no skip)
+        self.DEPTH_SKIP_FRAMES = 6      # Procesar cada 6 frames
+        
+        log.info("✓ Config FASE 1 cargada")
+    
+    def _enable_cuda_optimizations(self):
+        """FASE 1 Quick Wins - Optimizaciones CUDA"""
+        
+        # cuDNN benchmark (auto-tune de algoritmos)
+        torch.backends.cudnn.benchmark = True
+        log.info("  ✓ cuDNN benchmark enabled")
+        
+        # TensorFloat-32 (RTX 2060 compatible)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        log.info("  ✓ TF32 enabled")
+        
+        # High precision matmul
+        torch.set_float32_matmul_precision('high')
+        log.info("  ✓ Float32 precision: high")
+        
+        # Limpiar cache inicial
+        torch.cuda.empty_cache()
+        log.info("  ✓ CUDA cache cleared")
+    
+    # Video processing (resto de constantes como class variables)
     TARGET_FPS = 60                         # GPU NVIDIA: 60 FPS
     YOLO_MODEL = "yolo12n.pt"              
     YOLO_CONFIDENCE = 0.50
     YOLO_DEVICE = DEVICE                    # AUTO: cuda/mps/cpu
-    YOLO_IMAGE_SIZE = 256                   # Modelo small: 256x256
     YOLO_MAX_DETECTIONS = 20                # GPU NVIDIA: Más detecciones simultáneas
     YOLO_IOU_THRESHOLD = 0.45
     YOLO_FRAME_SKIP = 1                     # Procesar casi todos los frames
@@ -119,8 +176,8 @@ class Config:
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
     DEPTH_ENABLED = True
-    DEPTH_FRAME_SKIP = 3            # Modelo small: Cada 3 frames
-    DEPTH_INPUT_SIZE = 256          # Modelo small: 256 resolución
+    # DEPTH_FRAME_SKIP movido a __init__ (FASE 1)
+    # DEPTH_INPUT_SIZE movido a __init__ (FASE 1)
     
     # Backend selection
     DEPTH_BACKEND = "depth_anything_v2"  # "midas" or "depth_anything_v2"
