@@ -45,10 +45,20 @@ class NavigationPipeline:
         image_enhancer=None,
         depth_estimator=None,
     ) -> None:
-        self.yolo_processor = yolo_processor
+        # FASE 2: Check multiprocessing mode FIRST
+        self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        
+        # CRITICAL: Main process must NOT initialize CUDA when multiprocessing
+        # Only workers should touch GPU to avoid spawn conflicts
+        if self.multiproc_enabled:
+            log.info("[Pipeline] Multiprocessing mode - skipping GPU initialization in main process")
+            self.yolo_processor = None
+            self.depth_estimator = None
+        else:
+            self.yolo_processor = yolo_processor
+            self.depth_estimator = depth_estimator or self._build_depth_estimator()
+        
         self.image_enhancer = image_enhancer
-        self.depth_estimator = depth_estimator or self._build_depth_estimator()
-
         self.depth_frame_skip = max(1, getattr(Config, "DEPTH_FRAME_SKIP", 1))
         self.latest_depth_map: Optional[np.ndarray] = None
         self.latest_depth_raw: Optional[np.ndarray] = None
@@ -61,31 +71,36 @@ class NavigationPipeline:
         self.monitor_interval = 5.0  # Print stats every 5s
         
         # FASE 2: Multiprocessing setup
-        self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
         if self.multiproc_enabled:
             self._init_multiproc()
         else:
             log.info("[Pipeline] Running in sequential mode")
         
-        # FASE 1 / Tarea 4: CUDA Streams para paralelización
-        self.use_cuda_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
-        if self.use_cuda_streams:
-            self.yolo_stream = torch.cuda.Stream()
-            self.depth_stream = torch.cuda.Stream()
-            print("[INFO] ✓ CUDA streams habilitados (YOLO + Depth en paralelo)")
+        # FASE 1 / Tarea 4: CUDA Streams para paralelización (only in sequential mode)
+        if not self.multiproc_enabled:
+            self.use_cuda_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
+            if self.use_cuda_streams:
+                self.yolo_stream = torch.cuda.Stream()
+                self.depth_stream = torch.cuda.Stream()
+                print("[INFO] ✓ CUDA streams habilitados (YOLO + Depth en paralelo)")
+            else:
+                self.yolo_stream = None
+                self.depth_stream = None
+                if torch.cuda.is_available():
+                    print("[INFO] ⚠️ CUDA streams deshabilitados (ejecución secuencial)")
+            
+            # Log depth estimator status
+            if self.depth_estimator is None:
+                print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
+            elif getattr(self.depth_estimator, "model", None) is None:
+                print("[WARN] ⚠️ Depth estimator model failed to load - depth estimation disabled")
+            else:
+                print(f"[INFO] ✅ Depth estimator initialized: {getattr(self.depth_estimator, 'backend', 'unknown')}")
         else:
+            self.use_cuda_streams = False
             self.yolo_stream = None
             self.depth_stream = None
-            if torch.cuda.is_available():
-                print("[INFO] ⚠️ CUDA streams deshabilitados (ejecución secuencial)")
-        
-        # Log depth estimator status
-        if self.depth_estimator is None:
-            print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
-        elif getattr(self.depth_estimator, "model", None) is None:
-            print("[WARN] ⚠️ Depth estimator model failed to load - depth estimation disabled")
-        else:
-            print(f"[INFO] ✅ Depth estimator initialized: {getattr(self.depth_estimator, 'backend', 'unknown')}")
+            print("[INFO] 🔄 Multiprocessing mode - GPU work handled by workers")
 
     # ------------------------------------------------------------------
     # public API
@@ -216,7 +231,7 @@ class NavigationPipeline:
 
     def _init_multiproc(self) -> None:
         import torch.multiprocessing as mp
-        mp.set_start_method('spawn', force=True)
+        # Note: start_method must be set in run.py BEFORE imports
         
         from core.processing.central_worker import central_gpu_worker
         from core.processing.slam_worker import slam_gpu_worker
@@ -242,7 +257,17 @@ class NavigationPipeline:
         for worker in self.workers:
             worker.start()
         
-        log.info("[Pipeline] Multiprocessing workers started")
+        # Wait a moment for workers to initialize
+        import time
+        time.sleep(2)
+        
+        # Check if workers are alive
+        for worker in self.workers:
+            if not worker.is_alive():
+                log.error(f"[Pipeline] Worker {worker.name} failed to start!")
+                raise RuntimeError(f"Worker {worker.name} crashed during initialization")
+        
+        log.info("[Pipeline] Multiprocessing workers started and verified")
         
         self.stats = {
             "frames_processed": 0,
@@ -347,14 +372,14 @@ class NavigationPipeline:
         
         # Validar que tenemos central (mínimo requerido)
         if "central" not in self.pending_results:
-            # Esperar central con timeout corto
+            # Esperar central con timeout más generoso (primera vez es más lenta)
             try:
-                central_result = self.result_queue.get(timeout=0.15)
+                central_result = self.result_queue.get(timeout=2.0)
                 self.pending_results[central_result.camera] = central_result
             except queue.Empty:
-                log.warning(f"Central worker timeout on frame {frame_id}, fallback to sequential")
+                log.error(f"Central worker timeout on frame {frame_id} after 2s - worker may have crashed")
                 self.stats["timeout_errors"] += 1
-                return {"central": self._process_sequential(central_frame, profile)}
+                raise RuntimeError("Central worker not responding")
         
         # Usar los resultados disponibles
         results = dict(self.pending_results)

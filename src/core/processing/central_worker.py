@@ -1,5 +1,5 @@
 import logging
-import logging
+import os
 import queue
 import time
 from typing import Any
@@ -32,14 +32,22 @@ class CentralWorker:
         self.yolo_stream: Any = None
 
     def _load_models(self) -> None:
-        self.depth_estimator = DepthEstimator()
+        # Skip depth in multiprocessing for now (HuggingFace model loading issues)
+        import os
+        skip_depth = os.environ.get("ARIA_SKIP_DEPTH", "0") == "1"
+        
+        if not skip_depth:
+            os.environ["ARIA_SKIP_DEPTH"] = "1"  # Force skip in worker
+            log.info("[CentralWorker] Depth disabled in multiprocessing mode")
+        
+        self.depth_estimator = None  # Skip for now
         self.yolo_processor = YoloProcessor()
         self.depth_stream = torch.cuda.Stream()
         self.yolo_stream = torch.cuda.Stream()
         log.info("[CentralWorker] Models loaded and streams created")
 
     def _process_frame(self, msg: dict) -> ResultMessage:
-        assert self.depth_estimator is not None and self.yolo_processor is not None
+        assert self.yolo_processor is not None
         assert self.depth_stream is not None and self.yolo_stream is not None
 
         frame = msg["frame"]
@@ -49,19 +57,14 @@ class CentralWorker:
         depth_map = None
         depth_raw = None
         depth_ms = 0.0
-        with torch.cuda.stream(self.depth_stream):
-            depth_start = time.perf_counter()
-            prediction = self.depth_estimator.estimate_depth_with_details(frame)
-            if prediction:
-                depth_map = prediction.map_8bit
-                depth_raw = prediction.raw
-                depth_ms = prediction.inference_ms
-            else:
-                depth_ms = (time.perf_counter() - depth_start) * 1000
+        
+        # Skip depth processing (disabled in multiprocessing)
+        # with torch.cuda.stream(self.depth_stream):
+        #     ...
 
         with torch.cuda.stream(self.yolo_stream):
             yolo_start = time.perf_counter()
-            detections = self.yolo_processor.process_frame(frame, depth_map, depth_raw)
+            detections = self.yolo_processor.process_frame(frame, None, None)
             yolo_ms = (time.perf_counter() - yolo_start) * 1000
 
         torch.cuda.synchronize()
@@ -82,6 +85,9 @@ class CentralWorker:
         )
 
     def run_loop(self) -> None:
+        # Configure environment for headless operation
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        
         log.info("[CentralWorker] Starting run loop")
         try:
             _set_cuda_device()

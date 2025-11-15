@@ -99,10 +99,19 @@ class Builder:
         enable_dashboard: bool = False,
         telemetry: Optional[TelemetryLogger] = None,
     ):
+        from utils.config import Config
+        
         print("🏗️ Construyendo sistema completo...")
         
-        # Crear componentes SIN dashboard
-        yolo_processor = self.build_yolo_processor()
+        # FASE 2: Skip YOLO/Depth in main process if multiprocessing enabled
+        multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        
+        if multiproc_enabled:
+            print("  🔄 Multiprocessing mode - workers will load models")
+            yolo_processor = None  # Workers will load their own
+        else:
+            yolo_processor = self.build_yolo_processor()
+        
         audio_system = self.build_audio_system()
         frame_renderer = self.build_frame_renderer()
         image_enhancer = self.build_image_enhancer()

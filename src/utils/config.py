@@ -228,7 +228,8 @@ class Config:
     PROFILE_WINDOW_FRAMES = 30
 
     # Phase 2: Multiprocessing controls
-    PHASE2_MULTIPROC_ENABLED = True  # Re-enabled with non-blocking SLAM fix
+    # Use: python run.py benchmark
+    PHASE2_MULTIPROC_ENABLED = True
     PHASE2_QUEUE_MAXSIZE = 2
     PHASE2_SLAM_QUEUE_MAXSIZE = 4
     PHASE2_RESULT_QUEUE_MAXSIZE = 6

@@ -1,4 +1,5 @@
 import logging
+import os
 import queue
 import time
 
@@ -48,6 +49,9 @@ class SlamWorker:
         )
 
     def run_loop(self) -> None:
+        # Configure environment for headless operation
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        
         log.info("[SlamWorker] Starting run loop")
         try:
             _set_cuda_device()

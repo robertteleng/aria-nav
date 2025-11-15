@@ -16,6 +16,9 @@ Date: Septiembre 2025
 Version: 2.0 - Clean Separated Architecture + Mock Support
 """
 
+# NOTE: Multiprocessing spawn is configured in run.py wrapper
+# Do NOT call set_start_method here - it must be done before importing this module
+
 import cv2
 import time
 from utils.ctrl_handler import CtrlCHandler
@@ -355,6 +358,7 @@ def main_debug():
     """
     print("🧪 DEBUG MODE - Testing sin hardware Aria")
     
+    import os
     import numpy as np
     from time import sleep
     
@@ -393,7 +397,16 @@ def main_debug():
             enable_dashboard=False,
             telemetry=None,
         )
-        presentation = PresentationManager(enable_dashboard=False)
+        
+        # Skip UI in multiprocessing mode to avoid Qt/OpenCV conflicts
+        from utils.config import Config
+        multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        if multiproc_enabled:
+            print("🔄 Multiprocessing mode - UI disabled")
+            presentation = None
+        else:
+            presentation = PresentationManager(enable_dashboard=False)
+        
         observer = MockObserver()
         
         ctrl_handler = CtrlCHandler()
@@ -401,49 +414,91 @@ def main_debug():
         print("✅ Componentes mock inicializados")
         print("🔄 Loop de testing activo...")
         
+        max_frames = int(os.environ.get("DEBUG_MAX_FRAMES", "300"))
+        print(f"📊 Processing up to {max_frames} frames...")
         frames_processed = 0
+        frame_times = []  # Track frame processing times
+        start_time = time.time()
         
-        while not ctrl_handler.should_stop and frames_processed < 300:  # Límite para testing
+        while not ctrl_handler.should_stop and frames_processed < max_frames:
             frame = observer.get_latest_frame()
             slam1_frame = observer.get_latest_frame('slam1')
             slam2_frame = observer.get_latest_frame('slam2')
             motion_data = observer.get_motion_state()
             
             if frame is not None:
-                processed_frame = coordinator.process_frame(frame, motion_data['state'])
+                # Build frames_dict for multiprocessing
+                frames_dict = {
+                    'central': frame,
+                    'slam1': slam1_frame,
+                    'slam2': slam2_frame,
+                }
+                
+                frame_start = time.time()
+                processed_frame = coordinator.process_frame(frame, motion_data['state'], frames_dict=frames_dict)
+                frame_end = time.time()
+                frame_times.append(frame_end - frame_start)
+                
                 depth_map = coordinator.get_latest_depth_map()
                 
-                key = presentation.update_display(
-                    frame=processed_frame,
-                    detections=coordinator.get_current_detections(),
-                    motion_state=motion_data['state'],
-                    coordinator_stats=coordinator.get_status(),
-                    depth_map=depth_map,
-                    slam1_frame=slam1_frame,
-                    slam2_frame=slam2_frame
-                )
-                
-                if key == 'q':
-                    break
+                if presentation is not None:
+                    key = presentation.update_display(
+                        frame=processed_frame,
+                        detections=coordinator.get_current_detections(),
+                        motion_state=motion_data['state'],
+                        coordinator_stats=coordinator.get_status(),
+                        depth_map=depth_map,
+                        slam1_frame=slam1_frame,
+                        slam2_frame=slam2_frame
+                    )
+                    
+                    if key == 'q':
+                        break
+                else:
+                    # No UI mode - just print progress
+                    if frames_processed % 10 == 0:
+                        elapsed = time.time() - start_time
+                        current_fps = frames_processed / elapsed if elapsed > 0 else 0
+                        avg_latency = sum(frame_times) / len(frame_times) * 1000 if frame_times else 0
+                        print(f"📊 Frame {frames_processed}/{max_frames} | FPS: {current_fps:.1f} | Latency: {avg_latency:.1f}ms")
                 
                 frames_processed += 1
                 
                 # Simular 30fps
                 sleep(1/30)
         
+        # Final metrics
+        end_time = time.time()
+        total_time = end_time - start_time
+        avg_fps = frames_processed / total_time if total_time > 0 else 0
+        avg_latency = sum(frame_times) / len(frame_times) * 1000 if frame_times else 0
+        
+        print(f"\n🎯 RESULTADOS FINALES:")
+        print(f"  Frames procesados: {frames_processed}")
+        print(f"  Tiempo total: {total_time:.2f}s")
+        print(f"  FPS promedio: {avg_fps:.2f}")
+        print(f"  Latency promedio: {avg_latency:.2f}ms")
+        if frame_times:
+            import numpy as np
+            print(f"  Latency p50: {np.percentile(frame_times, 50)*1000:.2f}ms")
+            print(f"  Latency p95: {np.percentile(frame_times, 95)*1000:.2f}ms")
+            print(f"  Latency p99: {np.percentile(frame_times, 99)*1000:.2f}ms")
+        
         print(f"🧪 Testing completado: {frames_processed} frames")
         
         # Stats
         observer.print_stats()
         coordinator.print_stats()
-        presentation.print_ui_stats()
+        if presentation is not None:
+            presentation.print_ui_stats()
         
     except KeyboardInterrupt:
         print("\n🧪 Testing interrumpido")
     finally:
         try:
             coordinator.cleanup()
-            presentation.cleanup()
+            if presentation is not None:
+                presentation.cleanup()
         except:
             pass
         cv2.destroyAllWindows()
