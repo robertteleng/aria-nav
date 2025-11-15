@@ -13,6 +13,8 @@ import torch  # FASE 1 / Tarea 4: Para CUDA streams
 
 from utils.config import Config
 from utils.depth_logger import get_depth_logger
+from utils.profiler import get_profiler
+from utils.system_monitor import get_monitor
 
 log = logging.getLogger("NavigationPipeline")
 
@@ -51,6 +53,12 @@ class NavigationPipeline:
         self.latest_depth_map: Optional[np.ndarray] = None
         self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
+        
+        # Profiling & monitoring
+        self.profiler = get_profiler()
+        self.system_monitor = get_monitor()
+        self.last_monitor_check = time.time()
+        self.monitor_interval = 5.0  # Print stats every 5s
         
         # FASE 2: Multiprocessing setup
         self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
@@ -243,11 +251,14 @@ class NavigationPipeline:
             "timeout_errors": 0,
             "last_stats_time": time.time(),
         }
+        
+        # Overlap/pipelining support
+        self.pending_results = {}  # {camera: ResultMessage}
+        self.last_frame_id = -1
 
     def _process_multiproc(self, frames_dict: Dict[str, np.ndarray], profile: bool) -> PipelineResult:
         frame_id = self.frames_processed
         self.frames_processed += 1
-        timestamp = time.time()
         
         # Enhancement solo en central
         central_frame = frames_dict.get("central")
@@ -261,17 +272,36 @@ class NavigationPipeline:
             except Exception as err:
                 log.warning(f"Image enhancement failed: {err}")
         
+        # Phase 1: Enqueue frames to workers (non-blocking)
+        timestamp = time.time()
+        self._enqueue_frames(frame_id, frames_dict, central_frame, timestamp)
+        
+        # Phase 2: Collect results with overlap (puede ser de frame anterior)
+        results = self._collect_results_with_overlap(frame_id, central_frame, profile)
+        
+        # Update stats
+        self.stats["frames_processed"] += 1
+        if time.time() - self.stats["last_stats_time"] > getattr(Config, "PHASE2_STATS_INTERVAL", 5.0):
+            self._print_stats()
+        
+        # Merge results
+        return self._merge_results(results, frames_dict)
+    
+    def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], central_frame: np.ndarray, timestamp: float) -> None:
+        """Phase 1: Enviar frames a workers (no espera resultados)"""
+        
         # Distribute to workers
         try:
-            self.central_queue.put(
-                {
-                    "frame_id": frame_id,
-                    "camera": "central",
-                    "frame": central_frame,
-                    "timestamp": timestamp,
-                },
-                timeout=0.1,
-            )
+            with self.profiler.measure("queue_put_central"):
+                self.central_queue.put(
+                    {
+                        "frame_id": frame_id,
+                        "camera": "central",
+                        "frame": central_frame,
+                        "timestamp": timestamp,
+                    },
+                    timeout=0.1,
+                )
         except queue.Full:
             self.stats["dropped_central"] += 1
             log.warning(f"Dropped central frame {frame_id}")
@@ -292,37 +322,45 @@ class NavigationPipeline:
                 except queue.Full:
                     self.stats["dropped_slam"] += 1
         
-        # Collect results - Opción B: Central obligatorio, SLAM best-effort
+    
+    def _collect_results_with_overlap(self, frame_id: int, central_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
+        """Phase 2: Recoger resultados con overlap (pueden ser de frame anterior)"""
         results = {}
         
-        # 1. Central es crítico (depth + navegación principal) - BLOCKING
-        try:
-            central_result = self.result_queue.get(timeout=0.15)  # 150ms máximo
-            if central_result.camera != "central":
-                # Si viene otro primero, guardarlo y esperar central
-                results[central_result.camera] = central_result
-                central_result = self.result_queue.get(timeout=0.15)
-            results[central_result.camera] = central_result
-        except queue.Empty:
-            log.warning(f"Central worker timeout on frame {frame_id}, fallback to sequential")
-            self.stats["timeout_errors"] += 1
-            return self._process_sequential(central_frame, profile)
+        # System monitoring cada N segundos
+        if time.time() - self.last_monitor_check > self.monitor_interval:
+            self._print_system_metrics()
+            self.last_monitor_check = time.time()
         
-        # 2. SLAM es opcional (contexto adicional) - NON-BLOCKING
-        for _ in range(2):  # Intentar recoger hasta 2 resultados SLAM
+        # Primero: Recoger todos los resultados disponibles (pueden ser de frames anteriores)
+        available_results = []
+        while True:
             try:
-                slam_result = self.result_queue.get_nowait()  # No bloquear
-                results[slam_result.camera] = slam_result
+                result = self.result_queue.get_nowait()
+                available_results.append(result)
             except queue.Empty:
-                break  # No hay más, continuar sin bloquear
+                break
         
-        # Update stats
-        self.stats["frames_processed"] += 1
-        if time.time() - self.stats["last_stats_time"] > getattr(Config, "PHASE2_STATS_INTERVAL", 5.0):
-            self._print_stats()
+        # Organizar por camera
+        for result in available_results:
+            self.pending_results[result.camera] = result
         
-        # Merge results
-        return self._merge_results(results, frames_dict)
+        # Validar que tenemos central (mínimo requerido)
+        if "central" not in self.pending_results:
+            # Esperar central con timeout corto
+            try:
+                central_result = self.result_queue.get(timeout=0.15)
+                self.pending_results[central_result.camera] = central_result
+            except queue.Empty:
+                log.warning(f"Central worker timeout on frame {frame_id}, fallback to sequential")
+                self.stats["timeout_errors"] += 1
+                return {"central": self._process_sequential(central_frame, profile)}
+        
+        # Usar los resultados disponibles
+        results = dict(self.pending_results)
+        self.pending_results.clear()  # Limpiar para próximo frame
+        
+        return results
 
     def _merge_results(self, results: Dict[str, Any], frames_dict: Dict[str, np.ndarray]) -> PipelineResult:
         central_result = results.get("central")
@@ -368,6 +406,26 @@ class NavigationPipeline:
         self.stats["dropped_central"] = 0
         self.stats["dropped_slam"] = 0
         self.stats["last_stats_time"] = time.time()
+    
+    def _print_system_metrics(self) -> None:
+        """Print system resource metrics (CPU/RAM/GPU)"""
+        metrics = self.system_monitor.get_metrics()
+        
+        log.info("[System Metrics]")
+        log.info(f"  CPU: {metrics.cpu_percent:.1f}%")
+        log.info(f"  RAM: {metrics.ram_used_gb:.2f}/{metrics.ram_total_gb:.2f}GB ({metrics.ram_percent:.1f}%)")
+        
+        if metrics.gpu_utilization is not None:
+            log.info(f"  GPU Usage: {metrics.gpu_utilization:.1f}%")
+            log.info(f"  GPU VRAM: {metrics.gpu_memory_used_gb:.2f}/{metrics.gpu_memory_total_gb:.2f}GB ({metrics.gpu_memory_percent:.1f}%)")
+            if metrics.gpu_temperature_c:
+                log.info(f"  GPU Temp: {metrics.gpu_temperature_c}°C")
+        
+        # Alertas
+        if metrics.ram_percent > 85:
+            log.warning("⚠️ RAM usage > 85%!")
+        if metrics.gpu_memory_percent and metrics.gpu_memory_percent > 90:
+            log.warning("⚠️ GPU VRAM > 90%!")
 
     def _process_sequential(self, frame: np.ndarray, profile: bool) -> PipelineResult:
         """Fallback to original sequential processing."""
