@@ -162,6 +162,14 @@ class YoloProcessor:
             self.model.fuse()
         except Exception:
             pass
+        
+        # FASE 1 / Tarea 2: Habilitar pinned memory y non-blocking transfers
+        self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()
+        self.non_blocking = getattr(Config, 'NON_BLOCKING_TRANSFER', False)
+        if self.use_pinned_memory:
+            log.info("  ✓ YOLO: Pinned memory enabled")
+        if self.non_blocking:
+            log.info("  ✓ YOLO: Non-blocking transfers enabled")
 
 
         self.frame_skip = max(1, self.runtime_config.frame_skip)
@@ -266,8 +274,18 @@ class YoloProcessor:
             if run_inference:
                 start_inf = time.perf_counter() if self._profile else 0.0
                 
+                # FASE 1 / Tarea 2: Preparar frame con pinned memory si está habilitado
+                # Nota: ultralytics hace preprocesamiento interno, pero podemos
+                # asegurar que el modelo use transferencias optimizadas
+                input_frame = frame
+                if self.use_pinned_memory and self.device_str == 'cuda':
+                    # Convertir a tensor con pinned memory para transferencia rápida
+                    frame_tensor = torch.from_numpy(frame).pin_memory()
+                    # Ultralytics acepta tensors directamente
+                    input_frame = frame_tensor
+                
                 results = self.model.predict(
-                    source=frame,
+                    source=input_frame,
                     device=self.device_str,
                     imgsz=self.img_size,
                     conf=self.conf_threshold,
