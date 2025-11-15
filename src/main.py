@@ -190,8 +190,15 @@ def main():
                 if frame is not None:
                     frames_processed += 1
                     
+                    # Construir frames_dict para Phase 2 multiproc
+                    frames_dict = {
+                        'central': frame,
+                        'slam1': slam1_frame,
+                        'slam2': slam2_frame,
+                    }
+                    
                     # Procesar con Coordinator (Solo Pipeline)
-                    processed_frame = coordinator.process_frame(frame, motion_state)
+                    processed_frame = coordinator.process_frame(frame, motion_state, frames_dict=frames_dict)
                     # if hasattr(coordinator, 'handle_slam_frames'):
                     #     coordinator.handle_slam_frames(slam1_frame, slam2_frame)
 

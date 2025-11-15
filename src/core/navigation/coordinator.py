@@ -138,13 +138,14 @@ class Coordinator:
         print(f"  - Image Enhancer: {type(self.image_enhancer).__name__ if self.image_enhancer else 'None'}")
         print(f"  - Dashboard: {type(self.dashboard).__name__ if self.dashboard else 'None'}")
     
-    def process_frame(self, frame: np.ndarray, motion_state: str = "stationary") -> np.ndarray:
+    def process_frame(self, frame: np.ndarray, motion_state: str = "stationary", frames_dict: Optional[Dict[str, np.ndarray]] = None) -> np.ndarray:
         """
         🔄 Procesar frame completo a través del pipeline
         
         Args:
             frame: Frame BGR de entrada
             motion_state: Estado de movimiento ("stationary", "walking")
+            frames_dict: Opcional dict con frames de 3 cámaras para multiproceso
             
         Returns:
             np.ndarray: Frame procesado con anotaciones
@@ -153,7 +154,7 @@ class Coordinator:
 
         total_start = time.perf_counter() if self.profile_enabled else 0.0
 
-        pipeline_result = self.pipeline.process(frame, profile=self.profile_enabled)
+        pipeline_result = self.pipeline.process(frame, profile=self.profile_enabled, frames_dict=frames_dict)
         processed_frame = pipeline_result.frame
         detections = pipeline_result.detections
         depth_map = pipeline_result.depth_map
@@ -403,6 +404,13 @@ class Coordinator:
         🧹 Limpieza de recursos
         """
         print("🧹 Limpiando Coordinator...")
+        
+        # Shutdown pipeline multiproc workers
+        if hasattr(self.pipeline, 'shutdown'):
+            try:
+                self.pipeline.shutdown()
+            except Exception as err:
+                print(f"  ⚠️ Pipeline shutdown error: {err}")
 
         if self.peripheral_enabled:
             try:

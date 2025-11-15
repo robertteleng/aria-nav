@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import queue
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -11,6 +13,8 @@ import torch  # FASE 1 / Tarea 4: Para CUDA streams
 
 from utils.config import Config
 from utils.depth_logger import get_depth_logger
+
+log = logging.getLogger("NavigationPipeline")
 
 try:
     from core.vision.depth_estimator import DepthEstimator
@@ -48,6 +52,13 @@ class NavigationPipeline:
         self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
         
+        # FASE 2: Multiprocessing setup
+        self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        if self.multiproc_enabled:
+            self._init_multiproc()
+        else:
+            log.info("[Pipeline] Running in sequential mode")
+        
         # FASE 1 / Tarea 4: CUDA Streams para paralelización
         self.use_cuda_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
         if self.use_cuda_streams:
@@ -72,8 +83,11 @@ class NavigationPipeline:
     # public API
     # ------------------------------------------------------------------
 
-    def process(self, frame: np.ndarray, *, profile: bool = False) -> PipelineResult:
+    def process(self, frame: np.ndarray, *, profile: bool = False, frames_dict: Optional[Dict[str, np.ndarray]] = None) -> PipelineResult:
         """Run the RGB processing pipeline."""
+        
+        if self.multiproc_enabled and frames_dict is not None:
+            return self._process_multiproc(frames_dict, profile)
 
         self.frames_processed += 1
 
@@ -187,6 +201,195 @@ class NavigationPipeline:
 
     def get_latest_depth_raw(self) -> Optional[np.ndarray]:
         return self.latest_depth_raw
+
+    # ------------------------------------------------------------------
+    # FASE 2: Multiprocessing helpers
+    # ------------------------------------------------------------------
+
+    def _init_multiproc(self) -> None:
+        import torch.multiprocessing as mp
+        mp.set_start_method('spawn', force=True)
+        
+        from core.processing.central_worker import central_gpu_worker
+        from core.processing.slam_worker import slam_gpu_worker
+        
+        self.central_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2))
+        self.slam_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4))
+        self.result_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_RESULT_QUEUE_MAXSIZE", 6))
+        self.stop_event = mp.Event()
+        
+        self.workers = [
+            mp.Process(
+                target=central_gpu_worker,
+                args=(self.central_queue, self.result_queue, self.stop_event),
+                name="CentralWorker",
+            ),
+            mp.Process(
+                target=slam_gpu_worker,
+                args=(self.slam_queue, self.result_queue, self.stop_event),
+                name="SLAMWorker",
+            ),
+        ]
+        
+        for worker in self.workers:
+            worker.start()
+        
+        log.info("[Pipeline] Multiprocessing workers started")
+        
+        self.stats = {
+            "frames_processed": 0,
+            "dropped_central": 0,
+            "dropped_slam": 0,
+            "timeout_errors": 0,
+            "last_stats_time": time.time(),
+        }
+
+    def _process_multiproc(self, frames_dict: Dict[str, np.ndarray], profile: bool) -> PipelineResult:
+        frame_id = self.frames_processed
+        self.frames_processed += 1
+        timestamp = time.time()
+        
+        # Enhancement solo en central
+        central_frame = frames_dict.get("central")
+        if central_frame is None:
+            log.warning("No central frame in frames_dict, falling back")
+            return self._process_sequential(frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)), profile)
+        
+        if self.image_enhancer:
+            try:
+                central_frame = self.image_enhancer.enhance_frame(central_frame)
+            except Exception as err:
+                log.warning(f"Image enhancement failed: {err}")
+        
+        # Distribute to workers
+        try:
+            self.central_queue.put(
+                {
+                    "frame_id": frame_id,
+                    "camera": "central",
+                    "frame": central_frame,
+                    "timestamp": timestamp,
+                },
+                timeout=0.1,
+            )
+        except queue.Full:
+            self.stats["dropped_central"] += 1
+            log.warning(f"Dropped central frame {frame_id}")
+        
+        for camera in ["slam1", "slam2"]:
+            slam_frame = frames_dict.get(camera)
+            if slam_frame is not None:
+                try:
+                    self.slam_queue.put(
+                        {
+                            "frame_id": frame_id,
+                            "camera": camera,
+                            "frame": slam_frame,
+                            "timestamp": timestamp,
+                        },
+                        timeout=0.05,
+                    )
+                except queue.Full:
+                    self.stats["dropped_slam"] += 1
+        
+        # Collect results (espera 3 cámaras)
+        results = {}
+        timeout_count = 0
+        
+        for _ in range(3):
+            try:
+                result = self.result_queue.get(timeout=1.0)
+                results[result.camera] = result
+                timeout_count = 0
+            except queue.Empty:
+                timeout_count += 1
+                self.stats["timeout_errors"] += 1
+                
+                if timeout_count >= 3:
+                    log.error("3 consecutive timeouts, falling back to sequential")
+                    Config.PHASE2_MULTIPROC_ENABLED = False
+                    self.multiproc_enabled = False
+                    return self._process_sequential(central_frame, profile)
+        
+        # Update stats
+        self.stats["frames_processed"] += 1
+        if time.time() - self.stats["last_stats_time"] > getattr(Config, "PHASE2_STATS_INTERVAL", 5.0):
+            self._print_stats()
+        
+        # Merge results
+        return self._merge_results(results, frames_dict)
+
+    def _merge_results(self, results: Dict[str, Any], frames_dict: Dict[str, np.ndarray]) -> PipelineResult:
+        central_result = results.get("central")
+        
+        all_detections = []
+        for camera, result in results.items():
+            for det in result.detections:
+                det["camera"] = camera
+                all_detections.append(det)
+        
+        # Update latest depth
+        if central_result and central_result.depth_map is not None:
+            self.latest_depth_map = central_result.depth_map
+            self.latest_depth_raw = central_result.depth_raw
+        
+        timings = {}
+        if central_result:
+            timings["multiproc"] = True
+            timings["central_ms"] = central_result.latency_ms
+            timings["slam1_ms"] = results.get("slam1", type("obj", (), {"latency_ms": 0})).latency_ms
+            timings["slam2_ms"] = results.get("slam2", type("obj", (), {"latency_ms": 0})).latency_ms
+        
+        return PipelineResult(
+            frame=frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)),
+            detections=all_detections,
+            depth_map=self.latest_depth_map,
+            depth_raw=self.latest_depth_raw,
+            timings=timings,
+        )
+
+    def _print_stats(self) -> None:
+        elapsed = time.time() - self.stats["last_stats_time"]
+        fps = self.stats["frames_processed"] / elapsed if elapsed > 0 else 0
+        
+        log.info(
+            f"[STATS] {elapsed:.1f}s window: FPS={fps:.1f} | "
+            f"Dropped central={self.stats['dropped_central']} | "
+            f"Dropped SLAM={self.stats['dropped_slam']} | "
+            f"Timeout errors={self.stats['timeout_errors']}"
+        )
+        
+        self.stats["frames_processed"] = 0
+        self.stats["dropped_central"] = 0
+        self.stats["dropped_slam"] = 0
+        self.stats["last_stats_time"] = time.time()
+
+    def _process_sequential(self, frame: np.ndarray, profile: bool) -> PipelineResult:
+        """Fallback to original sequential processing."""
+        return self.process(frame, profile=profile)
+
+    def shutdown(self) -> None:
+        if not hasattr(self, "stop_event"):
+            return
+        
+        log.info("[Pipeline] Initiating shutdown...")
+        self.stop_event.set()
+        
+        for worker in self.workers:
+            worker.join(timeout=2)
+            if worker.is_alive():
+                log.warning(f"Terminating {worker.name}")
+                worker.terminate()
+                worker.join(timeout=1)
+        
+        for q in [self.central_queue, self.slam_queue, self.result_queue]:
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except:
+                    break
+        
+        log.info("[Pipeline] Shutdown complete")
 
     # ------------------------------------------------------------------
     # helpers
