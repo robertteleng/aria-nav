@@ -62,6 +62,14 @@ class DepthEstimator:
         self.last_inference_ms = 0.0
         self.input_size = getattr(Config, "DEPTH_INPUT_SIZE", 384)
         self._last_map_8bit: Optional[np.ndarray] = None
+        
+        # FASE 1 / Tarea 3: Habilitar pinned memory y non-blocking transfers
+        self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()
+        self.non_blocking = getattr(Config, 'NON_BLOCKING_TRANSFER', False)
+        if self.use_pinned_memory:
+            logger.log("✓ Depth: Pinned memory enabled")
+        if self.non_blocking:
+            logger.log("✓ Depth: Non-blocking transfers enabled")
 
         logger.log(f"Input size: {self.input_size}")
         logger.log(f"Frame skip: {getattr(Config, 'DEPTH_FRAME_SKIP', 1)}")
@@ -207,23 +215,45 @@ class DepthEstimator:
         else:
             rgb_resized = rgb_input
 
-        input_tensor = self.transform(rgb_resized).to(self.device)
+        # FASE 1 / Tarea 3: Transferencia optimizada con non-blocking
+        input_tensor = self.transform(rgb_resized)
+        if self.non_blocking and self.device.type == 'cuda':
+            input_tensor = input_tensor.to(self.device, non_blocking=True)
+        else:
+            input_tensor = input_tensor.to(self.device)
 
         with torch.inference_mode():
             prediction = self.model(input_tensor)
 
-            # ✅ Intentar interpolate en MPS con bilinear
-            try:
+            # FASE 1 / Tarea 3: Usar bicubic en CUDA (mejor calidad), bilinear en MPS
+            if self.device.type == "cuda":
+                # CUDA soporta bicubic perfectamente
                 prediction = torch.nn.functional.interpolate(
                     prediction.unsqueeze(1),
                     size=rgb_input.shape[:2],
-                    mode="bilinear",  # ✅ CAMBIO: bicubic → bilinear (compatible MPS)
+                    mode="bicubic",
                     align_corners=False,
                 ).squeeze()
-            except RuntimeError as e:
-                # Fallback a CPU solo si falla
-                print(f"[DEPTH] MPS interpolate failed, using CPU: {e}")
-                prediction = prediction.to("cpu")
+            elif self.device.type == "mps":
+                # MPS solo soporta bilinear de forma confiable
+                try:
+                    prediction = torch.nn.functional.interpolate(
+                        prediction.unsqueeze(1),
+                        size=rgb_input.shape[:2],
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze()
+                except RuntimeError:
+                    # Fallback a CPU si MPS falla
+                    prediction = prediction.to("cpu")
+                    prediction = torch.nn.functional.interpolate(
+                        prediction.unsqueeze(1),
+                        size=rgb_input.shape[:2],
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze()
+            else:
+                # CPU: usar bilinear (bicubic es muy lento en CPU)
                 prediction = torch.nn.functional.interpolate(
                     prediction.unsqueeze(1),
                     size=rgb_input.shape[:2],
@@ -245,27 +275,50 @@ class DepthEstimator:
         else:
             rgb_resized = rgb_input
 
-        inputs = self.processor(images=rgb_resized, return_tensors="pt").to(self.device)
+        # FASE 1 / Tarea 3: Transferencia optimizada con non-blocking
+        inputs = self.processor(images=rgb_resized, return_tensors="pt")
+        if self.non_blocking and self.device.type == 'cuda':
+            # Transferir cada tensor del dict con non_blocking
+            inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
+        else:
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.inference_mode():
             depth = self.model(**inputs).predicted_depth
 
-            # ✅ Intentar interpolate en MPS primero
-            try:
-                depth = interpolate(
-                    depth.unsqueeze(1),
-                    size=rgb_input.shape[:2],
-                    mode="bilinear",
-                    align_corners=False,
-                ).squeeze()
-            except RuntimeError as e:
-                # Fallback a CPU solo si MPS falla
-                print(f"[DEPTH] MPS interpolate failed, using CPU: {e}")
-                depth = depth.to("cpu")
+            # FASE 1 / Tarea 3: Usar bicubic en CUDA (mejor calidad), bilinear en MPS
+            if self.device.type == "cuda":
+                # CUDA soporta bicubic perfectamente
                 depth = interpolate(
                     depth.unsqueeze(1),
                     size=rgb_input.shape[:2],
                     mode="bicubic",
+                    align_corners=False,
+                ).squeeze()
+            elif self.device.type == "mps":
+                # MPS solo soporta bilinear de forma confiable
+                try:
+                    depth = interpolate(
+                        depth.unsqueeze(1),
+                        size=rgb_input.shape[:2],
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze()
+                except RuntimeError:
+                    # Fallback a CPU si MPS falla
+                    depth = depth.to("cpu")
+                    depth = interpolate(
+                        depth.unsqueeze(1),
+                        size=rgb_input.shape[:2],
+                        mode="bicubic",
+                        align_corners=False,
+                    ).squeeze()
+            else:
+                # CPU: usar bilinear (bicubic es muy lento en CPU)
+                depth = interpolate(
+                    depth.unsqueeze(1),
+                    size=rgb_input.shape[:2],
+                    mode="bilinear",
                     align_corners=False,
                 ).squeeze()
 
