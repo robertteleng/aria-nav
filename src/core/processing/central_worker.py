@@ -4,11 +4,11 @@ import queue
 import time
 from typing import Any
 
+import numpy as np
 import torch
 from torch import cuda
 
 from core.processing.multiproc_types import ResultMessage
-from core.vision.depth_estimator import DepthEstimator
 from core.vision.yolo_processor import YoloProcessor
 
 log = logging.getLogger("CentralWorker")
@@ -26,28 +26,37 @@ class CentralWorker:
         self.central_queue = central_queue
         self.result_queue = result_queue
         self.stop_event = stop_event
-        self.depth_estimator: DepthEstimator | None = None
+        self.midas_model: Any = None
+        self.midas_transform: Any = None
         self.yolo_processor: YoloProcessor | None = None
         self.depth_stream: Any = None
         self.yolo_stream: Any = None
 
     def _load_models(self) -> None:
-        # Skip depth in multiprocessing for now (HuggingFace model loading issues)
-        import os
-        skip_depth = os.environ.get("ARIA_SKIP_DEPTH", "0") == "1"
+        """Load MiDaS (torch native) + YOLO"""
+        log.info("[CentralWorker] Loading MiDaS small + YOLO...")
         
-        if not skip_depth:
-            os.environ["ARIA_SKIP_DEPTH"] = "1"  # Force skip in worker
-            log.info("[CentralWorker] Depth disabled in multiprocessing mode")
+        # MiDaS model (torch native - no HuggingFace issues)
+        self.midas_model = torch.hub.load('intel-isl/MiDaS', 'MiDaS_small', force_reload=False)
+        self.midas_model.eval()
+        self.midas_model.to('cuda')
         
-        self.depth_estimator = None  # Skip for now
+        # MiDaS transforms
+        midas_transforms = torch.hub.load('intel-isl/MiDaS', 'transforms', force_reload=False)
+        self.midas_transform = midas_transforms.small_transform
+        
+        # YOLO
         self.yolo_processor = YoloProcessor()
+        
+        # CUDA streams for parallel execution
         self.depth_stream = torch.cuda.Stream()
         self.yolo_stream = torch.cuda.Stream()
-        log.info("[CentralWorker] Models loaded and streams created")
+        
+        log.info("[CentralWorker] MiDaS + YOLO loaded with CUDA streams")
 
     def _process_frame(self, msg: dict) -> ResultMessage:
         assert self.yolo_processor is not None
+        assert self.midas_model is not None
         assert self.depth_stream is not None and self.yolo_stream is not None
 
         frame = msg["frame"]
@@ -58,13 +67,35 @@ class CentralWorker:
         depth_raw = None
         depth_ms = 0.0
         
-        # Skip depth processing (disabled in multiprocessing)
-        # with torch.cuda.stream(self.depth_stream):
-        #     ...
+        # Parallel execution: Depth + YOLO with CUDA streams
+        with torch.cuda.stream(self.depth_stream):
+            depth_start = time.perf_counter()
+            
+            # MiDaS inference
+            input_batch = self.midas_transform(frame).to('cuda')
+            with torch.no_grad():
+                prediction = self.midas_model(input_batch)
+                prediction = torch.nn.functional.interpolate(
+                    prediction.unsqueeze(1),
+                    size=frame.shape[:2],
+                    mode="bicubic",
+                    align_corners=False,
+                ).squeeze()
+            
+            # Normalize to 0-255 for depth_map
+            depth_raw = prediction.cpu().numpy()
+            depth_min = depth_raw.min()
+            depth_max = depth_raw.max()
+            if depth_max > depth_min:
+                depth_map = ((depth_raw - depth_min) / (depth_max - depth_min) * 255).astype(np.uint8)
+            else:
+                depth_map = np.zeros_like(depth_raw, dtype=np.uint8)
+            
+            depth_ms = (time.perf_counter() - depth_start) * 1000
 
         with torch.cuda.stream(self.yolo_stream):
             yolo_start = time.perf_counter()
-            detections = self.yolo_processor.process_frame(frame, None, None)
+            detections = self.yolo_processor.process_frame(frame, depth_map, depth_raw)
             yolo_ms = (time.perf_counter() - yolo_start) * 1000
 
         torch.cuda.synchronize()
