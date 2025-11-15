@@ -1,5 +1,6 @@
 """Centralized configuration for the navigation system"""
 
+import os
 import torch
 import platform
 import logging
@@ -175,7 +176,7 @@ class Config:
     
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
-    DEPTH_ENABLED = True
+    DEPTH_ENABLED = os.environ.get("ARIA_SKIP_DEPTH", "0") != "1"
     # DEPTH_FRAME_SKIP movido a __init__ (FASE 1)
     # DEPTH_INPUT_SIZE movido a __init__ (FASE 1)
     
@@ -225,3 +226,11 @@ class Config:
     # Profiling
     PROFILE_PIPELINE = True
     PROFILE_WINDOW_FRAMES = 30
+
+    # Phase 2: Multiprocessing controls
+    PHASE2_MULTIPROC_ENABLED = False
+    PHASE2_QUEUE_MAXSIZE = 2
+    PHASE2_SLAM_QUEUE_MAXSIZE = 4
+    PHASE2_RESULT_QUEUE_MAXSIZE = 6
+    PHASE2_STATS_INTERVAL = 5.0
+    PHASE2_BACKPRESSURE_TIMEOUT = 0.5
