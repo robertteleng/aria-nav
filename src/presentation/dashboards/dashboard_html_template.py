@@ -111,6 +111,19 @@ DASHBOARD_HTML = '''
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 1rem;
         }
+
+        .system-metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-detail {
+            font-size: 0.7rem;
+            color: #94a3b8;
+            margin-top: 0.35rem;
+            letter-spacing: 0.05em;
+        }
         
         .stat { 
             background: linear-gradient(145deg, #1e293b, #0f172a);
@@ -389,6 +402,29 @@ DASHBOARD_HTML = '''
 
             <div class="panel">
                 <div class="panel-header">
+                    <span class="panel-title">System Metrics</span>
+                </div>
+                <div class="stats-grid system-metrics-grid">
+                    <div class="stat">
+                        <div class="stat-value" id="cpu-panel">--%</div>
+                        <div class="stat-label">CPU Usage</div>
+                        <div class="stat-detail" id="cpu-panel-detail">Resource monitor sampling</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="ram-panel">--/-- MB</div>
+                        <div class="stat-label">RAM Usage</div>
+                        <div class="stat-detail" id="ram-panel-detail">--% used</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="gpu-panel">N/A</div>
+                        <div class="stat-label">GPU Utilization</div>
+                        <div class="stat-detail" id="gpu-panel-detail">No GPU detected</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
                     <span class="panel-title">Audio Beeps Statistics</span>
                 </div>
                 <div class="beep-stats-grid">
@@ -479,6 +515,30 @@ DASHBOARD_HTML = '''
                         eventsBox.innerHTML = '<div>No recent SLAM events</div>';
                     }
                     document.getElementById('uptime').textContent = formatUptime(data.uptime || 0);
+
+                    const cpuPct = data.cpu_pct ? data.cpu_pct.toFixed(1) : null;
+                    const cpuText = cpuPct ? `${cpuPct}%` : '--%';
+                    document.getElementById('cpu-panel').textContent = cpuText;
+                    document.getElementById('cpu-panel-detail').textContent = cpuPct ? 'Live ResourceMonitor sample' : 'Resource monitor sampling';
+
+                    const ramUsed = data.ram_used_mb || 0;
+                    const ramTotal = data.ram_total_mb || 0;
+                    const ramPct = ramTotal ? Math.round((ramUsed / ramTotal) * 100) : 0;
+                    const ramText = ramTotal ? `${ramUsed}/${ramTotal} MB` : '--/-- MB';
+                    document.getElementById('ram-panel').textContent = ramText;
+                    document.getElementById('ram-panel-detail').textContent = ramTotal ? `${ramPct}% used` : '--% used';
+
+                    let gpuText = 'N/A';
+                    let gpuDetail = 'GPU not detected';
+                    if (data.gpu_present) {
+                        const gpuUtil = data.gpu_util_pct || 0;
+                        const gpuMemUsed = data.gpu_mem_used_mb || 0;
+                        const gpuMemTotal = data.gpu_mem_total_mb || 0;
+                        gpuText = `${gpuUtil}% / ${gpuMemUsed}MB`;
+                        gpuDetail = gpuMemTotal ? `Total ${gpuMemTotal}MB` : 'Memory snapshot pending';
+                    }
+                    document.getElementById('gpu-panel').textContent = gpuText;
+                    document.getElementById('gpu-panel-detail').textContent = gpuDetail;
                 })
                 .catch(err => {
                     console.error('Stats error:', err);

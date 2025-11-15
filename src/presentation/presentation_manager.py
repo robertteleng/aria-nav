@@ -11,6 +11,14 @@ import numpy as np
 import webbrowser
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+import psutil
+try:
+    import pynvml
+    pynvml.nvmlInit()
+    _HAS_PYNVML_GLOBAL = True
+except Exception:
+    _HAS_PYNVML_GLOBAL = False
+from utils.resource_monitor import ResourceMonitor
 
 
 @dataclass
@@ -32,6 +40,8 @@ class PresentationManager:
         self.dashboard_type = dashboard_type
         self.dashboard = None
         self.dashboard_server_thread = None
+        # Resource monitor (samples CPU/GPU/RAM)
+        self._resource_monitor: ResourceMonitor | None = None
 
         # Estado de visualización
         self.current_display_frame = None
@@ -42,6 +52,9 @@ class PresentationManager:
         # Threading para UI
         self._ui_lock = threading.Lock()
         self._stop_ui = False
+        # Resource overlay sampling (for simple OpenCV display)
+        self._last_resource_sample = 0.0
+        self._resource_stats: Dict[str, Any] = {}
         
         # Estadísticas para mostrar
         self.stats_to_display = {}
@@ -89,6 +102,13 @@ class PresentationManager:
                     self.ui_state.dashboard_enabled = False
                     return
                 print("  ✅ Web Dashboard inicializado")       
+                # Start resource monitor for web dashboard so frontend can show system metrics
+                try:
+                    self._resource_monitor = ResourceMonitor(interval=1.0, callback=self._on_resource_sample)
+                    self._resource_monitor.start()
+                    print("  ✅ ResourceMonitor started for WebDashboard")
+                except Exception as e:
+                    print(f"  ⚠️ ResourceMonitor failed to start: {e}")
             else:
                 print(f"  ⚠️ Dashboard type '{dashboard_type}' no reconocido")
                 self.ui_state.dashboard_enabled = False
@@ -256,6 +276,58 @@ class PresentationManager:
                 cv2.putText(display_frame, text, (10, y_offset), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 y_offset += 25
+
+        # Resource overlay: muestrea cada 1s para minimizar overhead
+        try:
+            now = time.time()
+            if now - self._last_resource_sample >= 1.0:
+                # CPU / RAM
+                vm = psutil.virtual_memory()
+                cpu = psutil.cpu_percent(interval=None)
+                stats = {
+                    'cpu_pct': float(cpu),
+                    'ram_used_mb': int(vm.used // (1024 * 1024)),
+                    'ram_total_mb': int(vm.total // (1024 * 1024)),
+                    'gpu_present': False,
+                }
+                # GPU (optional via pynvml)
+                if _HAS_PYNVML_GLOBAL:
+                    try:
+                        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                        mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                        stats.update({
+                            'gpu_present': True,
+                            'gpu_mem_used_mb': int(mem.used // (1024 * 1024)),
+                            'gpu_mem_total_mb': int(mem.total // (1024 * 1024)),
+                            'gpu_util_pct': int(util.gpu),
+                        })
+                    except Exception:
+                        stats['gpu_present'] = False
+
+                self._resource_stats = stats
+                self._last_resource_sample = now
+
+            # Draw overlay using last sampled stats
+            rs = self._resource_stats
+            base_y = display_frame.shape[0] - 10
+            lines = []
+            if rs:
+                lines.append(f"CPU: {rs.get('cpu_pct', 0):.0f}%")
+                lines.append(f"RAM: {rs.get('ram_used_mb', 0)}/{rs.get('ram_total_mb', 0)}MB")
+                if rs.get('gpu_present'):
+                    lines.append(f"GPU: {rs.get('gpu_util_pct', 0)}% {rs.get('gpu_mem_used_mb', 0)}MB")
+                else:
+                    lines.append("GPU: N/A")
+
+            # Render lines bottom-left
+            x = 10
+            for i, line in enumerate(reversed(lines)):
+                y = base_y - (i * 20)
+                cv2.putText(display_frame, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        except Exception:
+            # Do not fail display if sampling fails
+            pass
         
         # Mostrar frame
         cv2.imshow(self.ui_state.window_name, display_frame)
@@ -335,6 +407,30 @@ class PresentationManager:
                 priority = det.get('priority', 0)
                 message = f"DETECT: {name} en {zone} (P{priority:.1f})"
                 self.log_system_event(message, "DETECT")
+
+    def _on_resource_sample(self, data: Dict[str, any]):
+        """Callback from ResourceMonitor with sampled data.
+
+        Updates the web dashboard stats dictionary so the frontend can fetch them via /stats.
+        """
+        try:
+            if self.dashboard and hasattr(self.dashboard, 'stats'):
+                stats = self.dashboard.stats
+                stats['cpu_pct'] = data.get('cpu_pct')
+                stats['ram_used_mb'] = data.get('ram_used_mb')
+                stats['ram_total_mb'] = data.get('ram_total_mb')
+                # GPU fields (optional)
+                if data.get('gpu_present'):
+                    stats['gpu_mem_used_mb'] = data.get('gpu_mem_used_mb')
+                    stats['gpu_mem_total_mb'] = data.get('gpu_mem_total_mb')
+                    stats['gpu_util_pct'] = data.get('gpu_util_pct')
+                else:
+                    stats['gpu_mem_used_mb'] = 0
+                    stats['gpu_mem_total_mb'] = 0
+                    stats['gpu_util_pct'] = 0
+        except Exception:
+            # Never raise from background callback
+            pass
     
     def get_current_display_frame(self):
         """Obtener frame actual de display"""
@@ -368,7 +464,14 @@ class PresentationManager:
         print("🧹 Limpiando PresentationManager...")
         
         self._stop_ui = True
-        
+        # Stop resource monitor if running
+        try:
+            if self._resource_monitor:
+                self._resource_monitor.stop()
+                self._resource_monitor = None
+                print("  ✅ ResourceMonitor stopped")
+        except Exception as e:
+            print(f"  ⚠️ Error stopping ResourceMonitor: {e}")
         # Cleanup dashboard
         if self.dashboard:
             try:
