@@ -128,9 +128,11 @@ class AudioSystem:
                     if hasattr(self, 'selected_voice') and self.selected_voice:
                         run_cmd.extend(["-v", self.selected_voice])
                     run_cmd.append(message)
-                    # Use Popen for async execution
-                    proc = subprocess.Popen(run_cmd)
-                    proc.wait() # Wait for it to finish to manage state correctly
+                    # FASE 4 FIX: Use Popen WITHOUT wait() for true async
+                    # The daemon thread will exit naturally, no need to block
+                    subprocess.Popen(run_cmd)
+                    # Give TTS process time to start
+                    time.sleep(0.1)
                 
                 elif self.tts_backend == "pyttsx3" and self.tts_engine:
                     self.tts_engine.say(message)
