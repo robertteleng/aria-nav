@@ -165,7 +165,9 @@ class YoloProcessor:
         
         log.info(f"YOLO model path (resolved): {model_path}")
         
-        if use_tensorrt and torch.cuda.is_available():
+        # Skip TensorRT for SLAM profile (uses 256x256, engine is 640x640)
+        profile_name = getattr(self.runtime_config, "profile_name", "")
+        if use_tensorrt and torch.cuda.is_available() and profile_name != "slam":
             engine_path = model_path.replace('.pt', '.engine')
             from pathlib import Path
             if Path(engine_path).exists():
@@ -173,6 +175,8 @@ class YoloProcessor:
                 model_path = engine_path
             else:
                 log.warning(f"TensorRT enabled but {engine_path} not found, falling back to PyTorch")
+        elif profile_name == "slam":
+            log.info("  ℹ SLAM profile uses PyTorch (TensorRT engine is 640x640, SLAM uses 256x256)")
         
         self.model = YOLO(model_path)
         self.device = get_preferred_device(self.runtime_config.device)
