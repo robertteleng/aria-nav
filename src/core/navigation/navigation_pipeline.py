@@ -257,15 +257,18 @@ class NavigationPipeline:
         for worker in self.workers:
             worker.start()
         
-        # Wait a moment for workers to initialize
+        # Wait for workers to initialize (models take time to load)
         import time
-        time.sleep(2)
+        log.info("[Pipeline] Waiting for workers to initialize (loading models, ~10-15s)...")
+        time.sleep(15)  # Increased timeout for model loading
         
         # Check if workers are alive
         for worker in self.workers:
             if not worker.is_alive():
-                log.error(f"[Pipeline] Worker {worker.name} failed to start!")
-                raise RuntimeError(f"Worker {worker.name} crashed during initialization")
+                exitcode = worker.exitcode
+                log.error(f"[Pipeline] Worker {worker.name} failed to start! exitcode={exitcode}")
+                log.error(f"[Pipeline] Check stdout/stderr for worker initialization errors")
+                raise RuntimeError(f"Worker {worker.name} crashed during initialization (exitcode={exitcode})")
         
         log.info("[Pipeline] Multiprocessing workers started and verified")
         

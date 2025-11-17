@@ -229,9 +229,9 @@ class Config:
 
     # Phase 2: Multiprocessing controls
     # Use: python run.py benchmark
-    PHASE2_MULTIPROC_ENABLED = True
-    PHASE2_QUEUE_MAXSIZE = 2
-    PHASE2_SLAM_QUEUE_MAXSIZE = 4
-    PHASE2_RESULT_QUEUE_MAXSIZE = 6
+    PHASE2_MULTIPROC_ENABLED = True  # Re-enabled: Testing with run.py wrapper
+    PHASE2_QUEUE_MAXSIZE = 4  # Increased: Reduce queue blocking
+    PHASE2_SLAM_QUEUE_MAXSIZE = 6  # Increased: More buffer for SLAM cameras
+    PHASE2_RESULT_QUEUE_MAXSIZE = 10  # Increased: More buffer for results
     PHASE2_STATS_INTERVAL = 5.0
-    PHASE2_BACKPRESSURE_TIMEOUT = 0.5
+    PHASE2_BACKPRESSURE_TIMEOUT = 0.1  # Reduced: Faster timeout for queue.put()

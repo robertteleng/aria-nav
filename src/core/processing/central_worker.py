@@ -1,6 +1,7 @@
 import logging
 import os
 import queue
+import sys
 import time
 from typing import Any
 
@@ -191,6 +192,23 @@ class CentralWorker:
 
 
 def central_gpu_worker(central_queue, result_queue, stop_event) -> None:
-    print("[WORKER ENTRY] central_gpu_worker started", flush=True)
-    CentralWorker(central_queue, result_queue, stop_event).run_loop()
-    print("[WORKER EXIT] central_gpu_worker exiting", flush=True)
+    """Entry point for central GPU worker process"""
+    print("[WORKER ENTRY] central_gpu_worker starting...", flush=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
+    try:
+        worker = CentralWorker(central_queue, result_queue, stop_event)
+        print("[WORKER ENTRY] CentralWorker instance created", flush=True)
+        worker.run_loop()
+    except Exception as e:
+        print(f"[WORKER ENTRY] FATAL ERROR: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
+    finally:
+        print("[WORKER EXIT] central_gpu_worker exiting", flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
