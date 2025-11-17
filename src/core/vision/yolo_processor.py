@@ -154,14 +154,39 @@ class YoloProcessor:
         except Exception:
             pass
 
-        self.model = YOLO(self.runtime_config.model)
+        # FASE 4: Load TensorRT engine if available and enabled
+        use_tensorrt = getattr(Config, 'USE_TENSORRT', False)
+        model_path = self.runtime_config.model
+        
+        # Convert to absolute path (important for multiprocessing)
+        import os
+        if not os.path.isabs(model_path):
+            model_path = os.path.abspath(model_path)
+        
+        log.info(f"YOLO model path (resolved): {model_path}")
+        
+        if use_tensorrt and torch.cuda.is_available():
+            engine_path = model_path.replace('.pt', '.engine')
+            from pathlib import Path
+            if Path(engine_path).exists():
+                log.info(f"✓ Loading TensorRT engine: {engine_path}")
+                model_path = engine_path
+            else:
+                log.warning(f"TensorRT enabled but {engine_path} not found, falling back to PyTorch")
+        
+        self.model = YOLO(model_path)
         self.device = get_preferred_device(self.runtime_config.device)
         self.device_str = self.device.type
-        self.model.to(self.device)
-        try:
-            self.model.fuse()
-        except Exception:
-            pass
+        
+        # Only move to device and fuse if not using TensorRT (engine is pre-optimized)
+        if not model_path.endswith('.engine'):
+            self.model.to(self.device)
+            try:
+                self.model.fuse()
+            except Exception:
+                pass
+        else:
+            log.info("  ✓ TensorRT engine loaded (pre-optimized)")
         
         # FASE 1 / Tarea 2: Habilitar pinned memory y non-blocking transfers
         self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()

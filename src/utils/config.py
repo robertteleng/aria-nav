@@ -49,6 +49,9 @@ class Config:
         self.NON_BLOCKING_TRANSFER = True
         self.CUDA_STREAMS = True  # OBLIGATORIO en FASE 1
         
+        # ========== FASE 4: TensorRT ==========
+        self.USE_TENSORRT = True  # Use .engine files instead of .pt
+        
         # Habilitar optimizaciones CUDA
         if self.CUDA_OPTIMIZATIONS and torch.cuda.is_available():
             self._enable_cuda_optimizations()
@@ -84,7 +87,7 @@ class Config:
     
     # Video processing (resto de constantes como class variables)
     TARGET_FPS = 60                         # GPU NVIDIA: 60 FPS
-    YOLO_MODEL = "yolo12n.pt"              
+    YOLO_MODEL = "checkpoints/yolo12n.pt"   # Path to model (will auto-detect .engine)
     YOLO_CONFIDENCE = 0.50
     YOLO_DEVICE = DEVICE                    # AUTO: cuda/mps/cpu
     YOLO_MAX_DETECTIONS = 20                # GPU NVIDIA: Más detecciones simultáneas
@@ -176,7 +179,8 @@ class Config:
     
     # Distance estimation strategy
     DISTANCE_METHOD = "depth_only"  # "depth_only", "area_only", "hybrid"
-    DEPTH_ENABLED = os.environ.get("ARIA_SKIP_DEPTH", "0") != "1"
+    # Re-enabled: Testing depth impact with TensorRT YOLO
+    DEPTH_ENABLED = True  # os.environ.get("ARIA_SKIP_DEPTH", "0") != "1"
     # DEPTH_FRAME_SKIP movido a __init__ (FASE 1)
     # DEPTH_INPUT_SIZE movido a __init__ (FASE 1)
     
@@ -229,7 +233,8 @@ class Config:
 
     # Phase 2: Multiprocessing controls
     # Use: python run.py benchmark
-    PHASE2_MULTIPROC_ENABLED = True  # Re-enabled: Testing with run.py wrapper
+    # TEMPORARY: Disabled to test TensorRT without multiproc overhead
+    PHASE2_MULTIPROC_ENABLED = False  # Re-enabled: Testing with run.py wrapper
     PHASE2_QUEUE_MAXSIZE = 4  # Increased: Reduce queue blocking
     PHASE2_SLAM_QUEUE_MAXSIZE = 6  # Increased: More buffer for SLAM cameras
     PHASE2_RESULT_QUEUE_MAXSIZE = 10  # Increased: More buffer for results

@@ -209,7 +209,9 @@ def main():
                     if frames_processed % slam_skip == 0:
                         if hasattr(coordinator, 'handle_slam_frames'):
                             coordinator.handle_slam_frames(slam1_frame, slam2_frame)   
-                    depth_map = coordinator.get_latest_depth_map()
+                    
+                    # Only get depth map if enabled
+                    depth_map = coordinator.get_latest_depth_map() if Config.DEPTH_ENABLED else None
                     slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
                     
                      # ✅ NUEVO: Calcular métricas de performance
