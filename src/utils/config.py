@@ -34,12 +34,12 @@ DEVICE = detect_device()
 class Config:
     """System configuration constants"""
     
+    # ========== FASE 1: Resoluciones Aumentadas ==========
+    YOLO_IMAGE_SIZE = 640      # ANTES: 256 → AHORA: 640
+    DEPTH_INPUT_SIZE = 384     # ANTES: 256 → AHORA: 384
+    
     def __init__(self):
         """Initialize config with FASE 1 GPU optimizations"""
-        
-        # ========== FASE 1: Resoluciones Aumentadas ==========
-        self.YOLO_IMAGE_SIZE = 640      # ANTES: 256 → AHORA: 640
-        self.DEPTH_INPUT_SIZE = 384     # ANTES: 256 → AHORA: 384
         
         log.info(f"✓ Resoluciones aumentadas: YOLO={self.YOLO_IMAGE_SIZE}, Depth={self.DEPTH_INPUT_SIZE}")
         
@@ -48,9 +48,6 @@ class Config:
         self.PINNED_MEMORY = True
         self.NON_BLOCKING_TRANSFER = True
         self.CUDA_STREAMS = True  # OBLIGATORIO en FASE 1
-        
-        # ========== FASE 4: TensorRT ==========
-        self.USE_TENSORRT = True  # Use .engine files instead of .pt
         
         # Habilitar optimizaciones CUDA
         if self.CUDA_OPTIMIZATIONS and torch.cuda.is_available():
@@ -61,7 +58,8 @@ class Config:
         
         # ========== Frame Skipping (FASE 1 optimizado) ==========
         self.YOLO_SKIP_FRAMES = 0       # Procesar todos (0 = no skip)
-        self.DEPTH_SKIP_FRAMES = 6      # Procesar cada 6 frames
+        self.DEPTH_SKIP_FRAMES = 0      # Procesar todos para testing TensorRT
+        self.DEPTH_FRAME_SKIP = 0       # Alias para navegation_pipeline.py (0 = procesar todos)
         
         log.info("✓ Config FASE 1 cargada")
     
@@ -183,6 +181,9 @@ class Config:
     DEPTH_ENABLED = True  # os.environ.get("ARIA_SKIP_DEPTH", "0") != "1"
     # DEPTH_FRAME_SKIP movido a __init__ (FASE 1)
     # DEPTH_INPUT_SIZE movido a __init__ (FASE 1)
+    
+    # ========== FASE 4: TensorRT ==========
+    USE_TENSORRT = True  # Use .engine files instead of .pt
     
     # Backend selection
     DEPTH_BACKEND = "depth_anything_v2"  # "midas" or "depth_anything_v2"

@@ -234,7 +234,7 @@ if __name__ == "__main__":
             output_name="depth_anything_v2_vits.engine",
             input_size=384,
             fp16=True,
-            keep_onnx=False,
+            keep_onnx=True,  # KEEP ONNX for ONNX Runtime!
         )
         
         print("\n" + "="*60)

@@ -37,6 +37,7 @@ class DepthEstimator:
             self.transform = None
             self.processor = None
             self.last_inference_ms = 0.0
+            self.ort_session = None  # FASE 4: TensorRT session
             print("[INFO] ⚠️ Depth estimator disabled via configuration")
             return
 
@@ -112,20 +113,66 @@ class DepthEstimator:
             self.transform = midas_transforms.small_transform
 
     def _load_depth_anything(self) -> None:
+        import os
+        from pathlib import Path
+        
+        logger = get_depth_logger()
+        
+        # FASE 4: Check for TensorRT-optimized ONNX first
+        use_tensorrt = getattr(Config, 'USE_TENSORRT', False)
+        onnx_path = Path("checkpoints/depth_anything_v2_vits.onnx")
+        
+        logger.log(f"[DEBUG] TensorRT check: use_tensorrt={use_tensorrt}, cuda_available={torch.cuda.is_available()}, onnx_exists={onnx_path.exists()}")
+        
+        if use_tensorrt and torch.cuda.is_available() and onnx_path.exists():
+            logger.log(f"[INFO] Loading Depth-Anything-V2 with TensorRT (ONNX Runtime)")
+            logger.log(f"[INFO] Model: {onnx_path}")
+            
+            try:
+                import onnxruntime as ort
+                
+                # Use CUDA Execution Provider (skip TensorRT for now - library issues)
+                providers = ort.get_available_providers()
+                logger.log(f"[DEBUG] Available ONNX Runtime providers: {providers}")
+                
+                # Force CUDA EP only - TensorRT EP has library dependency issues
+                sess_options = ort.SessionOptions()
+                sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                
+                self.ort_session = ort.InferenceSession(
+                    str(onnx_path),
+                    sess_options,
+                    providers=['CUDAExecutionProvider']
+                )
+                
+                actual_providers = self.ort_session.get_providers()
+                logger.log(f"[INFO] Active ONNX Runtime providers: {actual_providers}")
+                
+                self.model = None  # Signal to use ONNX Runtime
+                self.processor = None
+                logger.log(f"[INFO] ✓ Depth-Anything-V2 ONNX/CUDA loaded successfully")
+                return
+                
+            except Exception as e:
+                logger.log(f"[WARN] TensorRT loading failed: {e}")
+                logger.log(f"[INFO] Falling back to PyTorch")
+        
+        # Fallback to PyTorch
         from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
-        variant = getattr(Config, "DEPTH_ANYTHING_MODEL", "Small")  # FIX: usar DEPTH_ANYTHING_MODEL
+        variant = getattr(Config, "DEPTH_ANYTHING_MODEL", "Small")
         name = f"depth-anything/Depth-Anything-V2-{variant}-hf"
         
-        print(f"[INFO] Loading Depth Anything V2 model: {name}")
-        print(f"[INFO] Target device: {self.device}")
+        logger.log(f"[INFO] Loading Depth Anything V2 model: {name}")
+        logger.log(f"[INFO] Target device: {self.device}")
 
         self.processor = AutoImageProcessor.from_pretrained(name)
         self.model = AutoModelForDepthEstimation.from_pretrained(name)
         self.model.to(self.device)
         self.model.eval()
+        self.ort_session = None
         
-        print(f"[INFO] ✓ Depth Anything V2 '{variant}' loaded successfully on {self.device}")
+        logger.log(f"[INFO] ✓ Depth Anything V2 '{variant}' loaded successfully on {self.device}")
 
     def estimate_depth(self, rgb_frame: np.ndarray) -> Optional[np.ndarray]:
         """Estimate an 8-bit depth map from an RGB frame."""
@@ -137,8 +184,8 @@ class DepthEstimator:
     def estimate_depth_with_details(self, rgb_frame: np.ndarray) -> Optional[DepthPrediction]:
         logger = get_depth_logger()
         
-        if self.model is None:
-            logger.log("estimate_depth called but model is None")
+        if self.model is None and self.ort_session is None:
+            logger.log("estimate_depth called but model and ort_session are None")
             return None
 
         start = time.perf_counter()
@@ -238,6 +285,11 @@ class DepthEstimator:
         return prediction.cpu().numpy()
 
     def _run_depth_anything(self, rgb_input: np.ndarray) -> np.ndarray:
+        # FASE 4: Use TensorRT/ONNX Runtime if available
+        if hasattr(self, 'ort_session') and self.ort_session is not None:
+            return self._run_depth_anything_tensorrt(rgb_input)
+        
+        # PyTorch fallback
         assert self.processor is not None
 
         from torch.nn.functional import interpolate
@@ -297,3 +349,47 @@ class DepthEstimator:
                 ).squeeze()
 
         return depth.cpu().numpy()
+
+    def _run_depth_anything_tensorrt(self, rgb_input: np.ndarray) -> np.ndarray:
+        """Run inference using ONNX Runtime with CUDA backend."""
+        # Always resize to model input size for ONNX (fixed input shape)
+        if self.input_size:
+            rgb_resized = cv2.resize(
+                rgb_input, 
+                (self.input_size, self.input_size), 
+                interpolation=cv2.INTER_AREA
+            )
+        else:
+            rgb_resized = rgb_input
+        
+        # Prepare input: normalize to [0, 1] and transpose to NCHW
+        # Match Transformers preprocessing
+        img_normalized = rgb_resized.astype(np.float32) / 255.0
+        
+        # ImageNet normalization (standard for vision transformers)
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_normalized = (img_normalized - mean) / std
+        
+        # Transpose HWC → CHW and add batch dimension
+        img_input = np.transpose(img_normalized, (2, 0, 1))
+        img_input = np.expand_dims(img_input, axis=0).astype(np.float32)
+        
+        # Run ONNX Runtime inference
+        input_name = self.ort_session.get_inputs()[0].name
+        output_name = self.ort_session.get_outputs()[0].name
+        
+        outputs = self.ort_session.run([output_name], {input_name: img_input})
+        depth_pred = outputs[0]  # Shape: (1, H, W)
+        
+        # Remove batch dimension and interpolate to original size
+        depth_pred = depth_pred.squeeze(0)  # (H, W)
+        
+        # Resize back to original resolution using OpenCV (faster than torch)
+        depth_full = cv2.resize(
+            depth_pred, 
+            (rgb_input.shape[1], rgb_input.shape[0]),
+            interpolation=cv2.INTER_CUBIC
+        )
+        
+        return depth_full

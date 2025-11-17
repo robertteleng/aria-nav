@@ -92,7 +92,7 @@ class NavigationPipeline:
             # Log depth estimator status
             if self.depth_estimator is None:
                 print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
-            elif getattr(self.depth_estimator, "model", None) is None:
+            elif getattr(self.depth_estimator, "model", None) is None and getattr(self.depth_estimator, "ort_session", None) is None:
                 print("[WARN] ⚠️ Depth estimator model failed to load - depth estimation disabled")
             else:
                 print(f"[INFO] ✅ Depth estimator initialized: {getattr(self.depth_estimator, 'backend', 'unknown')}")
@@ -138,7 +138,7 @@ class NavigationPipeline:
             
             # Stream 1: Depth estimation (operación más lenta)
             with torch.cuda.stream(self.depth_stream):
-                if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
+                if self.depth_estimator is not None and (getattr(self.depth_estimator, "model", None) is not None or getattr(self.depth_estimator, "ort_session", None) is not None):
                     try:
                         if self.frames_processed % self.depth_frame_skip == 0:
                             depth_prediction = None
@@ -176,7 +176,7 @@ class NavigationPipeline:
             depth_raw = self.latest_depth_raw
         else:
             # ========== EJECUCIÓN SECUENCIAL (fallback) ==========
-            if self.depth_estimator is not None and getattr(self.depth_estimator, "model", None) is not None:
+            if self.depth_estimator is not None and (getattr(self.depth_estimator, "model", None) is not None or getattr(self.depth_estimator, "ort_session", None) is not None):
                 depth_start = time.perf_counter() if profile else None
                 try:
                     if self.frames_processed % self.depth_frame_skip == 0:
@@ -509,7 +509,7 @@ class NavigationPipeline:
             print("[INFO] Creating DepthEstimator instance...")
             estimator = DepthEstimator()
             
-            if getattr(estimator, "model", None) is None:
+            if getattr(estimator, "model", None) is None and getattr(estimator, "ort_session", None) is None:
                 logger.log("⚠️ Estimator created but model is None")
                 print("[WARN] ⚠️ Depth estimator initialized without model (disabled)")
             else:
