@@ -25,6 +25,13 @@ except ImportError:
     pyttsx3 = None
     print("[WARN] pyttsx3 not found. TTS will be disabled on non-macOS systems.")
 
+# Import config at module level to avoid import errors
+try:
+    from utils.config import Config
+except ImportError:
+    Config = None
+    print("[WARN] Config not found. Using default audio settings.")
+
 
 class AudioSystem:
     """Directional audio command system optimized to avoid spam, now multi-platform."""
@@ -157,9 +164,7 @@ class AudioSystem:
         return False
     
     def play_spatial_beep(self, zone: str, is_critical: bool = False) -> None:
-        from utils.config import Config
-        
-        if not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True):
+        if not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True) if Config else True:
             return
         
         if is_critical:
@@ -187,11 +192,9 @@ class AudioSystem:
                 print("[WARN] Cannot play beep. Numpy or Sounddevice not installed.")
                 self._last_beep_warn_ts = time.time()
             return
-
-        from utils.config import Config
         
         sample_rate = 44100
-        volume = getattr(Config, "BEEP_VOLUME", 0.7)
+        volume = getattr(Config, "BEEP_VOLUME", 0.7) if Config else 0.7
         
         t = np.linspace(0, duration, int(sample_rate * duration), False)
         tone = np.sin(2 * np.pi * frequency * t)
