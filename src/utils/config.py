@@ -234,8 +234,8 @@ class Config:
 
     # Phase 2: Multiprocessing controls
     # Use: python run.py benchmark
-    # TEMPORARY: Disabled to test TensorRT without multiproc overhead
-    PHASE2_MULTIPROC_ENABLED = False  # Re-enabled: Testing with run.py wrapper
+    # FASE 4: Re-enabled to test parallel execution with TensorRT
+    PHASE2_MULTIPROC_ENABLED = True  # Test: Parallel RGB/Depth + SLAM workers
     PHASE2_QUEUE_MAXSIZE = 4  # Increased: Reduce queue blocking
     PHASE2_SLAM_QUEUE_MAXSIZE = 6  # Increased: More buffer for SLAM cameras
     PHASE2_RESULT_QUEUE_MAXSIZE = 10  # Increased: More buffer for results
