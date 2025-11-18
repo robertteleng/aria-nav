@@ -48,6 +48,42 @@ class FrameRenderer:
             self._draw_depth_overlay(annotated_frame, depth_map, width, height)
         
         return annotated_frame
+    
+    def draw_slam_detections(self, frame: np.array, detections: List[dict], color: tuple = (0, 255, 255)) -> np.array:
+        """Draw SLAM detections on frame"""
+        if frame is None or not detections:
+            return frame
+        
+        annotated_frame = frame.copy()
+        height, width = annotated_frame.shape[:2]
+        
+        for det in detections:
+            try:
+                bbox = det.get('bbox')
+                if not bbox or len(bbox) != 4:
+                    continue
+                x1, y1, x2, y2 = [int(v) for v in bbox]
+                x1 = max(0, min(width - 1, x1))
+                x2 = max(0, min(width - 1, x2))
+                y1 = max(0, min(height - 1, y1))
+                y2 = max(0, min(height - 1, y2))
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                    
+                # Bounding box
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                
+                # Label
+                label = det.get('name', 'obj')
+                distance = det.get('distance')
+                if distance and distance not in {'', 'unknown'}:
+                    label = f"{label} {distance}"
+                cv2.putText(annotated_frame, label, (x1, max(20, y1 - 8)),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            except Exception:
+                continue
+        
+        return annotated_frame
         
     def _draw_zone_grid(self, frame: np.array, width: int, height: int):
         """Draw zone grid overlay"""
@@ -94,14 +130,10 @@ class FrameRenderer:
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
     def _draw_detections(self, frame: np.array, detections: List[dict]):
-        """Draw detection boxes and labels (solo RGB)"""
+        """Draw detection boxes and labels"""
+        # Detecciones ya vienen filtradas por camera_source en el coordinator
         for det in detections:
             try:
-                # 🔧 FIX: Filtrar solo detecciones RGB, ignorar SLAM
-                camera_source = det.get('camera_source', 'rgb')
-                if camera_source != 'rgb':
-                    continue  # Skip detecciones de SLAM
-                
                 x1, y1, x2, y2 = det['bbox']
                 name = det.get('name', 'object')
                 zone = det.get('zone', 'center')

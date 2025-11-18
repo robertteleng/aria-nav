@@ -632,14 +632,14 @@ class WebDashboard:
                 self.current_depth_frame = depth_colored
     
     def log_slam1_frame(self, slam1_frame: np.ndarray, events: Optional[List[Dict]] = None):
-        """Update SLAM1 frame"""
+        """Update SLAM1 frame - frame ya viene con detecciones dibujadas"""
         if slam1_frame is not None:
             with self._frame_lock:
-                frame_copy = slam1_frame  # Direct assign (lock protects)
+                frame_copy = slam1_frame
                 if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+                # NO dibujar events, ya vienen dibujados del renderer
                 if events:
-                    self._draw_slam_events(frame_copy, events, (0, 165, 255))
                     self.stats['slam1_events'] = len(events)
                     for event in events:
                         desc = f"SLAM1: {event.get('name', 'obj')} {event.get('distance', '')} ({event.get('zone', '')})"
@@ -649,14 +649,14 @@ class WebDashboard:
                 self.current_slam1_frame = frame_copy
 
     def log_slam2_frame(self, slam2_frame: np.ndarray, events: Optional[List[Dict]] = None):
-        """Update SLAM2 frame"""
+        """Update SLAM2 frame - frame ya viene con detecciones dibujadas"""
         if slam2_frame is not None:
             with self._frame_lock:
-                frame_copy = slam2_frame  # Direct assign (lock protects)
+                frame_copy = slam2_frame
                 if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+                # NO dibujar events, ya vienen dibujados del renderer
                 if events:
-                    self._draw_slam_events(frame_copy, events, (255, 128, 0))
                     self.stats['slam2_events'] = len(events)
                     for event in events:
                         desc = f"SLAM2: {event.get('name', 'obj')} {event.get('distance', '')} ({event.get('zone', '')})"
@@ -762,11 +762,16 @@ class WebDashboard:
     
     def start_server(self):
         """Start Flask server in background thread with proper startup verification"""
-        import socket
+        import urllib.request
         
         def run_server():
             self.log_system_message(f"Web dashboard starting on {self.host}:{self.port}", "SYSTEM")
             try:
+                # Disable Flask startup messages
+                import logging
+                log = logging.getLogger('werkzeug')
+                log.setLevel(logging.ERROR)
+                
                 self.app.run(host=self.host, port=self.port, debug=False, threaded=True, use_reloader=False)
             except Exception as e:
                 self.log_system_message(f"Web server error: {e}", "ERROR")
@@ -774,18 +779,19 @@ class WebDashboard:
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
         
-        # Esperar a que el servidor esté realmente listo
-        max_attempts = 20  # 10 segundos máximo
+        # Esperar a que el servidor esté realmente listo con HTTP check
+        url = f"http://{self.host}:{self.port}/stats"
+        max_attempts = 30  # 15 segundos máximo
+        
+        print(f"🔄 Esperando a que el servidor web esté listo...")
         for attempt in range(max_attempts):
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(0.5)
-                result = sock.connect_ex((self.host, self.port))
-                sock.close()
-                if result == 0:
-                    # Servidor está respondiendo
+                response = urllib.request.urlopen(url, timeout=1)
+                if response.getcode() == 200:
+                    # Servidor está respondiendo correctamente
                     self.log_system_message("🌐 Web dashboard ready", "SYSTEM")
                     self.log_system_message(f"🔗 Local access: http://localhost:{self.port}", "SYSTEM")
+                    print(f"✅ Servidor web listo en http://localhost:{self.port}")
                     return server_thread
             except Exception:
                 pass

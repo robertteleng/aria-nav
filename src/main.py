@@ -205,8 +205,10 @@ def main():
 
                 # Obtener datos del Observer (Solo SDK)
                 frame = observer.get_latest_frame('rgb')
+                # Get SLAM frames y eventos
                 slam1_frame = observer.get_latest_frame('slam1')
                 slam2_frame = observer.get_latest_frame('slam2')
+                slam_events = coordinator.get_slam_events()
                 motion_data = observer.get_motion_state()
                 motion_state = motion_data.get('state', 'unknown') if motion_data else 'unknown'
                 
@@ -259,6 +261,17 @@ def main():
                             source="rgb",
                             detections=current_detections
                         )
+                    
+                    # 🎨 RENDER: Dibujar detecciones SLAM en sus frames
+                    slam1_rendered = slam1_frame
+                    slam2_rendered = slam2_frame
+                    if slam_events and coordinator.frame_renderer:
+                        if slam_events.get('slam1') and slam1_frame is not None:
+                            slam1_rendered = coordinator.frame_renderer.draw_slam_detections(
+                                slam1_frame, slam_events['slam1'], color=(0, 165, 255))  # Orange
+                        if slam_events.get('slam2') and slam2_frame is not None:
+                            slam2_rendered = coordinator.frame_renderer.draw_slam_detections(
+                                slam2_frame, slam_events['slam2'], color=(255, 128, 0))  # Yellow
 
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
@@ -268,8 +281,8 @@ def main():
                         motion_state=motion_state,
                         coordinator_stats=coordinator.get_status(),
                         depth_map=depth_map,
-                        slam1_frame=slam1_frame,
-                        slam2_frame=slam2_frame,
+                        slam1_frame=slam1_rendered,
+                        slam2_frame=slam2_rendered,
                         slam_events=slam_events
                     )
                     

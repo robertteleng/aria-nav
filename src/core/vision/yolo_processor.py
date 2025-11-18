@@ -50,14 +50,18 @@ class YoloRuntimeConfig:
     def for_profile(cls, profile: str) -> "YoloRuntimeConfig":
         profile = profile.lower()
         if profile in {"rgb", "default"}:
-            return cls.from_defaults().with_overrides(profile_name="rgb")
+            return cls.from_defaults().with_overrides(
+                profile_name="rgb",
+                image_size=getattr(Config, "YOLO_RGB_IMAGE_SIZE", 640),
+                confidence=getattr(Config, "YOLO_RGB_CONFIDENCE", 0.50),
+                max_detections=getattr(Config, "YOLO_RGB_MAX_DETECTIONS", 20),
+            )
         if profile == "slam":
-            base = cls.from_defaults()
-            return base.with_overrides(
+            return cls.from_defaults().with_overrides(
                 profile_name="slam",
-                image_size=256,
-                confidence=0.60,
-                max_detections=8,
+                image_size=getattr(Config, "YOLO_SLAM_IMAGE_SIZE", 256),
+                confidence=getattr(Config, "YOLO_SLAM_CONFIDENCE", 0.60),
+                max_detections=getattr(Config, "YOLO_SLAM_MAX_DETECTIONS", 8),
                 frame_skip=3,
             )
         raise ValueError(f"Unknown YOLO profile '{profile}'")

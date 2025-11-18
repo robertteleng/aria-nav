@@ -34,14 +34,31 @@ DEVICE = detect_device()
 class Config:
     """System configuration constants"""
     
-    # ========== FASE 1: Resoluciones Aumentadas ==========
-    YOLO_IMAGE_SIZE = 640      # ANTES: 256 → AHORA: 640
-    DEPTH_INPUT_SIZE = 384     # ANTES: 256 → AHORA: 384
+    # ========== FASE 4: Resoluciones TensorRT ==========
+    # RGB Camera (central - alta resolución)
+    YOLO_RGB_IMAGE_SIZE = 640           # RGB usa 640x640 (yolo12n.engine)
+    YOLO_RGB_CONFIDENCE = 0.50
+    YOLO_RGB_MAX_DETECTIONS = 20
+    
+    # SLAM Cameras (periféricas - optimizadas)
+    YOLO_SLAM_IMAGE_SIZE = 256          # SLAM usa 256x256 (yolo12n_slam256.engine)
+    YOLO_SLAM_CONFIDENCE = 0.60
+    YOLO_SLAM_MAX_DETECTIONS = 8
+    
+    # Depth Processing
+    DEPTH_INPUT_SIZE = 384              # DepthAnything: 384x384
+    
+    # Legacy compatibility (apunta a RGB por defecto)
+    YOLO_IMAGE_SIZE = YOLO_RGB_IMAGE_SIZE
+    YOLO_CONFIDENCE = YOLO_RGB_CONFIDENCE
+    YOLO_MAX_DETECTIONS = YOLO_RGB_MAX_DETECTIONS
     
     def __init__(self):
-        """Initialize config with FASE 1 GPU optimizations"""
+        """Initialize config with FASE 4 TensorRT optimizations"""
         
-        log.info(f"✓ Resoluciones aumentadas: YOLO={self.YOLO_IMAGE_SIZE}, Depth={self.DEPTH_INPUT_SIZE}")
+        log.info(f"✓ FASE 4 TensorRT - RGB: {self.YOLO_RGB_IMAGE_SIZE}x{self.YOLO_RGB_IMAGE_SIZE}, "
+                 f"SLAM: {self.YOLO_SLAM_IMAGE_SIZE}x{self.YOLO_SLAM_IMAGE_SIZE}, "
+                 f"Depth: {self.DEPTH_INPUT_SIZE}x{self.DEPTH_INPUT_SIZE}")
         
         # ========== FASE 1: CUDA Optimizations ==========
         self.CUDA_OPTIMIZATIONS = True

@@ -7,6 +7,7 @@ Maneja toda la parte de UI/visualización que antes estaba en el Observer
 import cv2
 import time
 import threading
+import subprocess
 import numpy as np
 import webbrowser
 from typing import Optional, Dict, Any, List
@@ -100,8 +101,47 @@ class PresentationManager:
                     
                     url = f"http://localhost:{self.dashboard.port}"
                     print(f"  🌐 Abriendo navegador: {url}")
-                    webbrowser.open(url, new=2)
-                    print(f"  ✅ Web dashboard listo y accesible en: {url}")
+                    
+                    # Abrir navegador de forma diferida para dar tiempo al servidor
+                    def open_browser():
+                        time.sleep(1.0)  # Dar tiempo al servidor
+                        try:
+                            import platform
+                            import subprocess
+                            
+                            # Intentar Chrome primero (mejor compatibilidad con streaming)
+                            chrome_opened = False
+                            if platform.system() == 'Darwin':  # macOS
+                                try:
+                                    subprocess.run(['open', '-a', 'Google Chrome', url], check=True, timeout=2)
+                                    chrome_opened = True
+                                    print(f"  ✅ Web dashboard abierto en Chrome: {url}")
+                                except:
+                                    pass
+                            elif platform.system() == 'Linux':
+                                # Intentar múltiples nombres de ejecutables de Chrome
+                                for chrome_cmd in ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']:
+                                    try:
+                                        subprocess.run([chrome_cmd, url], check=False, timeout=2, 
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        chrome_opened = True
+                                        print(f"  ✅ Web dashboard abierto en Chrome: {url}")
+                                        break
+                                    except FileNotFoundError:
+                                        continue
+                            
+                            # Si no se pudo abrir Chrome, usar navegador por defecto
+                            if not chrome_opened:
+                                webbrowser.open(url, new=2)
+                                print(f"  ✅ Web dashboard abierto en navegador por defecto: {url}")
+                                
+                        except Exception as e:
+                            print(f"  ⚠️ Error abriendo navegador: {e}")
+                            print(f"  📍 Dashboard disponible en: {url}")
+                    
+                    # Ejecutar en thread separado
+                    browser_thread = threading.Thread(target=open_browser, daemon=True)
+                    browser_thread.start()
                 except Exception as server_err:
                     print(f"  ⚠️ Web dashboard server failed: {server_err}")
                     self.dashboard = None
@@ -211,12 +251,12 @@ class PresentationManager:
         if hasattr(self.dashboard, 'log_rgb_frame'):
             self.dashboard.log_rgb_frame(frame)
 
-        # Log SLAM frames
+        # Log SLAM frames (ya dibujados por el renderer)
         slam_events = slam_events or {}
         if slam1_frame is not None and hasattr(self.dashboard, 'log_slam1_frame'):
-            self.dashboard.log_slam1_frame(slam1_frame, slam_events.get('slam1'))
+            self.dashboard.log_slam1_frame(slam1_frame, slam_events.get('slam1'))  # Pasar events para stats
         if slam2_frame is not None and hasattr(self.dashboard, 'log_slam2_frame'):
-            self.dashboard.log_slam2_frame(slam2_frame, slam_events.get('slam2'))
+            self.dashboard.log_slam2_frame(slam2_frame, slam_events.get('slam2'))  # Pasar events para stats
 
         # Log detecciones
         if detections and hasattr(self.dashboard, 'log_detections'):
