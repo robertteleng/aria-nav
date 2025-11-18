@@ -7,7 +7,6 @@ Maneja toda la parte de UI/visualización que antes estaba en el Observer
 import cv2
 import time
 import threading
-import subprocess
 import numpy as np
 import webbrowser
 from typing import Optional, Dict, Any, List
@@ -104,37 +103,11 @@ class PresentationManager:
                     
                     # Abrir navegador de forma diferida para dar tiempo al servidor
                     def open_browser():
-                        time.sleep(1.0)  # Dar tiempo al servidor
+                        time.sleep(1.5)  # Dar tiempo al servidor
                         try:
-                            import platform
-                            import subprocess
-                            
-                            # Intentar Chrome primero (mejor compatibilidad con streaming)
-                            chrome_opened = False
-                            if platform.system() == 'Darwin':  # macOS
-                                try:
-                                    subprocess.run(['open', '-a', 'Google Chrome', url], check=True, timeout=2)
-                                    chrome_opened = True
-                                    print(f"  ✅ Web dashboard abierto en Chrome: {url}")
-                                except:
-                                    pass
-                            elif platform.system() == 'Linux':
-                                # Intentar múltiples nombres de ejecutables de Chrome
-                                for chrome_cmd in ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']:
-                                    try:
-                                        subprocess.run([chrome_cmd, url], check=False, timeout=2, 
-                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                        chrome_opened = True
-                                        print(f"  ✅ Web dashboard abierto en Chrome: {url}")
-                                        break
-                                    except FileNotFoundError:
-                                        continue
-                            
-                            # Si no se pudo abrir Chrome, usar navegador por defecto
-                            if not chrome_opened:
-                                webbrowser.open(url, new=2)
-                                print(f"  ✅ Web dashboard abierto en navegador por defecto: {url}")
-                                
+                            # Usar webbrowser (más confiable y multiplataforma)
+                            webbrowser.open(url, new=2)
+                            print(f"  ✅ Web dashboard abierto en navegador: {url}")
                         except Exception as e:
                             print(f"  ⚠️ Error abriendo navegador: {e}")
                             print(f"  📍 Dashboard disponible en: {url}")

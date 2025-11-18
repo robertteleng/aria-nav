@@ -393,10 +393,12 @@ class NavigationPipeline:
     def _merge_results(self, results: Dict[str, Any], frames_dict: Dict[str, np.ndarray]) -> PipelineResult:
         central_result = results.get("central")
         
+        # Solo incluir detecciones de la cámara central (RGB) en el PipelineResult
+        # Las SLAM se manejan por separado en main.py
         all_detections = []
-        for camera, result in results.items():
-            for det in result.detections:
-                det["camera"] = camera
+        if central_result:
+            for det in central_result.detections:
+                det["camera"] = "central"
                 all_detections.append(det)
         
         # Update latest depth (keep reference, but clear old one first)
