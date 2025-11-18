@@ -761,22 +761,38 @@ class WebDashboard:
     # =================================================================
     
     def start_server(self):
-        """Start Flask server in background thread"""
+        """Start Flask server in background thread with proper startup verification"""
+        import socket
+        
         def run_server():
             self.log_system_message(f"Web dashboard starting on {self.host}:{self.port}", "SYSTEM")
             try:
-                self.app.run(host=self.host, port=self.port, debug=False, threaded=True)
+                self.app.run(host=self.host, port=self.port, debug=False, threaded=True, use_reloader=False)
             except Exception as e:
                 self.log_system_message(f"Web server error: {e}", "ERROR")
         
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
         
-        time.sleep(2)  # Give server time to start
+        # Esperar a que el servidor esté realmente listo
+        max_attempts = 20  # 10 segundos máximo
+        for attempt in range(max_attempts):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.5)
+                result = sock.connect_ex((self.host, self.port))
+                sock.close()
+                if result == 0:
+                    # Servidor está respondiendo
+                    self.log_system_message("🌐 Web dashboard ready", "SYSTEM")
+                    self.log_system_message(f"🔗 Local access: http://localhost:{self.port}", "SYSTEM")
+                    return server_thread
+            except Exception:
+                pass
+            time.sleep(0.5)
         
-        self.log_system_message("🌐 Web dashboard ready", "SYSTEM")
-        self.log_system_message(f"🔗 Local access: http://localhost:{self.port}", "SYSTEM")
-        
+        # Si llegamos aquí, el servidor tardó mucho
+        print("⚠️  Web dashboard tardando en iniciar, pero debería estar listo pronto...")
         return server_thread
     
     def update_performance_stats(self, fps: float = 0.0, frames_processed: int = 0, coordinator_stats: Optional[Dict] = None):

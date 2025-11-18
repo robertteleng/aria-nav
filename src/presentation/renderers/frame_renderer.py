@@ -94,9 +94,14 @@ class FrameRenderer:
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
     def _draw_detections(self, frame: np.array, detections: List[dict]):
-        """Draw detection boxes and labels"""
+        """Draw detection boxes and labels (solo RGB)"""
         for det in detections:
             try:
+                # 🔧 FIX: Filtrar solo detecciones RGB, ignorar SLAM
+                camera_source = det.get('camera_source', 'rgb')
+                if camera_source != 'rgb':
+                    continue  # Skip detecciones de SLAM
+                
                 x1, y1, x2, y2 = det['bbox']
                 name = det.get('name', 'object')
                 zone = det.get('zone', 'center')

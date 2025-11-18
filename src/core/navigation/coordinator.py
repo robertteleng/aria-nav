@@ -276,6 +276,7 @@ class Coordinator:
                         'zone': event.zone,
                         'distance': event.distance,
                         'message': self.slam_router.describe_event(event),
+                        'camera_source': 'slam',  # 🔧 FIX: Marcar como SLAM
                     }
                 )
             event_dict[source.value] = simplified

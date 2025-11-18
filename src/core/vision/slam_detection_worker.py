@@ -145,6 +145,10 @@ class SlamDetectionWorker:
             detections = self.processor.process_frame(frame)
             processing_ms = (time.perf_counter() - start) * 1000.0
 
+            # 🔧 FIX: Marcar detecciones como SLAM para filtrado correcto
+            for det in detections:
+                det["camera_source"] = "slam"
+
             events = self._convert_to_events(
                 detections,
                 timestamp,

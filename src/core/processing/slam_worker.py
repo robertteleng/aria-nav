@@ -37,6 +37,10 @@ class SlamWorker:
         torch.cuda.synchronize()
         latency_ms = (time.perf_counter() - start_time) * 1000
 
+        # 🔧 FIX: Marcar detecciones como SLAM para filtrado correcto
+        for det in detections:
+            det["camera_source"] = "slam"
+
         return ResultMessage(
             frame_id=msg.get("frame_id", -1),
             camera=msg.get("camera", "slam"),

@@ -181,7 +181,7 @@ class YoloProcessor:
             else:
                 log.warning(f"TensorRT enabled but {engine_path} not found, falling back to PyTorch")
         
-        self.model = YOLO(model_path)
+        self.model = YOLO(model_path, task='detect')
         self.device = get_preferred_device(self.runtime_config.device)
         self.device_str = self.device.type
         
@@ -359,6 +359,7 @@ class YoloProcessor:
                         "distance_normalized": obj.depth_value,
                         "distance_raw": obj.depth_raw,
                         "relevance_score": obj.relevance_score,
+                        "camera_source": "rgb",  # Identificador de cámara
                     }
                 )
 

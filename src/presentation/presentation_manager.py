@@ -92,10 +92,16 @@ class PresentationManager:
                 from presentation.dashboards.web_dashboard import WebDashboard
                 self.dashboard = WebDashboard()
                 try:
+                    print("  🔄 Iniciando servidor web dashboard...")
                     self.dashboard_server_thread = self.dashboard.start_server()
+                    
+                    # Esperar un momento adicional para asegurar estabilidad
+                    time.sleep(0.5)
+                    
                     url = f"http://localhost:{self.dashboard.port}"
+                    print(f"  🌐 Abriendo navegador: {url}")
                     webbrowser.open(url, new=2)
-                    print(f"  🌐 Web dashboard abierto en navegador: {url}")
+                    print(f"  ✅ Web dashboard listo y accesible en: {url}")
                 except Exception as server_err:
                     print(f"  ⚠️ Web dashboard server failed: {server_err}")
                     self.dashboard = None
