@@ -82,6 +82,7 @@ class TelemetryLogger:
         self.detections_log = self.output_dir / "detections.jsonl"
         self.audio_log = self.output_dir / "audio_events.jsonl"
         self.system_log = self.output_dir / "system.jsonl"
+        self.resource_log = self.output_dir / "resources.jsonl"
         
         # Buffers en memoria (protegidos por _buffer_lock)
         self.performance_buffer: List[PerformanceMetric] = []
@@ -263,6 +264,27 @@ class TelemetryLogger:
             "message": message,
             **kwargs
         })
+    
+    def log_resources(self, resource_data: Dict[str, Any]) -> None:
+        """
+        Registrar métricas de recursos del sistema (CPU, GPU, RAM).
+        
+        Args:
+            resource_data: Dict con claves:
+                - cpu_pct: float (%)
+                - ram_used_mb: float
+                - ram_total_mb: float
+                - gpu_present: bool
+                - gpu_mem_used_mb: float (opcional)
+                - gpu_mem_total_mb: float (opcional)
+                - gpu_util_pct: float (opcional)
+        """
+        payload = {
+            "timestamp": time.time(),
+            "session_id": self.session_id,
+            **resource_data
+        }
+        self._write_jsonl(self.resource_log, payload)
     
     # ------------------------------------------------------------------
     # Session Management

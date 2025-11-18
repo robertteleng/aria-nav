@@ -10,8 +10,8 @@
 
 ### Baseline vs Final
 
-| Métrica | Inicial (FASE 3) | FASE 4 Final | Mejora |
-|---------|------------------|--------------|---------|
+| Métrica | Inicial (Pre-FASE 4) | FASE 4 Final | Mejora |
+|---------|----------------------|--------------|---------|
 | **FPS Promedio** | 3.5 FPS | **18.4 FPS** | **+426%** 🚀 |
 | **Latencia Promedio** | 283ms | **48ms** | **-83%** ✅ |
 | **YOLO Inference** | ~100ms (PyTorch) | ~40ms (TensorRT) | **2.5x** |

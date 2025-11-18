@@ -84,12 +84,19 @@ src/core/processing/
 
 ---
 
-### **FASE 3: GStreamer Pipeline - Zero-Copy** 📹
+### **FASE 3: GStreamer Pipeline - Zero-Copy** 📹 ⏭️ **SKIPPED**
 **Objetivo**: 50-55 FPS (mejora 270%)  
 **Esfuerzo**: Alto (2-3 días)  
-**Riesgo**: Alto (nueva infraestructura)
+**Riesgo**: Alto (nueva infraestructura)  
+**Estado**: ❌ **SALTADA** - No implementada
 
-#### Acciones:
+**Justificación para skip:**
+- Streaming DDS no era el bottleneck real (YOLO inference lo era)
+- TensorRT (FASE 4) priorizó optimizar inferencia primero
+- Alto esfuerzo/riesgo vs beneficio limitado en contexto actual
+- 18.4 FPS alcanzados sin zero-copy (suficiente para MVP)
+
+#### Acciones (no implementadas):
 1. **Reemplazar DDS Streaming con GStreamer**
    - [ ] Pipeline directo Aria → GPU memory
    - [ ] Hardware decoding (NVDEC)
@@ -184,17 +191,17 @@ src/core/processing/
   - **BONUS**: Depth-Anything-V2 GPU-optimizado (80ms→10ms, 8x speedup)
   - Commit: fa642c0
 
-### ⏳ Semana 2: Validación + Infraestructura (EN PROGRESO)
-- **⏳ Día 1**: Testing con depth integrado
-  - Medir FPS real con depth+YOLO paralelo
-  - Benchmark 50-200 frames, stress test 10min
-  - Validar latency <100ms, FPS ≥15
-- **⏳ Día 2-3**: FASE 3 (GStreamer) - OPCIONAL
-  - Evaluar si streaming es bottleneck
-  - Solo si FPS <15 por problemas de transferencia
-- **⏳ Día 4-5**: Documentación intermedia
-  - Actualizar FASE_2_IMPLEMENTATION.md con depth
-  - Field notes con resultados
+### ✅ Semana 2: Validación + Decisión Estratégica (COMPLETADO)
+- **✅ Día 1**: Testing con depth integrado
+  - FPS real con depth+YOLO: 3.5 FPS (bottleneck identificado: Depth en CPU)
+  - Validación: latency alta, FPS insuficiente
+- **✅ Día 2-3**: FASE 3 (GStreamer) - EVALUADA Y SALTADA
+  - Streaming DDS no es bottleneck (confirmado con profiling)
+  - Decisión: Skip FASE 3, ir directo a FASE 4 (TensorRT)
+  - Justificación: Inferencia es el cuello de botella, no transferencia
+- **✅ Día 4-5**: Documentación intermedia
+  - Field notes FASE 2 completados
+  - Plan ajustado: FASE 2 → FASE 4 directo
 
 ### 🎯 Semana 3: Aceleración TensorRT (SIGUIENTE)
 - **Día 1-2**: Conversión YOLO12n → TensorRT
@@ -234,14 +241,14 @@ CUDA_VISIBLE_DEVICES = "0"      # Single GPU
 
 ## 📈 Mejoras Esperadas por Fase
 
-| Fase | FPS | Mejora | Esfuerzo | Prioridad |
-|------|-----|--------|----------|-----------|
-| Actual | 13.6 | - | - | - |
-| FASE 1 | 22-25 | +65% | Bajo | ⭐⭐⭐ |
-| FASE 2 | 35-40 | +170% | Medio | ⭐⭐⭐ |
-| FASE 3 | 50-55 | +270% | Alto | ⭐⭐ |
-| FASE 4 | 60+ | +340% | Alto | ⭐⭐⭐ |
-| FASE 5 | 60+ | - | Medio | ⭐ |
+| Fase | FPS | Mejora | Esfuerzo | Prioridad | Estado |
+|------|-----|--------|----------|-----------|--------|
+| Actual | 13.6 | - | - | - | ✅ |
+| FASE 1 | 22-25 | +65% | Bajo | ⭐⭐⭐ | ✅ Completado |
+| FASE 2 | 35-40 | +170% | Medio | ⭐⭐⭐ | ✅ Completado |
+| FASE 3 | 50-55 | +270% | Alto | ⭐⭐ | ⏭️ **SKIPPED** |
+| FASE 4 | 18.4 (real) | +35% | Alto | ⭐⭐⭐ | ✅ Completado |
+| FASE 5 | TBD | - | Medio | ⭐ | ⏳ Pendiente |
 
 ---
 
