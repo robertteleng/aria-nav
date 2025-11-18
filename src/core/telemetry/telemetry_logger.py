@@ -3,6 +3,8 @@
 import json
 import time
 import threading
+import queue
+import atexit
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict
@@ -460,3 +462,164 @@ class TelemetryLogger:
         with self._write_lock:
             with open(path, 'a', encoding='utf-8') as f:
                 f.write(line + '\n')
+
+
+# ======================================================================
+# ASYNC TELEMETRY LOGGER - Non-blocking I/O
+# ======================================================================
+
+class AsyncTelemetryLogger(TelemetryLogger):
+    """
+    Telemetry logger con I/O asíncrona para eliminar bottlenecks.
+    
+    Features:
+    - Queue para escrituras no bloqueantes
+    - Background thread con batch writes
+    - Flush interval configurable (default: 1.0s)
+    - Buffer size configurable (default: 100 líneas)
+    - Graceful shutdown con atexit
+    
+    Beneficios:
+    - Elimina spikes de 250-300ms cada ~80 frames
+    - Batch writes reducen syscalls
+    - Main thread nunca bloqueado por I/O
+    
+    Riesgo:
+    - Últimos frames pueden perderse si crash abrupto
+      (mitigado con atexit flush)
+    """
+    
+    def __init__(
+        self,
+        output_dir: Optional[Path] = None,
+        flush_interval: float = 2.0,
+        buffer_size: int = 100,
+        queue_maxsize: int = 2000
+    ):
+        """
+        Inicializar async telemetry logger.
+        
+        Args:
+            output_dir: Directorio base para logs
+            flush_interval: Segundos entre flushes automáticos (default: 2.0s)
+            buffer_size: Líneas acumuladas antes de flush forzado (default: 100)
+            queue_maxsize: Tamaño máximo de la cola (default: 2000, previene OOM)
+        """
+        # Queue para escrituras asíncronas (ANTES de super().__init__)
+        self._write_queue: queue.Queue = queue.Queue(maxsize=queue_maxsize)
+        self._flush_interval = flush_interval
+        self._buffer_size = buffer_size
+        self._shutdown_flag = threading.Event()
+        
+        # Ahora sí, inicializar base class (que llama a _write_jsonl)
+        super().__init__(output_dir)
+        
+        # Background thread para flush
+        self._flush_thread = threading.Thread(
+            target=self._flush_worker,
+            daemon=True,  # Daemon para no bloquear exit
+            name="AsyncTelemetryFlusher"
+        )
+        self._flush_thread.start()
+        
+        # Registrar shutdown handler para flush final
+        atexit.register(self._shutdown)
+        
+        self._log_system_event("async_telemetry_enabled", {
+            "flush_interval": flush_interval,
+            "buffer_size": buffer_size,
+            "queue_maxsize": queue_maxsize
+        })
+        
+        print(f"[TELEMETRY] Modo asíncrono activado (flush={flush_interval}s, buffer={buffer_size})")
+    
+    def _write_jsonl(self, path: Path, data: Dict[str, Any]) -> None:
+        """
+        Queue write en lugar de bloquear.
+        
+        Override del método síncrono para usar queue.
+        """
+        try:
+            self._write_queue.put_nowait((path, data))
+        except queue.Full:
+            # Log error pero no bloquear main thread
+            print(f"[TELEMETRY WARNING] Queue full, dropping write to {path.name}")
+    
+    def _flush_worker(self) -> None:
+        """
+        Background thread para batch writes.
+        
+        Lógica:
+        1. Recoger writes de la queue con timeout
+        2. Acumular en buffers por archivo
+        3. Flush cuando buffer lleno O timeout
+        """
+        buffers: Dict[Path, List[str]] = {}
+        last_flush = time.time()
+        
+        while not self._shutdown_flag.is_set():
+            try:
+                # Esperar write con timeout
+                path, data = self._write_queue.get(timeout=0.1)
+                
+                # Serializar JSON
+                try:
+                    line = json.dumps(data, ensure_ascii=True)
+                except TypeError:
+                    line = json.dumps({"error": "serialization_failed"})
+                
+                # Acumular en buffer
+                if path not in buffers:
+                    buffers[path] = []
+                buffers[path].append(line)
+                
+                # Flush si buffer lleno
+                if len(buffers[path]) >= self._buffer_size:
+                    self._flush_buffer(path, buffers[path])
+                    buffers[path] = []
+                    last_flush = time.time()
+                
+            except queue.Empty:
+                # Timeout: flush todos los buffers si ha pasado el intervalo
+                now = time.time()
+                if now - last_flush >= self._flush_interval:
+                    for file_path, lines in list(buffers.items()):
+                        if lines:
+                            self._flush_buffer(file_path, lines)
+                            buffers[file_path] = []
+                    last_flush = now
+        
+        # Flush final al shutdown
+        for file_path, lines in buffers.items():
+            if lines:
+                self._flush_buffer(file_path, lines)
+    
+    def _flush_buffer(self, path: Path, lines: List[str]) -> None:
+        """
+        Batch write a disco.
+        
+        Escribe múltiples líneas de una vez para reducir syscalls.
+        """
+        try:
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write('\n'.join(lines) + '\n')
+        except Exception as e:
+            print(f"[TELEMETRY ERROR] Failed to flush {path.name}: {e}")
+    
+    def _shutdown(self) -> None:
+        """
+        Graceful shutdown: flush pendiente y detener thread.
+        
+        Llamado automáticamente por atexit.
+        """
+        print("[TELEMETRY] Flushing pending writes...")
+        self._shutdown_flag.set()
+        
+        # Esperar a que el thread termine (con timeout)
+        self._flush_thread.join(timeout=5.0)
+        
+        if self._flush_thread.is_alive():
+            print("[TELEMETRY WARNING] Flush thread did not terminate cleanly")
+        else:
+            print("[TELEMETRY] Shutdown complete")
+

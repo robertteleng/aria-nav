@@ -34,7 +34,7 @@ from core.navigation.builder import Builder  # Factory
 from presentation.presentation_manager import PresentationManager  # Solo UI
 
 # Telemetría centralizada
-from core.telemetry.telemetry_logger import TelemetryLogger
+from core.telemetry.telemetry_logger import AsyncTelemetryLogger
 
 # Depth logger
 from utils.depth_logger import init_depth_logger
@@ -113,8 +113,8 @@ def main():
         print("\n🔧 Inicializando componentes...")
 
         # 0. Inicializar telemetría PRIMERO
-        print("  📊 Inicializando TelemetryLogger...")
-        telemetry = TelemetryLogger()
+        print("  📊 Inicializando AsyncTelemetryLogger...")
+        telemetry = AsyncTelemetryLogger()
         
         # 0b. Inicializar depth logger con la misma sesión
         print("  🔍 Inicializando DepthLogger...")
