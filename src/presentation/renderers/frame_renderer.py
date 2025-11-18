@@ -130,8 +130,7 @@ class FrameRenderer:
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
     def _draw_detections(self, frame: np.array, detections: List[dict]):
-        """Draw detection boxes and labels"""
-        # Detecciones ya vienen filtradas por camera_source en el coordinator
+        """Draw detection boxes and labels - recibe solo RGB detections ya filtradas"""
         for det in detections:
             try:
                 x1, y1, x2, y2 = det['bbox']

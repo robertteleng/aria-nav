@@ -183,8 +183,10 @@ class Coordinator:
         annotated_frame = processed_frame
         if self.frame_renderer is not None:
             try:
+                # Filtrar solo detecciones RGB para el rendering
+                rgb_detections = [d for d in detections if d.get('camera_source') == 'rgb']
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                    processed_frame, detections, self.audio_system, depth_map
+                    processed_frame, rgb_detections, self.audio_system, depth_map
                 )
             except Exception as err:
                 print(f"[WARN] Frame rendering skipped: {err}")
