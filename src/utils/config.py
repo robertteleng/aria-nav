@@ -157,10 +157,10 @@ class Config:
     SLAM_CRITICAL_ONLY = True  # Only emit SLAM events for critical distances
     
     # Aria streaming
-    STREAMING_PROFILE = "profile28"
-    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
+    STREAMING_PROFILE = "profile28"  # Back to 28 for 10min test
+    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
-    STREAMING_PROFILE_WIFI = "profile28"
+    STREAMING_PROFILE_WIFI = "profile15"
     STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
     
     # Performance

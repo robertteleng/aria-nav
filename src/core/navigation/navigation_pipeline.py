@@ -399,8 +399,12 @@ class NavigationPipeline:
                 det["camera"] = camera
                 all_detections.append(det)
         
-        # Update latest depth
+        # Update latest depth (keep reference, but clear old one first)
         if central_result and central_result.depth_map is not None:
+            # Clear old references to allow GC
+            self.latest_depth_map = None
+            self.latest_depth_raw = None
+            # Assign new
             self.latest_depth_map = central_result.depth_map
             self.latest_depth_raw = central_result.depth_raw
         
@@ -410,6 +414,11 @@ class NavigationPipeline:
             timings["central_ms"] = central_result.latency_ms
             timings["slam1_ms"] = results.get("slam1", type("obj", (), {"latency_ms": 0})).latency_ms
             timings["slam2_ms"] = results.get("slam2", type("obj", (), {"latency_ms": 0})).latency_ms
+        
+        # Clear result objects to help GC (they contain large numpy arrays)
+        for result in results.values():
+            result.depth_map = None
+            result.depth_raw = None
         
         return PipelineResult(
             frame=frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)),

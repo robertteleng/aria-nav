@@ -61,7 +61,7 @@ class CentralWorker:
             
             checkpoint_path = 'checkpoints/depth_anything_v2_vits.pth'
             log.info(f"[CentralWorker] Step 2.4: Loading checkpoint {checkpoint_path}...")
-            state_dict = torch.load(checkpoint_path, map_location='cpu')
+            state_dict = torch.load(checkpoint_path, map_location='cpu', weights_only=True)
             log.info("[CentralWorker] ✅ Checkpoint loaded to CPU")
             
             log.info("[CentralWorker] Step 2.5: Loading state dict...")

@@ -34,6 +34,9 @@ class WebDashboard:
         self.current_slam1_frame = None  
         self.current_slam2_frame = None
         
+        # Placeholder cache (avoid recreating constantly)
+        self._placeholder_cache = {}
+        
         # Performance stats
         self.stats = {
             'fps': 0.0,
@@ -563,7 +566,11 @@ class WebDashboard:
         '''
     
     def _create_placeholder_frame(self, stream_type: str) -> np.ndarray:
-        """Create placeholder frame when no data available"""
+        """Create placeholder frame when no data available (cached)"""
+        # Check cache first
+        if stream_type in self._placeholder_cache:
+            return self._placeholder_cache[stream_type]
+        
         frame = np.zeros((240, 320, 3), dtype=np.uint8)
         
         # Add gradient background
@@ -581,6 +588,9 @@ class WebDashboard:
         cv2.putText(frame, text, (text_x, text_y), font, 0.7, (100, 100, 100), 2)
         cv2.putText(frame, "Waiting for stream...", (text_x - 20, text_y + 30), 
                    font, 0.5, (80, 80, 80), 1)
+        
+        # Cache for future use
+        self._placeholder_cache[stream_type] = frame
         
         return frame
 
@@ -609,7 +619,7 @@ class WebDashboard:
         """Update RGB frame - Observer pattern compatibility"""
         if frame is not None:
             with self._frame_lock:
-                self.current_rgb_frame = frame.copy()
+                self.current_rgb_frame = frame  # Direct assign (lock protects)
     
     def log_depth_map(self, depth_map: np.ndarray):
         """Update depth frame - Observer pattern compatibility"""  
@@ -625,7 +635,7 @@ class WebDashboard:
         """Update SLAM1 frame"""
         if slam1_frame is not None:
             with self._frame_lock:
-                frame_copy = slam1_frame.copy()
+                frame_copy = slam1_frame  # Direct assign (lock protects)
                 if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
                 if events:
@@ -642,7 +652,7 @@ class WebDashboard:
         """Update SLAM2 frame"""
         if slam2_frame is not None:
             with self._frame_lock:
-                frame_copy = slam2_frame.copy()
+                frame_copy = slam2_frame  # Direct assign (lock protects)
                 if frame_copy.ndim == 2 or (frame_copy.ndim == 3 and frame_copy.shape[2] == 1):
                     frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
                 if events:

@@ -21,6 +21,7 @@ Version: 2.0 - Clean Separated Architecture + Mock Support
 
 import cv2
 import time
+import gc
 from utils.ctrl_handler import CtrlCHandler
 from utils.config import Config
 from core.hardware.device_manager import DeviceManager
@@ -115,6 +116,25 @@ def main():
         # 0. Inicializar telemetría PRIMERO
         print("  📊 Inicializando AsyncTelemetryLogger...")
         telemetry = AsyncTelemetryLogger()
+        
+        # 0a. Inicializar ResourceMonitor para telemetry
+        print("  💻 Inicializando ResourceMonitor...")
+        from utils.resource_monitor import ResourceMonitor
+        resource_monitor = ResourceMonitor(
+            interval=2.0,  # Sample cada 2 segundos
+            callback=lambda data: telemetry.log_resources(data)
+        )
+        resource_monitor.start()
+        print("  ✅ ResourceMonitor started (logging to telemetry)")
+        
+        # 0a2. Inicializar MemoryProfiler
+        print("  🧠 Inicializando MemoryProfiler...")
+        from utils.memory_profiler import MemoryProfiler
+        memory_profiler = MemoryProfiler(
+            enabled=True,
+            snapshot_interval=30.0  # Snapshot cada 30s
+        )
+        print("  ✅ MemoryProfiler started (snapshot every 30s)")
         
         # 0b. Inicializar depth logger con la misma sesión
         print("  🔍 Inicializando DepthLogger...")
@@ -227,6 +247,10 @@ def main():
                         latency_ms=frame_latency_ms
                     )
                     
+                    # 🧠 MEMORY: Check if should take snapshot
+                    if memory_profiler.maybe_take_snapshot():
+                        print(f"[MEMORY] Snapshot taken at frame {frames_processed}")
+                    
                     # ✅ NUEVO: Log detecciones RGB
                     current_detections = coordinator.get_current_detections()
                     if current_detections:
@@ -257,6 +281,10 @@ def main():
                         print("[INFO] Testing audio system...")
                         coordinator.test_audio()
                         presentation.log_audio_command("Test del sistema", 5)
+                    
+                    # 🧹 MEMORY: Liberar referencias a frames para ayudar al GC
+                    del frame, processed_frame, depth_map, slam1_frame, slam2_frame
+                    frame = processed_frame = depth_map = slam1_frame = slam2_frame = None
                 
                 # Estadísticas periódicas
                 current_time = time.time()
@@ -266,6 +294,11 @@ def main():
                     if telemetry:
                         perf = telemetry.get_performance_summary()
                         print(f"[PERF] FPS: {perf.get('avg_fps', 0):.1f}, Latencia: {perf.get('avg_latency_ms', 0):.0f}ms")
+                    
+                    # 🧹 MEMORY: Forzar garbage collection periódicamente
+                    gc.collect()
+                    print(f"[MEMORY] GC executed (freed memory)")
+                    
                     last_stats_print = current_time
                 
             except Exception as e:
@@ -294,6 +327,25 @@ def main():
     finally:
         # Cleanup ordenado de todos los componentes
         print("\n🧹 Iniciando limpieza de recursos...")
+        
+        # Detener ResourceMonitor
+        try:
+            if 'resource_monitor' in locals() and resource_monitor:
+                print("  💻 Deteniendo ResourceMonitor...")
+                resource_monitor.stop()
+        except Exception as e:
+            print(f"  ⚠️ Error deteniendo ResourceMonitor: {e}")
+        
+        # Finalizar MemoryProfiler
+        try:
+            if 'memory_profiler' in locals() and memory_profiler:
+                print("  🧠 Finalizando MemoryProfiler...")
+                memory_profiler.print_summary()
+                if telemetry:
+                    memory_profiler.log_to_file(telemetry.output_dir)
+                memory_profiler.stop()
+        except Exception as e:
+            print(f"  ⚠️ Error finalizando MemoryProfiler: {e}")
         
         # Finalizar telemetría PRIMERO
         try:
