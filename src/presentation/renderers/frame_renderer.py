@@ -94,7 +94,7 @@ class FrameRenderer:
         cv2.line(frame, (0, mid_y), (width - 1, mid_y), (255, 255, 255), 1)
 
         if Config.ZONE_SYSTEM == "five_zones":
-            # Zona central
+            # Zona central (sin dibujar rectángulo)
             center_margin_x = width * Config.CENTER_ZONE_WIDTH_RATIO
             center_margin_y = height * Config.CENTER_ZONE_HEIGHT_RATIO
             
@@ -102,10 +102,6 @@ class FrameRenderer:
             center_right = int(width/2 + center_margin_x/2)
             center_top = int(height/2 - center_margin_y/2)
             center_bottom = int(height/2 + center_margin_y/2)
-            
-            # Rectángulo zona central
-            cv2.rectangle(frame, (center_left, center_top), (center_right, center_bottom), 
-                         (255, 0, 0), 2)
             
             # Labels de zonas
             cv2.putText(frame, "Upper Left", (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
@@ -116,8 +112,6 @@ class FrameRenderer:
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.putText(frame, "Lower Right", (mid_x + 10, mid_y + 25), cv2.FONT_HERSHEY_SIMPLEX,
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.putText(frame, "CENTER", (center_left + 10, center_top + 20), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
         else:
             # Labels 4 cuadrantes
             cv2.putText(frame, "Top Left", (10, 25), cv2.FONT_HERSHEY_SIMPLEX,

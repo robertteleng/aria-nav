@@ -14,7 +14,6 @@ import numpy as np
 import time
 import threading
 from typing import Optional, Dict, List
-from utils.resource_monitor import ResourceMonitor
 
 
 class WebDashboard:
@@ -62,14 +61,6 @@ class WebDashboard:
         self.max_recent_detections = 10
         
         self.start_time = time.time()
-        # Resource monitor for standalone dashboard
-        self._resource_monitor: ResourceMonitor | None = None
-        try:
-            self._resource_monitor = ResourceMonitor(interval=1.0, callback=self._on_resource_sample)
-            self._resource_monitor.start()
-            self.log_system_message("ResourceMonitor started for WebDashboard", "SYSTEM")
-        except Exception as e:
-            print(f"⚠️ ResourceMonitor failed to start in WebDashboard: {e}")
         self.setup_routes()
         
         print(f"🌐 WebDashboard initialized on {host}:{port}")
@@ -387,41 +378,9 @@ class WebDashboard:
                     <div class="stat-value" id="frames">0</div>
                     <div class="stat-label">Frames</div>
                 </div>
-                <div class="stat">
-                    <div class="stat-value" id="cpu">--%</div>
-                    <div class="stat-label">CPU</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="ram">--/-- MB</div>
-                    <div class="stat-label">RAM</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="gpu">--%</div>
-                    <div class="stat-label">GPU</div>
-                </div>
             </div>
         </div>
 
-        <div class="panel">
-            <h3>🖥️ System Metrics</h3>
-            <div class="system-metrics">
-                <div class="stat">
-                    <div class="stat-value" id="cpu-panel">--%</div>
-                    <div class="stat-label">CPU Usage</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="ram-panel">--/-- MB</div>
-                    <div class="stat-label">RAM Used</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="gpu-panel">--%</div>
-                    <div class="stat-label">GPU Util / Mem</div>
-                </div>
-            </div>
-            <div style="margin-top:8px; font-size:12px; color:#9ab0ff;">
-                Metrics sampled via `ResourceMonitor` every second.
-            </div>
-        </div>
 
         <div class="panel">
             <h3>🎯 Detecciones recientes</h3>
@@ -476,18 +435,6 @@ class WebDashboard:
                     document.getElementById('slam1-count').textContent = data.slam1_events || 0;
                     document.getElementById('slam2-count').textContent = data.slam2_events || 0;
                     document.getElementById('frames').textContent = data.frames_processed || 0;
-                    const cpuPct = data.cpu_pct ? data.cpu_pct.toFixed(1) + '%' : '--%';
-                    const ramText = (data.ram_used_mb || 0) + '/' + (data.ram_total_mb || 0) + ' MB';
-                    let gpuText = 'N/A';
-                    if (data.gpu_present) {
-                        gpuText = (data.gpu_util_pct || 0) + '% / ' + (data.gpu_mem_used_mb || 0) + 'MB';
-                    }
-                    document.getElementById('cpu').textContent = cpuPct;
-                    document.getElementById('cpu-panel').textContent = cpuPct;
-                    document.getElementById('ram').textContent = ramText;
-                    document.getElementById('ram-panel').textContent = ramText;
-                    document.getElementById('gpu').textContent = gpuText;
-                    document.getElementById('gpu-panel').textContent = gpuText;
                     
                     const eventsBox = document.getElementById('slam-events');
                     if (data.slam_messages && data.slam_messages.length) {
@@ -594,22 +541,7 @@ class WebDashboard:
         
         return frame
 
-    def _on_resource_sample(self, data: Dict[str, any]):
-        """Callback from ResourceMonitor to update stats with resource info."""
-        try:
-            self.stats['cpu_pct'] = data.get('cpu_pct')
-            self.stats['ram_used_mb'] = data.get('ram_used_mb')
-            self.stats['ram_total_mb'] = data.get('ram_total_mb')
-            if data.get('gpu_present'):
-                self.stats['gpu_mem_used_mb'] = data.get('gpu_mem_used_mb')
-                self.stats['gpu_mem_total_mb'] = data.get('gpu_mem_total_mb')
-                self.stats['gpu_util_pct'] = data.get('gpu_util_pct')
-            else:
-                self.stats['gpu_mem_used_mb'] = 0
-                self.stats['gpu_mem_total_mb'] = 0
-                self.stats['gpu_util_pct'] = 0
-        except Exception:
-            pass
+
     
     # =================================================================
     # OBSERVER PATTERN COMPATIBILITY - Same API as OpenCV/Rerun dashboards
