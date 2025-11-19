@@ -1,0 +1,58 @@
+@startuml
+!theme plain
+skinparam defaultFontSize 12
+left to right direction
+
+skinparam package {
+  BackgroundColor<<hardware>> #EEF2FF
+  BackgroundColor<<perception>> #DBEAFE
+  BackgroundColor<<processing>> #D1FAE5
+  BackgroundColor<<decision>> #FEF3C7
+  BackgroundColor<<output>> #FCE7F3
+  BorderColor #1E3A8A
+  roundCorner 8
+}
+
+skinparam component {
+  BackgroundColor #FFFFFF
+  BorderColor #1E40AF
+  roundCorner 5
+}
+
+package "HARDWARE" <<hardware>> {
+  component "Meta Aria\n3 cámaras\n+ IMU" as ARIA
+}
+
+package "PERCEPCIÓN" <<perception>> {
+  component "Vision\nRGB+SLAM" as VISION
+  component "IMU\n1000Hz" as IMU
+}
+
+package "PROCESAMIENTO" <<processing>> {
+  component "YOLO\nDetection" as YOLO
+  component "Depth\nEstimation" as DEPTH
+}
+
+package "NAVEGACIÓN" <<decision>> {
+  component "Spatial\nZones" as ZONES
+  component "Decision\nEngine" as ENGINE
+}
+
+package "RETROALIMENTACIÓN" <<output>> {
+  component "Beep+TTS" as AUDIOSYS
+}
+
+ARIA --> VISION
+ARIA --> IMU
+
+VISION --> YOLO
+VISION --> DEPTH
+
+YOLO --> ZONES
+DEPTH --> ZONES
+IMU --> ENGINE
+
+ZONES --> ENGINE
+ENGINE --> AUDIOSYS
+
+@enduml

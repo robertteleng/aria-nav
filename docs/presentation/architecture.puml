@@ -1,0 +1,45 @@
+@startuml
+!theme plain
+skinparam defaultFontSize 14
+skinparam defaultFontName Arial
+
+skinparam rectangle {
+  BackgroundColor<<infra>> #BFDBFE
+  BackgroundColor<<app>> #BBF7D0
+  BackgroundColor<<ui>> #FED7AA
+  BorderColor #1E40AF
+  FontSize 12
+  roundCorner 10
+}
+
+rectangle "CAPA DE INFRAESTRUCTURA" <<infra>> {
+  rectangle "Aria SDK\n(DDS Streaming)" as SDK
+  rectangle "GPU Manager\n(CUDA/MPS)" as GPU
+  rectangle "Observer\n(Multi-camera)" as OBS
+}
+
+rectangle "CAPA DE APLICACIÓN" <<app>> {
+  rectangle "YOLO Detector\n(40ms)" as YOLO
+  rectangle "Depth Estimator\n(27ms)" as DEPTH
+  rectangle "Decision Engine\n(5ms)" as ENGINE
+  rectangle "Audio Router\n(Queue)" as ROUTER
+}
+
+rectangle "CAPA DE PRESENTACIÓN" <<ui>> {
+  rectangle "OpenCV\nDashboard" as CV
+  rectangle "Web\nDashboard" as WEB
+  rectangle "Rerun 3D\nViewer" as RERUN
+}
+
+SDK --> OBS
+GPU --> YOLO
+GPU --> DEPTH
+OBS --> YOLO
+YOLO --> ENGINE
+DEPTH --> ENGINE
+ENGINE --> ROUTER
+ROUTER --> CV
+ROUTER --> WEB
+ROUTER --> RERUN
+
+@enduml
