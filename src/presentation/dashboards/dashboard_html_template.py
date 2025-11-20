@@ -359,7 +359,7 @@ DASHBOARD_HTML = '''
 
             <div class="panel">
                 <div class="panel-header">
-                    <span class="panel-title">System Logs</span>
+                    <span class="panel-title">Recent Detections</span>
                 </div>
                 <div class="logs" id="logs-container">Loading logs...</div>
             </div>

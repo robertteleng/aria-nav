@@ -47,6 +47,9 @@ class Observer:
         }
         self.motion_magnitude_history = deque(maxlen=50)
         
+        # Motion state tracking
+        self._last_motion_state = 'stationary'  # Estado inicial
+        
         # Threading control
         self._stop = False
         
@@ -123,7 +126,7 @@ class Observer:
         
         # Debug periódico (cada ~3 segundos para IMU0)
         if imu_idx == 0 and len(self.imu_data[imu_key]) % 300 == 0:
-            motion_state = self._estimate_motion_state()
+            motion_state = self._update_last_motion_state()
             print(f"[OBSERVER] IMU0: magnitude={magnitude:.2f} m/s², state={motion_state}")
     
     def on_streaming_client_failure(self, reason, message: str) -> None:
@@ -207,13 +210,21 @@ class Observer:
         mean_mag = np.mean(recent_magnitudes)
         std_mag = np.std(recent_magnitudes)
         
-        # Thresholds simples para clasificación
-        if std_mag < 0.5:
+        # Thresholds ajustados - más sensibles al movimiento
+        if std_mag < 0.3:  # Muy poca variación
             return 'stationary'
-        elif std_mag > 1.0:
+        elif std_mag > 0.6:  # Variación clara indica movimiento
             return 'walking'
         else:
-            return 'stationary'  # Default conservador
+            # Zona de hysteresis: mantener estado anterior
+            return self._last_motion_state
+    
+    def _update_last_motion_state(self):
+        """Actualizar el último estado de movimiento conocido"""
+        state = self._estimate_motion_state()
+        if state in ('stationary', 'walking'):  # Solo guardar estados válidos
+            self._last_motion_state = state
+        return state
     
     # ============================================================================
     # PUBLIC API - Thread-safe access methods
@@ -280,8 +291,11 @@ class Observer:
             if self.imu_data['imu0']:
                 latest_imu = self.imu_data['imu0'][-1]
             
+            # Actualizar y guardar el estado
+            state = self._update_last_motion_state()
+            
             return {
-                'state': self._estimate_motion_state(),
+                'state': state,
                 'magnitude': latest_imu['magnitude'] if latest_imu else 9.8,
                 'timestamp': latest_imu['timestamp'] if latest_imu else None,
                 'history_length': len(self.motion_magnitude_history)
