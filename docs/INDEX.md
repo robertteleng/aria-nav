@@ -29,7 +29,7 @@
 |-------|---------|--------|
 | [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | ✅ Active |
 | [Audio Configuration](guides/audio_config.md) | Audio system setup (macOS/Linux) | ✅ Active |
-| [Dashboard Usage](guides/dashboard_usage.md) | Web/OpenCV/Rerun dashboards | 📝 Draft |
+| [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ✅ Active |
 
 ---
 
@@ -58,14 +58,13 @@
 ### Hardware Migration
 | Document | Target Platform | Status |
 |----------|----------------|--------|
-| [NUC Migration Guide](migration/NUC_MIGRATION.md) | Intel NUC 11 + RTX 2060 | ✅ Consolidated |
-| [TensorRT Optimization](migration/TENSORRT_OPTIMIZATION.md) | CUDA acceleration | 🚧 In Progress |
+| [NUC Migration Guide](migration/NUC_MIGRATION.md) | Intel NUC 11 + RTX 2060 | ✅ Complete |
 
 ### Software Migration
-| Document | Purpose |
-|----------|---------|
-| [Linux Audio Migration](migration/LINUX_AUDIO.md) | macOS → Linux audio stack |
-| [Audio Router Migration](migration/AUDIO_ROUTER_MIGRATION.md) | Legacy → new audio system |
+| Document | Purpose | Status |
+|----------|---------|--------|
+| [Linux Audio Migration](migration/LINUX_AUDIO.md) | macOS → Linux audio stack | ✅ Active |
+| [Audio Router Migration](migration/AUDIO_ROUTER_MIGRATION.md) | Legacy → new audio system | ✅ Active |
 
 ---
 
