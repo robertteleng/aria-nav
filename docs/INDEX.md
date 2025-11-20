@@ -3,6 +3,18 @@
 > **Central documentation hub for the Aria Navigation System**  
 > Last updated: November 20, 2025
 
+## 🎯 Essential Documents (Start Here)
+
+| Document | Description | Priority |
+|----------|-------------|----------|
+| [**PROJECT_TIMELINE.md**](PROJECT_TIMELINE.md) | **Complete 10-iteration development history** | ⭐⭐⭐ |
+| [**CHANGELOG.md**](../CHANGELOG.md) | **Version history with all features/fixes** | ⭐⭐⭐ |
+| [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md) | **Complete guide to debugging issues** | ⭐⭐⭐ |
+| [Setup Guide](setup/SETUP.md) | Detailed installation and configuration | ⭐⭐ |
+| [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ⭐⭐ |
+
+---
+
 ## 📖 Quick Start
 
 | Document | Description | Audience |
@@ -10,6 +22,7 @@
 | [README](../README.md) | Project overview, installation, basic usage | Everyone |
 | [Setup Guide](setup/SETUP.md) | Detailed installation and configuration | New users |
 | [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | Daily users |
+| [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | Developers |
 
 ---
 
@@ -20,6 +33,17 @@
 | [Architecture Overview](architecture/architecture_document.md) | Complete system architecture |
 | [Pipeline Details](architecture/pipeline_overview.md) | Vision pipeline breakdown |
 | [Audio System](architecture/audio_spatial_summary.md) | Spatial audio architecture |
+| [Navigation Audio Flow](architecture/navigation_audio_flow.md) | Audio routing architecture |
+
+### 📊 Diagrams
+| Diagram | Purpose | Location |
+|---------|---------|----------|
+| [Primary Architecture](architecture/architecture.puml) | Main system architecture | ⭐ PRIMARY |
+| [Audio Flow](architecture/navigation_audio_flow.puml) | Audio routing diagram | ⭐ PRIMARY |
+| [UML Evolution](diagrams/uml/03_*_clean.puml) | Class/package/sequence diagrams | ⭐ LATEST |
+| [Project Timeline](diagrams/project/01_evolution_timeline.puml) | Development timeline visualization | Reference |
+
+**→ See [PUML_AUDIT.md](PUML_AUDIT.md) for complete diagram inventory**
 
 ---
 
@@ -30,6 +54,7 @@
 | [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | ✅ Active |
 | [Audio Configuration](guides/audio_config.md) | Audio system setup (macOS/Linux) | ✅ Active |
 | [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ✅ Active |
+| [**Troubleshooting**](TROUBLESHOOTING.md) | **Complete debugging guide** | ✅ Active |
 
 ---
 
@@ -66,15 +91,88 @@
 | [Linux Audio Migration](migration/LINUX_AUDIO.md) | macOS → Linux audio stack | ✅ Active |
 | [Audio Router Migration](migration/AUDIO_ROUTER_MIGRATION.md) | Legacy → new audio system | ✅ Active |
 
+### Performance Optimization
+| Document | Focus | Achievement |
+|----------|-------|-------------|
+| [**CUDA Optimization**](migration/CUDA_OPTIMIZATION.md) | **Complete optimization guide** | **+426% FPS** |
+| [CUDA Phase Documentation](cuda optimization/README.md) | Phase-by-phase details (FASE 1-4) | 3.5 → 18.4 FPS |
+
 ---
 
-## 📊 Project History
+## 📊 Project History & Timeline
 
-| Document | Period | Purpose |
-|----------|--------|---------|
+| Document | Coverage | Purpose |
+|----------|----------|---------|
+| [**PROJECT_TIMELINE.md**](PROJECT_TIMELINE.md) | **All 10 iterations** | **Complete development journey** |
+| [**CHANGELOG.md**](../CHANGELOG.md) | **v1.0 → v2.0** | **All features, fixes, improvements** |
 | [Development Diary](history/development_diary.md) | 2024-2025 | Daily development log |
 | [Daily Notes](history/daily_notes.md) | Chronological | Quick session notes |
 | [Phase Plans](history/phases/) | By phase | Historical planning docs |
+
+---
+
+## 🗂️ Reference & Maintenance
+
+| Document | Purpose |
+|----------|---------|
+| [PUML Audit](PUML_AUDIT.md) | Complete diagram inventory (37 files) |
+| [Documentation Reorganization](REORGANIZATION_SUMMARY.md) | November 2025 restructuring |
+| [Archive](archive/README.md) | Deprecated/completed documentation |
+
+---
+
+## 🔍 Finding Information
+
+### I want to...
+
+1. **Understand the project** → Start with [PROJECT_TIMELINE.md](PROJECT_TIMELINE.md)
+2. **Install the system** → See [Setup Guide](setup/SETUP.md)
+3. **Debug an issue** → Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+4. **See what changed** → Read [CHANGELOG.md](../CHANGELOG.md)
+5. **Optimize performance** → Review [CUDA Optimization](migration/CUDA_OPTIMIZATION.md)
+6. **Test without hardware** → Use [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md)
+7. **Understand architecture** → See [Architecture Overview](architecture/architecture_document.md)
+8. **Find a diagram** → Check [PUML Audit](PUML_AUDIT.md)
+
+---
+
+## 📈 Documentation Stats
+
+- **Total Files:** 45+ Markdown documents
+- **Total Lines:** 10,000+ lines of documentation
+- **Diagrams:** 37 PlantUML files
+- **Categories:** 9 (setup, guides, architecture, development, testing, migration, history, archive, diagrams)
+- **Last Major Update:** November 20, 2025 (Complete consolidation)
+
+---
+
+## 🎯 Documentation Goals
+
+### Completed ✅
+- ✅ Complete documentation reorganization (9 categories)
+- ✅ Central INDEX.md hub
+- ✅ 10-iteration timeline documented
+- ✅ Complete CHANGELOG (v1.0 → v2.0)
+- ✅ Comprehensive troubleshooting guide
+- ✅ CUDA optimization consolidation
+- ✅ PUML diagram audit
+- ✅ Missing documentation filled (SETUP, audio_config, testing)
+
+### Future Improvements
+- [ ] API reference documentation
+- [ ] Video tutorials
+- [ ] Interactive diagram viewer
+- [ ] Automated documentation tests
+
+---
+
+**Documentation Status:** ✅ Production Ready  
+**Coverage:** Comprehensive (100% of major features)  
+**Maintenance:** Active  
+
+---
+
+*For questions or suggestions about documentation, see [CONTRIBUTING.md](../CONTRIBUTING.md)*
 
 ---
 
