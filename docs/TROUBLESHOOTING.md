@@ -25,6 +25,78 @@
 
 ## 🚨 Critical Bug Fixes (Historical)
 
+### ✅ FIXED: YOLO Input Format Error (Nov 20, 2025)
+
+**Symptom:**
+```
+WARNING ⚠️ torch.Tensor inputs should be BCHW i.e. shape(1, 3, 640, 640) 
+divisible by stride 32. Input shape(1408, 1408, 3) is incompatible.
+[WARN] YOLO processing failed
+```
+
+**Root Cause:**
+When `use_pinned_memory` was enabled, frames were converted to PyTorch tensors in HWC format before passing to YOLO. YOLO expects either:
+- NumPy arrays in HWC (which it preprocesses to BCHW internally)
+- Tensors already in BCHW format
+
+**Solution:**
+```python
+# BEFORE (broken)
+if self.use_pinned_memory and self.device_str == 'cuda':
+    frame_tensor = torch.from_numpy(frame).pin_memory()
+    input_frame = frame_tensor  # Wrong: HWC tensor
+results = self.model.predict(source=input_frame, ...)
+
+# AFTER (fixed)
+results = self.model.predict(
+    source=frame,  # Let YOLO handle preprocessing
+    ...
+)
+```
+
+**Impact:** Resolved all YOLO processing failures on all cameras.
+
+---
+
+### ✅ FIXED: Fisheye Distortion Affecting Detection (Nov 20, 2025)
+
+**Symptom:**
+- YOLO not detecting objects in SLAM peripheral cameras
+- Detections working on RGB but poor on fisheye cameras
+- Distorted image input reducing accuracy
+
+**Root Cause:**
+Aria cameras use fisheye lenses. YOLO trained on rectilinear images performs poorly on distorted input.
+
+**Solution:**
+Implemented SDK-based rectification for all cameras:
+```python
+from projectaria_tools.core.calibration import (
+    distort_by_calibration,
+    get_linear_camera_calibration,
+)
+
+# Get focal length from original calibration
+focal_length = calib.get_focal_lengths()[0]  # focal_x
+
+# Get pinhole model (requires width, height, focal_length, label)
+pinhole = get_linear_camera_calibration(w, h, focal_length, calib.get_label())
+
+# Apply rectification
+rectified = distort_by_calibration(image, pinhole, original_calib)
+```
+
+**Applied to:**
+- RGB camera (`camera-rgb`) - uses RGB's focal length
+- SLAM left camera (`camera-slam-left`) - uses SLAM's focal length
+- SLAM right camera (`camera-slam-right`) - uses SLAM's focal length
+
+**Important:** Each camera has different focal lengths (RGB vs fisheye SLAM), so focal length must be extracted from each specific calibration object.
+
+**Impact:** Improved YOLO detection accuracy by removing fisheye distortion.
+
+---
+
 ### ✅ FIXED: Depth Not Executing (Nov 17, 2025)
 
 **Symptom:**

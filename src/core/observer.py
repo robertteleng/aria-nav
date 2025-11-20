@@ -21,10 +21,20 @@ class Observer:
     Observer puramente dedicado al Aria SDK
     """
     
-    def __init__(self, rgb_calib=None):
-        self.rgb_calib = rgb_calib
+    def __init__(self, rgb_calib=None, slam1_calib=None, slam2_calib=None):
+        """
+        Inicializar Observer con calibraciones del SDK
         
-        # Frame storage thread-safe
+        Args:
+            rgb_calib: Calibración de cámara RGB del SDK
+            slam1_calib: Calibración de cámara SLAM1 del SDK
+            slam2_calib: Calibración de cámara SLAM2 del SDK
+        """
+        self.rgb_calib = rgb_calib
+        self.slam1_calib = slam1_calib
+        self.slam2_calib = slam2_calib
+        
+        # Frame storage thread-safeclear
         self._lock = threading.Lock()
         self.current_frames = {
             'rgb': None,      # Center camera (main)
@@ -72,11 +82,11 @@ class Observer:
             camera_key = 'rgb'
             
         elif camera_id == aria.CameraId.Slam1:
-            processed_image = self._process_slam_image(image)
+            processed_image = self._process_slam_image(image, self.slam1_calib)
             camera_key = 'slam1'
             
         elif camera_id == aria.CameraId.Slam2:
-            processed_image = self._process_slam_image(image)
+            processed_image = self._process_slam_image(image, self.slam2_calib)
             camera_key = 'slam2'
             
         else:
@@ -157,7 +167,7 @@ class Observer:
 
         return rotated
     
-    def _process_slam_image(self, image: np.array) -> np.array:
+    def _process_slam_image(self, image: np.array, calib=None) -> np.array:
         """
         Procesar imágenes SLAM (cámaras periféricas izquierda/derecha)
         
@@ -167,7 +177,7 @@ class Observer:
         Returns:
             np.array: Imagen procesada y rotada
         """
-        # Convertir grayscale a RGB si es necesario
+        # Convertir grayscale a BGR si es necesario
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         elif getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'BGR').upper() == 'RGB':

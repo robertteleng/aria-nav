@@ -34,6 +34,13 @@ DEVICE = detect_device()
 class Config:
     """System configuration constants"""
     
+    # ========== FASE 1: CUDA Optimizations (Class Attributes) ==========
+    CUDA_OPTIMIZATIONS = True
+    PINNED_MEMORY = True
+    NON_BLOCKING_TRANSFER = True
+    CUDA_STREAMS = True  # OBLIGATORIO en FASE 1
+    PHASE6_HYBRID_STREAMS = True  # PHASE 6: Enable streams in main process with multiproc
+    
     # ========== FASE 4: Resoluciones TensorRT ==========
     # RGB Camera (central - alta resolución)
     YOLO_RGB_IMAGE_SIZE = 640           # RGB usa 640x640 (yolo12n.engine)
@@ -56,15 +63,10 @@ class Config:
     def __init__(self):
         """Initialize config with FASE 4 TensorRT optimizations"""
         
-        log.info(f"✓ FASE 4 TensorRT - RGB: {self.YOLO_RGB_IMAGE_SIZE}x{self.YOLO_RGB_IMAGE_SIZE}, "
+        print(f"[CONFIG] FASE 4 TensorRT Mode - Image sizes: "
+                 f"RGB: {self.YOLO_RGB_IMAGE_SIZE}x{self.YOLO_RGB_IMAGE_SIZE}, "
                  f"SLAM: {self.YOLO_SLAM_IMAGE_SIZE}x{self.YOLO_SLAM_IMAGE_SIZE}, "
                  f"Depth: {self.DEPTH_INPUT_SIZE}x{self.DEPTH_INPUT_SIZE}")
-        
-        # ========== FASE 1: CUDA Optimizations ==========
-        self.CUDA_OPTIMIZATIONS = True
-        self.PINNED_MEMORY = True
-        self.NON_BLOCKING_TRANSFER = True
-        self.CUDA_STREAMS = True  # OBLIGATORIO en FASE 1
         
         # Habilitar optimizaciones CUDA
         if self.CUDA_OPTIMIZATIONS and torch.cuda.is_available():
@@ -175,7 +177,7 @@ class Config:
     
     # Aria streaming
     STREAMING_PROFILE = "profile28"  # Back to 28 for 10min test
-    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
+    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
     STREAMING_PROFILE_WIFI = "profile15"
     STREAMING_WIFI_DEVICE_IP = "192.168.0.204"

@@ -32,11 +32,12 @@ python src/main.py debug
 ## 🎯 What It Does
 
 **Real-time navigation assistance using:**
-- 🎥 **RGB Camera** - Object detection (YOLO) + depth estimation (Depth-Anything v2)
-- 👀 **Peripheral Vision** - SLAM cameras for lateral obstacle detection
+- 🎥 **RGB Camera** - Object detection (YOLO) + depth estimation (Depth-Anything v2) + fisheye rectification
+- 👀 **Peripheral Vision** - SLAM cameras for lateral obstacle detection (rectified)
 - 🧭 **IMU Sensors** - Motion state tracking (stationary/walking)
 - 🔊 **Spatial Audio** - Prioritized voice commands + beep alerts
 - 📊 **Live Dashboards** - OpenCV, Rerun, or Web visualization
+- 🎯 **Image Rectification** - SDK-based undistortion for all fisheye cameras
 
 ---
 

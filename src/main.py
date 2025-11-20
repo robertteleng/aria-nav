@@ -161,13 +161,17 @@ def main():
             print("  📱 Conectando con Aria glasses...")
             device_manager = DeviceManager()
             device_manager.connect()
-            rgb_calib = device_manager.start_streaming()
+            rgb_calib, slam1_calib, slam2_calib = device_manager.start_streaming()
             
             print("  👁️ Inicializando AriaObserver (SDK only)...")
-            observer = Observer(rgb_calib=rgb_calib)
+            observer = Observer(
+                rgb_calib=rgb_calib,
+                slam1_calib=slam1_calib,
+                slam2_calib=slam2_calib
+            )
             device_manager.register_observer(observer)
             device_manager.subscribe()
-            print("  ✅ AriaObserver conectado al hardware real")
+            print("  ✅ AriaObserver conectado con calibraciones RGB + SLAM")
         
         # 3. Navigation Coordinator Setup (Solo Pipeline)
         print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")

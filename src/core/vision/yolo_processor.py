@@ -310,18 +310,10 @@ class YoloProcessor:
             if run_inference:
                 start_inf = time.perf_counter() if self._profile else 0.0
                 
-                # FASE 1 / Tarea 2: Preparar frame con pinned memory si está habilitado
-                # Nota: ultralytics hace preprocesamiento interno, pero podemos
-                # asegurar que el modelo use transferencias optimizadas
-                input_frame = frame
-                if self.use_pinned_memory and self.device_str == 'cuda':
-                    # Convertir a tensor con pinned memory para transferencia rápida
-                    frame_tensor = torch.from_numpy(frame).pin_memory()
-                    # Ultralytics acepta tensors directamente
-                    input_frame = frame_tensor
-                
+                # Let YOLO handle preprocessing internally (numpy HWC -> BCHW)
+                # Pinned memory optimization happens inside ultralytics
                 results = self.model.predict(
-                    source=input_frame,
+                    source=frame,
                     device=self.device_str,
                     imgsz=self.img_size,
                     conf=self.conf_threshold,

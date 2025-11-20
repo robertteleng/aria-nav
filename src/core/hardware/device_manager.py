@@ -76,20 +76,27 @@ class DeviceManager:
         self.streaming_manager.streaming_config = streaming_config
         self.streaming_manager.start_streaming()
         
-        # Get calibration
+        # Get calibrations from SDK (RGB + SLAM1 + SLAM2)
         rgb_calib = None
+        slam1_calib = None
+        slam2_calib = None
+        
         try:
             sensors_calib_json = self.streaming_manager.sensors_calibration()
             sensors_calib = device_calibration_from_json_string(sensors_calib_json)
+            
             rgb_calib = sensors_calib.get_camera_calib("camera-rgb")
-            print("[INFO] ✓ RGB calibration obtained")
+            slam1_calib = sensors_calib.get_camera_calib("camera-slam-left")
+            slam2_calib = sensors_calib.get_camera_calib("camera-slam-right")
+            
+            print("[INFO] ✓ Camera calibrations obtained (RGB + SLAM1 + SLAM2)")
         except Exception as e:
-            print(f"[WARN] Could not fetch RGB calibration: {e}")
+            print(f"[WARN] Could not fetch calibrations: {e}")
         
         self.streaming_client = self.streaming_manager.streaming_client
         print("[INFO] ✓ RGB streaming configured")
         
-        return rgb_calib
+        return rgb_calib, slam1_calib, slam2_calib
     
     def register_observer(self, observer):
         """Register observer with streaming client"""

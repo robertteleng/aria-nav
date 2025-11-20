@@ -44,7 +44,11 @@ class NavigationPipeline:
         *,
         image_enhancer=None,
         depth_estimator=None,
+        camera_id: str = 'rgb',  # PHASE 6: Identify camera (rgb/slam1/slam2)
     ) -> None:
+        # PHASE 6: Store camera ID
+        self.camera_id = camera_id
+        
         # FASE 2: Check multiprocessing mode FIRST
         self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
         
@@ -76,9 +80,34 @@ class NavigationPipeline:
         else:
             log.info("[Pipeline] Running in sequential mode")
         
-        # FASE 1 / Tarea 4: CUDA Streams para paralelización (only in sequential mode)
-        if not self.multiproc_enabled:
-            self.use_cuda_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
+        # PHASE 6: Hybrid mode - CUDA Streams configuration
+        # Allows streams in main process even with multiprocessing enabled
+        enable_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
+        phase6_hybrid = getattr(Config, 'PHASE6_HYBRID_STREAMS', False)
+        
+        if self.multiproc_enabled and phase6_hybrid:
+            # PHASE 6: Hybrid mode active
+            if self.camera_id == 'rgb':
+                # Main process (RGB camera): Enable streams for Depth + YOLO parallelization
+                self.use_cuda_streams = enable_streams
+                if self.use_cuda_streams:
+                    self.yolo_stream = torch.cuda.Stream()
+                    self.depth_stream = torch.cuda.Stream()
+                    print("[INFO] ✅ PHASE 6: Hybrid mode - CUDA streams in main process")
+                    print("[INFO]    → Depth + YOLO parallel on RGB camera")
+                else:
+                    self.yolo_stream = None
+                    self.depth_stream = None
+                    print("[INFO] 🔄 Main process: Sequential (streams disabled in config)")
+            else:
+                # Workers (SLAM cameras): No streams (YOLO-only, nothing to parallelize)
+                self.use_cuda_streams = False
+                self.yolo_stream = None
+                self.depth_stream = None
+                print(f"[INFO] 🔄 Worker {self.camera_id}: Sequential (YOLO-only, no streams needed)")
+        elif not self.multiproc_enabled:
+            # Original behavior: Single-process mode
+            self.use_cuda_streams = enable_streams
             if self.use_cuda_streams:
                 self.yolo_stream = torch.cuda.Stream()
                 self.depth_stream = torch.cuda.Stream()
@@ -88,19 +117,21 @@ class NavigationPipeline:
                 self.depth_stream = None
                 if torch.cuda.is_available():
                     print("[INFO] ⚠️ CUDA streams deshabilitados (ejecución secuencial)")
-            
-            # Log depth estimator status
+        else:
+            # Legacy behavior: Multiprocessing without Phase 6
+            self.use_cuda_streams = False
+            self.yolo_stream = None
+            self.depth_stream = None
+            print("[INFO] 🔄 Multiprocessing mode - GPU work handled by workers")
+        
+        # Log depth estimator status (only for non-multiproc or main process)
+        if not self.multiproc_enabled or (self.multiproc_enabled and self.camera_id == 'rgb'):
             if self.depth_estimator is None:
                 print("[WARN] ⚠️ Depth estimator is None - depth estimation disabled")
             elif getattr(self.depth_estimator, "model", None) is None and getattr(self.depth_estimator, "ort_session", None) is None:
                 print("[WARN] ⚠️ Depth estimator model failed to load - depth estimation disabled")
             else:
                 print(f"[INFO] ✅ Depth estimator initialized: {getattr(self.depth_estimator, 'backend', 'unknown')}")
-        else:
-            self.use_cuda_streams = False
-            self.yolo_stream = None
-            self.depth_stream = None
-            print("[INFO] 🔄 Multiprocessing mode - GPU work handled by workers")
 
     # ------------------------------------------------------------------
     # public API

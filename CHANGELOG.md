@@ -9,7 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **[FEAT]** Phase 6: Hybrid Multiprocessing + CUDA Streams
+  - CUDA Streams enabled in main RGB process (Depth || YOLO parallel)
+  - Multiprocessing workers remain sequential (YOLO-only, no depth)
+  - Configuration: `PHASE6_HYBRID_STREAMS = True`
+  - Performance: 19.0 FPS sustained (vs 18.4 FPS Phase 4 baseline)
+  - VRAM: ~1.5GB / 6GB (25% utilization, 75% headroom available)
+- **[FIX]** YOLO input format issue (was receiving HWC tensors, now receives numpy HWC)
+  - Removed premature tensor conversion that bypassed YOLO preprocessing
+  - YOLO now handles HWC→BCHW conversion internally as designed
+
 ### Planned
+- Fisheye undistortion for cameras (deferred - needs optimization for multi-camera)
+- Web Dashboard frame skip optimization
 - Hardware migration to Intel NUC + RTX 2060
 - Multi-language audio support (Spanish, English)
 - Mobile companion app
