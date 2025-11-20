@@ -1,160 +1,245 @@
 # Aria Navigation System
 
-Sistema de navegación asistida para personas con discapacidad visual usando gafas Meta Aria. El proyecto implementa un pipeline modular que combina visión por computador, análisis espacial y comandos de audio con prioridades y cooldown por fuente.
+> **Assistive navigation system for visually impaired users using Meta Aria glasses**  
+> Combines computer vision, spatial analysis, and prioritized audio feedback in real-time.
 
-## 🧭 Resumen rápido
-- ✅ Pipeline RGB modular: `ImageEnhancer` → `DepthEstimator` (MiDaS/Depth-Anything) → `YoloProcessor` (perfiles RGB/SLAM) → `NavigationDecisionEngine`.
-- ✅ Audio centralizado: `NavigationAudioRouter` coordina `RgbAudioRouter`, `SlamAudioRouter` y `AudioSystem`, aplica cooldowns dinámicos y registra métricas.
-- ✅ Visión periférica asíncrona: `SlamDetectionWorker` procesa SLAM1/SLAM2 en paralelo y genera eventos priorizados.
-- ✅ Presentación desacoplada: `PresentationManager` + `FrameRenderer` ofrecen dashboard OpenCV/Rerun/Web, overlays de navegación y mini-mapa de profundidad.
-- ✅ Suite de pruebas `pytest` cubriendo pipeline, audio router, SLAM, MPS utilities y configuraciones clave.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status: Active Development](https://img.shields.io/badge/status-active-success.svg)]()
 
-## 📚 Índice
-1. [Visión general](#visión-general)
-2. [Arquitectura en breve](#arquitectura-en-breve)
-3. [Requisitos](#requisitos)
-4. [Instalación](#instalación)
-5. [Ejecución](#ejecución)
-6. [Telemetría y observabilidad](#telemetría-y-observabilidad)
-7. [Estructura del repositorio](#estructura-del-repositorio)
-8. [Configuración](#configuración)
-9. [Flujo de trabajo y pruebas](#flujo-de-trabajo-y-pruebas)
-10. [Roadmap](#roadmap)
-11. [Créditos](#créditos)
+---
 
-## Visión general
-- **Objetivo**: ofrecer navegación asistida en tiempo real aprovechando cámaras RGB/SLAM e IMU de las Meta Aria.
-- **Arquitectura**: `DeviceManager` y `Observer` gestionan el SDK; `Coordinator` orquesta pipeline, audio y SLAM; `PresentationManager` maneja UI; `NavigationAudioRouter` unifica prioridades por fuente.
-- **Modularidad**: cada capa está desacoplada para permitir mejoras independientes (hardware ↔ visión ↔ audio ↔ presentación ↔ telemetría).
-- Documentación adicional en `docs/architecture/pipeline_overview.md` y `docs/architecture_document.md`.
+## ⚡ Quick Start
 
-## Arquitectura en breve
-1. `DeviceManager` configura streaming (USB/Wi-Fi) y obtiene calibración RGB.
-2. `Observer` recibe frames RGB/SLAM e IMU, normaliza orientación y estima `motion_state`.
-3. `NavigationPipeline` (enhancer + depth + YOLO) produce un `PipelineResult` con timings opcionales.
-4. `NavigationDecisionEngine` calcula prioridades; `RgbAudioRouter` formatea mensajes y los envía al `NavigationAudioRouter`, que decide si hablar vía `AudioSystem`.
-5. Si `PERIPHERAL_VISION_ENABLED` está activo, `SlamDetectionWorker` procesa SLAM1/SLAM2 en background y `SlamAudioRouter` integra sus eventos en el audio centralizado.
-6. `PresentationManager` usa `FrameRenderer` y dashboards (OpenCV/Rerun/Web) para overlays RGB, mini-mapa de profundidad, estado de audio y eventos SLAM.
-
-## Requisitos
-- **Hardware**
-  - Gafas Meta Aria con perfil `profile28` o equivalente habilitado.
-  - Mac con macOS 13+ (Apple Silicon recomendado) para modo local.
-  - (Opcional) Host remoto (Jetson/Linux) para modo híbrido vía ImageZMQ.
-- **Software**
-  - Python 3.10+ con `pip` o Conda/Mamba.
-  - Paquetes principales: `torch`, `torchvision`, `ultralytics`, `opencv-python`, `numpy`, `projectaria-tools`, `aria-sdk` (suministrado por Meta), `transformers` (opcional, Depth Anything v2), `pytest`.
-  - `say` disponible en macOS para TTS (`which say`).
-
-## Instalación
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/<tu-usuario>/aria-navigation.git
-cd aria-navigation
+# Clone and install
+git clone https://github.com/<your-user>/aria-nav.git
+cd aria-nav
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-# 2. Crear entorno (ejemplo con venv; usa Conda si lo prefieres)
-python3 -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\Scripts\activate
-pip install --upgrade pip wheel
-
-# 3. Instalar dependencias principales
-pip install torch torchvision torchaudio  # Metal MPS soportado por defecto en macOS
-pip install ultralytics opencv-python numpy projectaria-tools transformers pytest
-# Instala aria.sdk siguiendo la guía oficial de Meta Aria (distribución privada).
-
-# 4. (Opcional) Verificar TTS y cámara
-python -c "import torch; print(torch.__version__)"
-which say
-```
-
-## Ejecución
-```bash
-# Modo principal con hardware real
+# Run with Aria hardware
 python src/main.py
 
-# Modo debug sin hardware (frames sintéticos + TTS)
+# Test without hardware
 python src/main.py debug
-
-# Modo híbrido Mac → Jetson (ImageZMQ sender, procesamiento remoto en desarrollo)
-python src/main.py hybrid
 ```
 
-Controles principales:
-- `q`: salir del sistema.
-- `t`: prueba del sistema de audio (cola RGB).
-- `Ctrl+C`: parada segura gestionada por `CtrlCHandler`.
+**Controls:** `q` = quit | `t` = test audio | `Ctrl+C` = emergency stop
 
-El arranque pregunta por dashboard (`opencv`, `rerun`, `web`) y habilita el flujo correspondiente. En debug se limitan a OpenCV simplificado.
+---
 
-## Telemetría y observabilidad
-- `logs/audio_telemetry.jsonl`: `NavigationAudioRouter` registra eventos (`enqueued`, `spoken`, `skipped`, `dropped`) con metadata y resúmen de sesión.
-- `NavigationAudioRouter.get_metrics()`: métricas por fuente (RGB, SLAM1, SLAM2), tamaños de cola y cooldown efectivo.
-- `Coordinator`: emite métricas `PROFILE` del pipeline (`enhance`, `depth`, `yolo`, `nav_audio`, `render`, `total`) cada `PROFILE_WINDOW_FRAMES`.
-- `PresentationManager.log_audio_command()`: historial de comandos reproducidos en la UI.
+## 🎯 What It Does
 
-## Estructura del repositorio
+**Real-time navigation assistance using:**
+- 🎥 **RGB Camera** - Object detection (YOLO) + depth estimation (Depth-Anything v2)
+- 👀 **Peripheral Vision** - SLAM cameras for lateral obstacle detection
+- 🧭 **IMU Sensors** - Motion state tracking (stationary/walking)
+- 🔊 **Spatial Audio** - Prioritized voice commands + beep alerts
+- 📊 **Live Dashboards** - OpenCV, Rerun, or Web visualization
+
+---
+
+## 🏗️ Architecture
+
 ```
-aria-navigation/
-├── README.md
-├── docs/
-│   ├── architecture/
-│   └── ...
-├── experiments/
-│   └── meta_stream_all.py
-├── logs/
-│   └── audio_telemetry.jsonl
+┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│ Meta Aria   │───▶│  Observer    │───▶│ Pipeline        │
+│ (RGB+SLAM+  │    │ (SDK Bridge) │    │ (Vision + AI)   │
+│  IMU)       │    └──────────────┘    └─────────────────┘
+└─────────────┘                                │
+                                               ▼
+┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
+│ Audio       │◀───│ Navigation   │◀───│ Decision        │
+│ System      │    │ Audio Router │    │ Engine          │
+└─────────────┘    └──────────────┘    └─────────────────┘
+```
+
+**Key Components:**
+- **Observer** - Hardware interface (cameras + IMU)
+- **Pipeline** - Enhancement → Depth → Detection
+- **Decision Engine** - Spatial reasoning and prioritization
+- **Audio Router** - Cooldown management and queue coordination
+- **Presentation** - Multi-dashboard rendering
+
+---
+
+## 📋 Requirements
+
+### Hardware
+- Meta Aria glasses with `profile28` enabled
+- Mac (Apple Silicon recommended) or Linux with NVIDIA GPU
+- USB-C connection or WiFi streaming
+
+### Software
+- Python 3.10+
+- PyTorch with MPS (macOS) or CUDA (Linux)
+- Aria SDK (from Meta)
+- See [Setup Guide](docs/setup/SETUP.md) for detailed instructions
+
+---
+
+## 🚀 Installation
+
+### macOS (Current)
+```bash
+# Install dependencies
+pip install torch torchvision torchaudio
+pip install ultralytics opencv-python numpy projectaria-tools transformers pytest
+
+# Verify TTS
+which say  # Should return /usr/bin/say
+```
+
+### Linux (Migration Target)
+See [NUC Migration Guide](docs/migration/NUC_MIGRATION.md) for CUDA setup.
+
+---
+
+## 📖 Documentation
+
+| Resource | Description |
+|----------|-------------|
+| [📚 Documentation Index](docs/INDEX.md) | Central hub for all documentation |
+| [🚀 Quick Reference](docs/guides/QUICK_REFERENCE.md) | Common commands and workflows |
+| [🏗️ Architecture](docs/architecture/architecture_document.md) | System design and components |
+| [🔧 Setup Guide](docs/setup/SETUP.md) | Detailed installation instructions |
+| [🧪 Testing Guide](docs/testing/README.md) | Test strategy and execution |
+| [🐛 Problem Solving](docs/development/problem_solving_guide.md) | Debugging strategies |
+
+---
+
+## 🎛️ Configuration
+
+Main settings in `src/utils/config.py`:
+
+```python
+# Vision
+YOLO_DEVICE = "mps"          # GPU device (mps/cuda/cpu)
+DEPTH_ENABLED = True          # Enable depth estimation
+PERIPHERAL_VISION_ENABLED = True  # SLAM cameras
+
+# Audio
+AUDIO_COOLDOWN_SECONDS = 2.0  # Minimum time between commands
+BEEP_ENABLED = True           # Distance beeps
+
+# Performance
+YOLO_FRAME_SKIP = 3          # Process every Nth frame
+DEPTH_FRAME_SKIP = 12        # Depth estimation frequency
+```
+
+---
+
+## 🧪 Testing
+
+```bash
+# Run full test suite
+pytest tests/ -v
+
+# Specific tests
+pytest tests/test_navigation_pipeline.py
+pytest tests/test_audio_router.py
+
+# With coverage
+pytest --cov=src --cov-report=html
+
+# Mock hardware test
+python examples/test_mock_basic.py
+```
+
+---
+
+## 📊 Performance
+
+### Current (macOS MPS)
+- **FPS:** 18-20 fps
+- **YOLO Latency:** 45-60ms
+- **Depth Latency:** 120-180ms
+- **Frame Skip:** 3x YOLO, 12x Depth
+
+### Target (Linux CUDA + TensorRT)
+- **FPS:** 60+ fps
+- **YOLO Latency:** <20ms
+- **Depth Latency:** <50ms
+- **Frame Skip:** Minimal
+
+See [Migration Guide](docs/migration/NUC_MIGRATION.md) for optimization roadmap.
+
+---
+
+## 📁 Project Structure
+
+```
+aria-nav/
 ├── src/
-│   ├── main.py
-│   ├── core/
-│   │   ├── audio/
-│   │   │   ├── audio_system.py
-│   │   │   └── navigation_audio_router.py
-│   │   ├── hardware/
-│   │   │   └── device_manager.py
-│   │   ├── imu/
-│   │   │   └── motion_detector.py
-│   │   ├── navigation/
-│   │   │   ├── builder.py
-│   │   │   ├── coordinator.py
-│   │   │   ├── navigation_decision_engine.py
-│   │   │   ├── navigation_pipeline.py
-│   │   │   ├── rgb_audio_router.py
-│   │   │   └── slam_audio_router.py
-│   │   └── vision/
-│   │       ├── depth_estimator.py
-│   │       ├── image_enhancer.py
-│   │       ├── slam_detection_worker.py
-│   │       └── yolo_processor.py
-│   ├── presentation/
-│   │   ├── presentation_manager.py
-│   │   └── renderers/frame_renderer.py
-│   └── utils/config.py
-└── tests/
-    └── core/...
+│   ├── core/              # Core system (hardware, vision, audio, navigation)
+│   ├── presentation/      # UI and visualization
+│   └── utils/             # Configuration and utilities
+├── tests/                 # Test suite
+├── benchmarks/            # Performance benchmarks
+├── docs/                  # Documentation
+│   ├── INDEX.md          # 📚 Start here
+│   ├── guides/           # User guides
+│   ├── architecture/     # System design
+│   ├── development/      # Dev workflows
+│   ├── migration/        # Platform migration
+│   └── testing/          # Test documentation
+├── logs/                  # Runtime logs and telemetry
+└── checkpoints/           # Model weights
 ```
 
-## Configuración
-`src/utils/config.py` centraliza los toggles:
-- `PERIPHERAL_VISION_ENABLED`, `SLAM_TARGET_FPS`: control de visión periférica y workers SLAM.
-- `YOLO_*`: modelo, dispositivo (MPS), thresholds y frame skipping para perfiles RGB/SLAM.
-- `DEPTH_*`, `MIDAS_*`, `DEPTH_ANYTHING_VARIANT`: selección de backend y parámetros de profundidad.
-- `LOW_LIGHT_ENHANCEMENT`, `AUTO_ENHANCEMENT`, `GAMMA_CORRECTION`: estrategia de realce en baja iluminación.
-- `ZONE_SYSTEM`, `CENTER_ZONE_*`: definición de zonas y prioridades espaciales.
-- `PROFILE_PIPELINE`, `PROFILE_WINDOW_FRAMES`: métricas de rendimiento.
-- `STREAMING_INTERFACE`, `STREAMING_PROFILE_*`: configuración de streaming Aria (USB/Wi-Fi).
+---
 
-## Flujo de trabajo y pruebas
-- `Builder.build_full_system()` crea todas las dependencias (pipeline, audio router, frame renderer, SLAM workers).
-- `main_debug()` permite validar integración sin hardware real (frames mock, SLAM sintetizado, TTS).
-- Tests unitarios/integración en `tests/` (usar `pytest`). Incluyen pruebas para pipeline, routers RGB/SLAM, audio queue, MPS utils y motion detection.
-- Recomendación: tras cambios en cooldowns o thresholds, ejecutar una sesión corta y revisar `logs/audio_telemetry.jsonl`.
+## 🗺️ Roadmap
 
-## Roadmap
-- [ ] Empaquetar dependencias (requirements/environment) para instalación reproducible.
-- [ ] Completar modo híbrido end-to-end (Mac sender ↔ Jetson processor) y compartir telemetría.
-- [ ] Integrar métricas de `NavigationAudioRouter` y profundidad en dashboards interactivos.
-- [ ] Documentar troubleshooting de Aria SDK, calibraciones SLAM y requisitos de red.
+- [x] RGB pipeline with YOLO + Depth
+- [x] Peripheral vision (SLAM cameras)
+- [x] Audio routing with priorities
+- [x] Web dashboard
+- [x] Motion state detection
+- [ ] TensorRT optimization
+- [ ] NUC + RTX 2060 migration
+- [ ] Multi-language support
+- [ ] Mobile companion app
 
-## Créditos
-- **Autor**: Roberto Rojas Sahuquillo (TFM 2025).
-- **Agradecimientos**: Comunidad Project Aria y colaboradores del laboratorio de accesibilidad.
+---
+
+## 🤝 Contributing
+
+This is a Master's thesis project (TFM 2025). Contributions welcome after publication.
+
+See [Development Workflow](docs/development/development_workflow.md) for guidelines.
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details.
+
+---
+
+## 👤 Author
+
+**Roberto Rojas Sahuquillo**  
+Master's Thesis 2025  
+Universidad [Your University]
+
+---
+
+## 🙏 Acknowledgments
+
+- Meta Aria team for Project Aria SDK
+- Open source community (Ultralytics, Depth-Anything, PyTorch)
+- Accessibility research lab
+
+---
+
+## 📞 Support
+
+- 📚 **Documentation:** [docs/INDEX.md](docs/INDEX.md)
+- 🐛 **Issues:** Check [Problem Solving Guide](docs/development/problem_solving_guide.md)
+- 💬 **Discussions:** Open an issue with `[Question]` tag
+
+---
+
+**Status:** ✅ Active development | 🚀 Ready for migration to production hardware
