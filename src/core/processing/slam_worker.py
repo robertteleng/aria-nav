@@ -7,7 +7,9 @@ import torch
 from torch import cuda
 
 from core.processing.multiproc_types import ResultMessage
+from core.processing.multiproc_types import ResultMessage
 from core.vision.yolo_processor import YoloProcessor
+from core.processing.shared_memory_manager import SharedMemoryRingBuffer
 
 log = logging.getLogger("SlamWorker")
 
@@ -32,8 +34,31 @@ class SlamWorker:
 
     def _process_frame(self, msg: dict) -> ResultMessage:
         assert self.yolo_processor is not None
+        
+        # Shared Memory Support
+        if "buffer_index" in msg:
+            if not hasattr(self, "shm_reader") or self.shm_reader is None:
+                try:
+                    # Lazy init reader
+                    from utils.config import Config
+                    self.shm_reader = SharedMemoryRingBuffer(
+                        name_prefix=msg["shm_name"],
+                        count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
+                        shape=msg["shape"],
+                        dtype=msg["dtype"],
+                        create=False
+                    )
+                    log.info(f"[SlamWorker] Attached to shared memory: {msg['shm_name']}")
+                except Exception as e:
+                    log.error(f"[SlamWorker] Failed to attach to SHM: {e}")
+                    raise
+            
+            frame = self.shm_reader.get(msg["buffer_index"])
+        else:
+            frame = msg["frame"]
+
         start_time = time.perf_counter()
-        detections = self.yolo_processor.process_frame(msg["frame"])
+        detections = self.yolo_processor.process_frame(frame)
         torch.cuda.synchronize()
         latency_ms = (time.perf_counter() - start_time) * 1000
 
@@ -74,6 +99,11 @@ class SlamWorker:
             self.stop_event.set()
         finally:
             torch.cuda.empty_cache()
+            if hasattr(self, "shm_reader") and self.shm_reader:
+                try:
+                    self.shm_reader.cleanup()
+                except:
+                    pass
             log.info("[SlamWorker] Shutdown complete")
 
 

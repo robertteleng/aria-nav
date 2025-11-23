@@ -11,6 +11,7 @@ from torch import cuda
 
 from core.processing.multiproc_types import ResultMessage
 from core.vision.yolo_processor import YoloProcessor
+from core.processing.shared_memory_manager import SharedMemoryRingBuffer
 
 log = logging.getLogger("CentralWorker")
 
@@ -96,8 +97,31 @@ class CentralWorker:
         assert self.depth_model is not None
         assert self.depth_stream is not None and self.yolo_stream is not None
 
-        frame = msg["frame"]
         frame_id = msg.get("frame_id", -1)
+        
+        # Shared Memory Support
+        if "buffer_index" in msg:
+            if not hasattr(self, "shm_reader") or self.shm_reader is None:
+                # Lazy init reader
+                try:
+                    self.shm_reader = SharedMemoryRingBuffer(
+                        name_prefix=msg["shm_name"],
+                        count=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2) + 2, # Match pipeline config
+                        shape=msg["shape"],
+                        dtype=msg["dtype"],
+                        create=False
+                    )
+                    log.info(f"[CentralWorker] Attached to shared memory: {msg['shm_name']}")
+                except Exception as e:
+                    log.error(f"[CentralWorker] Failed to attach to SHM: {e}")
+                    raise
+            
+            # Read from SHM (Zero-Copy)
+            frame = self.shm_reader.get(msg["buffer_index"])
+        else:
+            # Fallback for legacy/direct passing
+            frame = msg["frame"]
+
         start_time = time.perf_counter()
 
         depth_map = None
@@ -188,6 +212,11 @@ class CentralWorker:
             self.stop_event.set()
         finally:
             torch.cuda.empty_cache()
+            if hasattr(self, "shm_reader") and self.shm_reader:
+                try:
+                    self.shm_reader.cleanup()
+                except:
+                    pass
             log.info("[CentralWorker] Shutdown complete")
 
 

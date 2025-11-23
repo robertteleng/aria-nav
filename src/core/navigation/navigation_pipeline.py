@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch  # FASE 1 / Tarea 4: Para CUDA streams
 
+from core.processing.shared_memory_manager import SharedMemoryRingBuffer
+
 from utils.config import Config
 from utils.depth_logger import get_depth_logger
 from utils.profiler import get_profiler
@@ -315,6 +317,41 @@ class NavigationPipeline:
         self.pending_results = {}  # {camera: ResultMessage}
         self.last_frame_id = -1
 
+        # PHASE 3: Shared Memory Initialization
+        # We assume standard VGA resolution for Aria glasses. 
+        # If this changes, we need to re-init, but for now fixed is fine.
+        self.shm_shape = (480, 640, 3)
+        self.shm_dtype = np.uint8
+        
+        try:
+            self.shm_central = SharedMemoryRingBuffer(
+                name_prefix="aria_central",
+                count=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2) + 2, # +2 for safety buffer
+                shape=self.shm_shape,
+                dtype=self.shm_dtype,
+                create=True
+            )
+            
+            self.shm_slam1 = SharedMemoryRingBuffer(
+                name_prefix="aria_slam1",
+                count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
+                shape=self.shm_shape,
+                dtype=self.shm_dtype,
+                create=True
+            )
+            
+            self.shm_slam2 = SharedMemoryRingBuffer(
+                name_prefix="aria_slam2",
+                count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
+                shape=self.shm_shape,
+                dtype=self.shm_dtype,
+                create=True
+            )
+            log.info("[Pipeline] Shared Memory buffers initialized")
+        except Exception as e:
+            log.error(f"[Pipeline] Failed to init shared memory: {e}")
+            raise
+
     def _process_multiproc(self, frames_dict: Dict[str, np.ndarray], profile: bool) -> PipelineResult:
         frame_id = self.frames_processed
         self.frames_processed += 1
@@ -349,14 +386,29 @@ class NavigationPipeline:
     def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], central_frame: np.ndarray, timestamp: float) -> None:
         """Phase 1: Enviar frames a workers (no espera resultados)"""
         
+        # Helper to ensure frame matches SHM shape
+        def _prepare_frame(frame, target_shape):
+            if frame.shape != target_shape:
+                # Simple resize if needed (though usually not needed if source is consistent)
+                import cv2
+                return cv2.resize(frame, (target_shape[1], target_shape[0]))
+            return frame
+
         # Distribute to workers
         try:
+            # Central
+            central_ready = _prepare_frame(central_frame, self.shm_shape)
+            buf_idx = self.shm_central.put(central_ready)
+            
             with self.profiler.measure("queue_put_central"):
                 self.central_queue.put(
                     {
                         "frame_id": frame_id,
                         "camera": "central",
-                        "frame": central_frame,
+                        "shm_name": "aria_central", # Tell worker which SHM to use (redundant but explicit)
+                        "buffer_index": buf_idx,    # The key piece of info
+                        "shape": self.shm_shape,
+                        "dtype": self.shm_dtype,
                         "timestamp": timestamp,
                     },
                     timeout=0.1,
@@ -364,22 +416,33 @@ class NavigationPipeline:
         except queue.Full:
             self.stats["dropped_central"] += 1
             log.warning(f"Dropped central frame {frame_id}")
+        except Exception as e:
+            log.error(f"Error enqueuing central frame: {e}")
         
-        for camera in ["slam1", "slam2"]:
+        # SLAM
+        for camera, shm_buffer in [("slam1", self.shm_slam1), ("slam2", self.shm_slam2)]:
             slam_frame = frames_dict.get(camera)
             if slam_frame is not None:
                 try:
+                    slam_ready = _prepare_frame(slam_frame, self.shm_shape)
+                    buf_idx = shm_buffer.put(slam_ready)
+                    
                     self.slam_queue.put(
                         {
                             "frame_id": frame_id,
                             "camera": camera,
-                            "frame": slam_frame,
+                            "shm_name": f"aria_{camera}",
+                            "buffer_index": buf_idx,
+                            "shape": self.shm_shape,
+                            "dtype": self.shm_dtype,
                             "timestamp": timestamp,
                         },
                         timeout=0.05,
                     )
                 except queue.Full:
                     self.stats["dropped_slam"] += 1
+                except Exception as e:
+                    log.error(f"Error enqueuing {camera} frame: {e}")
         
     
     def _collect_results_with_overlap(self, frame_id: int, central_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
@@ -523,6 +586,14 @@ class NavigationPipeline:
                     break
         
         log.info("[Pipeline] Shutdown complete")
+        
+        # Cleanup Shared Memory
+        try:
+            if hasattr(self, 'shm_central'): self.shm_central.cleanup()
+            if hasattr(self, 'shm_slam1'): self.shm_slam1.cleanup()
+            if hasattr(self, 'shm_slam2'): self.shm_slam2.cleanup()
+        except Exception as e:
+            log.error(f"[Pipeline] Error cleaning up shared memory: {e}")
 
     # ------------------------------------------------------------------
     # helpers
