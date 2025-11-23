@@ -74,7 +74,7 @@ class NavigationDecisionEngine:
     # analysis
     # ------------------------------------------------------------------
 
-    def analyze(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def analyze(self, detections: List[Dict[str, Any]], depth_map: Optional[np.ndarray] = None) -> List[Dict[str, Any]]:
         navigation_objects: List[Dict[str, Any]] = []
 
         for detection in detections:
@@ -87,7 +87,7 @@ class NavigationDecisionEngine:
                 continue
 
             zone = self._calculate_zone(bbox[0] + bbox[2] / 2)
-            distance_category = self._estimate_distance(bbox, class_name, detection)
+            distance_category = self._estimate_distance(bbox, class_name, detection, depth_map)
             base_priority = self.object_priorities[class_name]["priority"]
             final_priority = self._calculate_final_priority(base_priority, zone, distance_category)
 
@@ -297,25 +297,42 @@ class NavigationDecisionEngine:
             return "center"
         return "right"
 
-    def _estimate_distance(self, bbox, class_name: str, detection: Optional[Dict[str, Any]] = None) -> str:
-        # Solo usar la altura del bbox para estimar distancia
+
+    def _estimate_distance(self, bbox, class_name: str, detection: Optional[Dict[str, Any]] = None, depth_map: Optional[np.ndarray] = None) -> str:
+        # Prioridad 1: Usar mapa de profundidad si está disponible
+        if depth_map is not None and bbox:
+            x1, y1, w, h = [int(v) for v in bbox]
+            x2, y2 = x1 + w, y1 + h
+            
+            # Asegurarse de que las coordenadas están dentro de los límites del mapa de profundidad
+            h_depth, w_depth = depth_map.shape
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w_depth, x2), min(h_depth, y2)
+            
+            if x1 < x2 and y1 < y2:
+                depth_roi = depth_map[y1:y2, x1:x2]
+                # Usar la mediana para ser robusto a outliers
+                median_depth = np.median(depth_roi[depth_roi > 0])
+                
+                if median_depth > 0:
+                    # Definir umbrales de distancia en metros
+                    if median_depth < 1.5: return "very_close"
+                    if median_depth < 3.0: return "close"
+                    if median_depth < 5.0: return "medium"
+                    return "far"
+
+        # Prioridad 2: Fallback a la estimación por altura del bbox si no hay mapa de profundidad
         height = bbox[3]
         if class_name == "person":
-            if height > 200:
-                return "very_close"
-            if height > 100:
-                return "close"
+            if height > 200: return "very_close"
+            if height > 100: return "close"
             return "far"
         if class_name in {"car", "truck", "bus"}:
-            if height > 150:
-                return "very_close"
-            if height > 75:
-                return "close"
+            if height > 150: return "very_close"
+            if height > 75: return "close"
             return "far"
-        if height > 100:
-            return "close"
-        if height > 50:
-            return "medium"
+        if height > 100: return "close"
+        if height > 50: return "medium"
         return "far"
 
     def _calculate_final_priority(self, base_priority: float, zone: str, distance: str) -> float:
