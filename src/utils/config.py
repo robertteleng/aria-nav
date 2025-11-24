@@ -254,6 +254,7 @@ class Config:
     PROFILE_PIPELINE = True
     PROFILE_WINDOW_FRAMES = 30
 
+
     # Phase 2: Multiprocessing controls
     # Use: python run.py benchmark
     # FASE 4: Re-enabled to test parallel execution with TensorRT
@@ -263,3 +264,8 @@ class Config:
     PHASE2_RESULT_QUEUE_MAXSIZE = 10  # Increased: More buffer for results
     PHASE2_STATS_INTERVAL = 5.0
     PHASE2_BACKPRESSURE_TIMEOUT = 0.1  # Reduced: Faster timeout for queue.put()
+    
+    # Phase 7: Double Buffering (2x worker instances for ~25 FPS)
+    PHASE7_DOUBLE_BUFFERING = True  # Enable 2x worker instances per type
+    PHASE7_WORKER_HEALTH_CHECK_INTERVAL = 5.0  # Check worker health every 5s
+    PHASE7_GRACEFUL_DEGRADATION = True  # Fallback to single worker on crash

@@ -269,29 +269,89 @@ class NavigationPipeline:
         from core.processing.central_worker import central_gpu_worker
         from core.processing.slam_worker import slam_gpu_worker
         
-        # SOLUTION #3: Small queues (maxsize=2) for minimal latency
-        self.central_queue = mp.Queue(maxsize=2)
-        self.slam_queue = mp.Queue(maxsize=2)
-        self.result_queue = mp.Queue(maxsize=4)
+        # Phase 7: Double Buffering Configuration
+        self.double_buffering = getattr(Config, "PHASE7_DOUBLE_BUFFERING", False)
+        self.worker_health_interval = getattr(Config, "PHASE7_WORKER_HEALTH_CHECK_INTERVAL", 5.0)
+        self.graceful_degradation = getattr(Config, "PHASE7_GRACEFUL_DEGRADATION", True)
+        self.last_health_check = time.time()
+        
+        # Worker instance tracking
+        self.worker_instances = {
+            "central": [],
+            "slam": []
+        }
+        self.worker_health = {}  # {name: is_alive}
+        self.submit_counter = 0
+        
+        self.result_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_RESULT_QUEUE_MAXSIZE", 10))
         self.stop_event = mp.Event()
         
-        # FASE 3: Ready events for workers to signal when models are loaded
+        # Events for readiness
         self.central_ready = mp.Event()
         self.slam_ready = mp.Event()
         
-        self.workers = [
-            mp.Process(
+        self.workers = []
+        
+        if self.double_buffering:
+            log.info("[Pipeline] 🚀 Initializing DOUBLE BUFFERING (2x workers per type)")
+            
+            # Create 2 sets of queues
+            self.central_queues = [mp.Queue(maxsize=2), mp.Queue(maxsize=2)]
+            self.slam_queues = [mp.Queue(maxsize=2), mp.Queue(maxsize=2)]
+            
+            # Create 2 Central Workers
+            for i in range(2):
+                worker_name = f"CentralWorker_{'A' if i==0 else 'B'}"
+                p = mp.Process(
+                    target=central_gpu_worker,
+                    args=(self.central_queues[i], self.result_queue, self.stop_event, self.central_ready),
+                    name=worker_name,
+                )
+                self.workers.append(p)
+                self.worker_instances["central"].append({"proc": p, "queue": self.central_queues[i], "idx": i})
+                self.worker_health[worker_name] = True
+
+            # Create 2 SLAM Workers
+            for i in range(2):
+                worker_name = f"SlamWorker_{'A' if i==0 else 'B'}"
+                p = mp.Process(
+                    target=slam_gpu_worker,
+                    args=(self.slam_queues[i], self.result_queue, self.stop_event, self.slam_ready),
+                    name=worker_name,
+                )
+                self.workers.append(p)
+                self.worker_instances["slam"].append({"proc": p, "queue": self.slam_queues[i], "idx": i})
+                self.worker_health[worker_name] = True
+                
+        else:
+            log.info("[Pipeline] Initializing SINGLE BUFFERING (1 worker per type)")
+            # Legacy single queue mode
+            self.central_queue = mp.Queue(maxsize=2)
+            self.slam_queue = mp.Queue(maxsize=2)
+            self.central_queues = [self.central_queue]
+            self.slam_queues = [self.slam_queue]
+            
+            # Central Worker
+            p_central = mp.Process(
                 target=central_gpu_worker,
                 args=(self.central_queue, self.result_queue, self.stop_event, self.central_ready),
                 name="CentralWorker",
-            ),
-            mp.Process(
+            )
+            self.workers.append(p_central)
+            self.worker_instances["central"].append({"proc": p_central, "queue": self.central_queue, "idx": 0})
+            self.worker_health["CentralWorker"] = True
+            
+            # SLAM Worker
+            p_slam = mp.Process(
                 target=slam_gpu_worker,
                 args=(self.slam_queue, self.result_queue, self.stop_event, self.slam_ready),
                 name="SLAMWorker",
-            ),
-        ]
+            )
+            self.workers.append(p_slam)
+            self.worker_instances["slam"].append({"proc": p_slam, "queue": self.slam_queue, "idx": 0})
+            self.worker_health["SLAMWorker"] = True
         
+        # Start all workers
         for worker in self.workers:
             worker.start()
         
@@ -299,15 +359,16 @@ class NavigationPipeline:
         import time
         log.info("[Pipeline] Waiting for workers to load models and signal ready...")
         start_wait = time.time()
-        max_wait = 30.0
+        max_wait = 60.0 if self.double_buffering else 30.0  # More time for double workers
         
-        # Wait for central worker
+        # Wait for central worker(s) - shared event, so first one triggers it
+        # Ideally we'd have separate events, but for now we assume if one is ready, others are close
         if not self.central_ready.wait(timeout=max_wait):
             log.error("[Pipeline] Central worker failed to signal ready")
             raise RuntimeError("Central worker initialization timeout")
-        log.info(f"[Pipeline] Central worker ready ({time.time() - start_wait:.1f}s)")
+        log.info(f"[Pipeline] Central worker(s) ready signal received")
         
-        # Wait for SLAM worker
+        # Wait for SLAM worker(s)
         remaining_time = max_wait - (time.time() - start_wait)
         if not self.slam_ready.wait(timeout=max(remaining_time, 1.0)):
             log.error("[Pipeline] SLAM worker failed to signal ready")
@@ -323,7 +384,7 @@ class NavigationPipeline:
                 log.error(f"[Pipeline] Worker {worker.name} failed! exitcode={exitcode}")
                 raise RuntimeError(f"Worker {worker.name} crashed (exitcode={exitcode})")
         
-        log.info("[Pipeline] Workers initialized and ready")
+        log.info(f"[Pipeline] Workers initialized: {[w.name for w in self.workers]}")
         
         self.stats = {
             "frames_processed": 0,
@@ -417,12 +478,57 @@ class NavigationPipeline:
         # Merge results
         return self._merge_results(results, frames_dict)
     
+    def _monitor_worker_health(self) -> None:
+        """Check if workers are alive and handle failures"""
+        if not self.graceful_degradation:
+            return
+            
+        for category, instances in self.worker_instances.items():
+            for instance in instances:
+                worker = instance["proc"]
+                if not worker.is_alive() and self.worker_health.get(worker.name, False):
+                    log.error(f"[Pipeline] ⚠️ Worker {worker.name} CRASHED! Exitcode: {worker.exitcode}")
+                    self.worker_health[worker.name] = False
+                    
+                    # Check if we have any workers left in this category
+                    alive_count = sum(1 for inst in instances if self.worker_health.get(inst["proc"].name, False))
+                    if alive_count == 0:
+                        log.critical(f"[Pipeline] ❌ ALL {category} workers dead! System failure imminent.")
+                    else:
+                        log.warning(f"[Pipeline] ⚠️ Degrading performance: {alive_count} {category} workers remaining")
+
     def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], central_frame: np.ndarray, timestamp: float) -> None:
         """Phase 1: Enviar frames a workers (no espera resultados)"""
+        
+        # Monitor health periodically
+        if time.time() - self.last_health_check > self.worker_health_interval:
+            self._monitor_worker_health()
+            self.last_health_check = time.time()
+        
+        # Determine target worker index (Round Robin)
+        # If double buffering is off, this is always 0
+        # If on, it toggles 0, 1, 0, 1...
+        worker_idx = self.submit_counter % 2 if self.double_buffering else 0
+        self.submit_counter += 1
         
         # Distribute to workers
         try:
             # Central
+            # Check if target worker is alive
+            target_instance = self.worker_instances["central"][worker_idx]
+            if not self.worker_health.get(target_instance["proc"].name, True):
+                # Try the other worker if this one is dead
+                other_idx = (worker_idx + 1) % 2
+                other_instance = self.worker_instances["central"][other_idx]
+                if self.worker_health.get(other_instance["proc"].name, True):
+                    target_instance = other_instance
+                    # log.debug(f"Redirecting frame {frame_id} to {target_instance['proc'].name}")
+                else:
+                    # Both dead
+                    return
+
+            target_queue = target_instance["queue"]
+            
             if self.use_shared_memory:
                 # Shared Memory mode (Zero-Copy)
                 def _prepare_frame(frame, target_shape):
@@ -437,7 +543,7 @@ class NavigationPipeline:
                 with self.profiler.measure("queue_put_central"):
                     # SOLUTION #3: put_nowait - drop frame if worker busy
                     try:
-                        self.central_queue.put_nowait(
+                        target_queue.put_nowait(
                             {
                                 "frame_id": frame_id,
                                 "camera": "central",
@@ -457,7 +563,7 @@ class NavigationPipeline:
                 with self.profiler.measure("queue_put_central"):
                     # SOLUTION #3: put_nowait - drop frame if worker busy
                     try:
-                        self.central_queue.put_nowait(
+                        target_queue.put_nowait(
                             {
                                 "frame_id": frame_id,
                                 "camera": "central",
@@ -473,6 +579,19 @@ class NavigationPipeline:
             log.error(f"Error enqueuing central frame: {e}")
         
         # SLAM
+        # Similar logic for SLAM workers
+        target_instance_slam = self.worker_instances["slam"][worker_idx]
+        if not self.worker_health.get(target_instance_slam["proc"].name, True):
+             # Try the other worker if this one is dead
+            other_idx = (worker_idx + 1) % 2
+            other_instance = self.worker_instances["slam"][other_idx]
+            if self.worker_health.get(other_instance["proc"].name, True):
+                target_instance_slam = other_instance
+            else:
+                return
+        
+        target_queue_slam = target_instance_slam["queue"]
+
         if self.use_shared_memory:
             def _prepare_frame(frame, target_shape):
                 if frame.shape != target_shape:
@@ -489,7 +608,7 @@ class NavigationPipeline:
                         
                         # SOLUTION #3: put_nowait for SLAM too
                         try:
-                            self.slam_queue.put_nowait(
+                            target_queue_slam.put_nowait(
                                 {
                                     "frame_id": frame_id,
                                     "camera": camera,
@@ -511,7 +630,7 @@ class NavigationPipeline:
                 if slam_frame is not None:
                     try:
                         # SOLUTION #3: put_nowait for SLAM direct mode
-                        self.slam_queue.put_nowait(
+                        target_queue_slam.put_nowait(
                             {
                                 "frame_id": frame_id,
                                 "camera": camera,
@@ -682,7 +801,14 @@ class NavigationPipeline:
                 worker.terminate()
                 worker.join(timeout=1)
         
-        for q in [self.central_queue, self.slam_queue, self.result_queue]:
+        # Clean up all queues
+        queues_to_clean = [self.result_queue]
+        if hasattr(self, 'central_queues'):
+            queues_to_clean.extend(self.central_queues)
+        if hasattr(self, 'slam_queues'):
+            queues_to_clean.extend(self.slam_queues)
+            
+        for q in queues_to_clean:
             while not q.empty():
                 try:
                     q.get_nowait()
