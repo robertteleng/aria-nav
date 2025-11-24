@@ -269,9 +269,10 @@ class NavigationPipeline:
         from core.processing.central_worker import central_gpu_worker
         from core.processing.slam_worker import slam_gpu_worker
         
-        self.central_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2))
-        self.slam_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4))
-        self.result_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_RESULT_QUEUE_MAXSIZE", 6))
+        # SOLUTION #3: Small queues (maxsize=2) for minimal latency
+        self.central_queue = mp.Queue(maxsize=2)
+        self.slam_queue = mp.Queue(maxsize=2)
+        self.result_queue = mp.Queue(maxsize=4)
         self.stop_event = mp.Event()
         
         # FASE 3: Ready events for workers to signal when models are loaded
@@ -329,12 +330,18 @@ class NavigationPipeline:
             "dropped_central": 0,
             "dropped_slam": 0,
             "timeout_errors": 0,
+            "stale_results": 0,  # SOLUTION #3: Track stale result usage
             "last_stats_time": time.time(),
         }
         
         # Overlap/pipelining support
         self.pending_results = {}  # {camera: ResultMessage}
         self.last_frame_id = -1
+        
+        # SOLUTION #3: Cache for non-blocking with age tracking
+        self.cached_result = None
+        self.result_timestamp = 0
+        self.first_result_received = False
 
         # PHASE 3: Shared Memory Initialization (optional)
         self.use_shared_memory = getattr(Config, "USE_SHARED_MEMORY", False)
@@ -428,33 +435,40 @@ class NavigationPipeline:
                 buf_idx = self.shm_central.put(central_ready)
                 
                 with self.profiler.measure("queue_put_central"):
-                    self.central_queue.put(
-                        {
-                            "frame_id": frame_id,
-                            "camera": "central",
-                            "shm_name": "aria_central",
-                            "buffer_index": buf_idx,
-                            "shape": self.shm_shape,
-                            "dtype": self.shm_dtype,
-                            "timestamp": timestamp,
-                        },
-                        timeout=0.1,
-                    )
+                    # SOLUTION #3: put_nowait - drop frame if worker busy
+                    try:
+                        self.central_queue.put_nowait(
+                            {
+                                "frame_id": frame_id,
+                                "camera": "central",
+                                "shm_name": "aria_central",
+                                "buffer_index": buf_idx,
+                                "shape": self.shm_shape,
+                                "dtype": self.shm_dtype,
+                                "timestamp": timestamp,
+                            }
+                        )
+                    except queue.Full:
+                        self.stats["dropped_central"] += 1
+                        if self.frames_processed % 30 == 0:
+                            log.warning(f"Dropped central frame {frame_id} (queue full)")
             else:
                 # Direct mode (legacy - frame in queue)
                 with self.profiler.measure("queue_put_central"):
-                    self.central_queue.put(
-                        {
-                            "frame_id": frame_id,
-                            "camera": "central",
-                            "frame": central_frame,  # Direct pass
-                            "timestamp": timestamp,
-                        },
-                        timeout=0.1,
-                    )
-        except queue.Full:
-            self.stats["dropped_central"] += 1
-            log.warning(f"Dropped central frame {frame_id}")
+                    # SOLUTION #3: put_nowait - drop frame if worker busy
+                    try:
+                        self.central_queue.put_nowait(
+                            {
+                                "frame_id": frame_id,
+                                "camera": "central",
+                                "frame": central_frame,  # Direct pass
+                                "timestamp": timestamp,
+                            }
+                        )
+                    except queue.Full:
+                        self.stats["dropped_central"] += 1
+                        if self.frames_processed % 30 == 0:
+                            log.warning(f"Dropped central frame {frame_id} (queue full)")
         except Exception as e:
             log.error(f"Error enqueuing central frame: {e}")
         
@@ -473,20 +487,21 @@ class NavigationPipeline:
                         slam_ready = _prepare_frame(slam_frame, self.shm_shape)
                         buf_idx = shm_buffer.put(slam_ready)
                         
-                        self.slam_queue.put(
-                            {
-                                "frame_id": frame_id,
-                                "camera": camera,
-                                "shm_name": f"aria_{camera}",
-                                "buffer_index": buf_idx,
-                                "shape": self.shm_shape,
-                                "dtype": self.shm_dtype,
-                                "timestamp": timestamp,
-                            },
-                            timeout=0.05,
-                        )
-                    except queue.Full:
-                        self.stats["dropped_slam"] += 1
+                        # SOLUTION #3: put_nowait for SLAM too
+                        try:
+                            self.slam_queue.put_nowait(
+                                {
+                                    "frame_id": frame_id,
+                                    "camera": camera,
+                                    "shm_name": f"aria_{camera}",
+                                    "buffer_index": buf_idx,
+                                    "shape": self.shm_shape,
+                                    "dtype": self.shm_dtype,
+                                    "timestamp": timestamp,
+                                }
+                            )
+                        except queue.Full:
+                            self.stats["dropped_slam"] += 1
                     except Exception as e:
                         log.error(f"Error enqueuing {camera} frame: {e}")
         else:
@@ -495,14 +510,14 @@ class NavigationPipeline:
                 slam_frame = frames_dict.get(camera)
                 if slam_frame is not None:
                     try:
-                        self.slam_queue.put(
+                        # SOLUTION #3: put_nowait for SLAM direct mode
+                        self.slam_queue.put_nowait(
                             {
                                 "frame_id": frame_id,
                                 "camera": camera,
                                 "frame": slam_frame,  # Direct pass
                                 "timestamp": timestamp,
-                            },
-                            timeout=0.05,
+                            }
                         )
                     except queue.Full:
                         self.stats["dropped_slam"] += 1
@@ -511,7 +526,7 @@ class NavigationPipeline:
         
     
     def _collect_results_with_overlap(self, frame_id: int, central_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
-        """Phase 2: Recoger resultados con overlap (pueden ser de frame anterior)"""
+        """SOLUTION #3: Non-blocking collection with age-limited cache"""
         results = {}
         
         # System monitoring cada N segundos
@@ -519,33 +534,55 @@ class NavigationPipeline:
             self._print_system_metrics()
             self.last_monitor_check = time.time()
         
-        # Primero: Recoger todos los resultados disponibles (pueden ser de frames anteriores)
-        available_results = []
+        # Track if we got a NEW result in this iteration
+        got_new_result = False
+        
+        # SOLUTION #3: Drain all available results (non-blocking)
         while True:
             try:
                 result = self.result_queue.get_nowait()
-                available_results.append(result)
+                # Update cache with latest result
+                self.cached_result = result
+                self.result_timestamp = time.time()
+                self.first_result_received = True
+                got_new_result = True
+                # Organize by camera
+                self.pending_results[result.camera] = result
             except queue.Empty:
                 break
         
-        # Organizar por camera
-        for result in available_results:
-            self.pending_results[result.camera] = result
-        
-        # Validar que tenemos central (mínimo requerido)
-        if "central" not in self.pending_results:
-            # Esperar central con timeout generoso para primera carga de depth
+        # SPECIAL CASE: First frame - must wait for initial model load
+        if not self.first_result_received:
+            log.info(f"[Frame {frame_id}] Waiting for first result (model loading)...")
             try:
-                central_result = self.result_queue.get(timeout=15.0)
-                self.pending_results[central_result.camera] = central_result
+                result = self.result_queue.get(timeout=15.0)
+                self.cached_result = result
+                self.result_timestamp = time.time()
+                self.first_result_received = True
+                got_new_result = True
+                self.pending_results[result.camera] = result
+                log.info(f"[Frame {frame_id}] First result received after model load")
             except queue.Empty:
                 log.error(f"Central worker timeout on frame {frame_id} after 15s")
                 self.stats["timeout_errors"] += 1
                 raise RuntimeError("Central worker not responding")
         
-        # Usar los resultados disponibles
+        # SOLUTION #3: If no new result, use cached result from previous frame
+        if not got_new_result and self.cached_result is not None:
+            # Check age limit (100ms safety threshold)
+            age_ms = (time.time() - self.result_timestamp) * 1000
+            if age_ms > 100:
+                log.warning(f"[Frame {frame_id}] Stale result: {age_ms:.1f}ms old (>100ms limit)")
+                self.stats["stale_results"] += 1
+            
+            # Use cached result (from previous frame)
+            self.pending_results["central"] = self.cached_result
+            if frame_id % 30 == 0:
+                log.info(f"[Frame {frame_id}] Using cached result ({age_ms:.1f}ms old)")
+        
+        # Return available results
         results = dict(self.pending_results)
-        self.pending_results.clear()  # Limpiar para próximo frame
+        self.pending_results.clear()
         
         return results
 
@@ -597,12 +634,14 @@ class NavigationPipeline:
             f"[STATS] {elapsed:.1f}s window: FPS={fps:.1f} | "
             f"Dropped central={self.stats['dropped_central']} | "
             f"Dropped SLAM={self.stats['dropped_slam']} | "
+            f"Stale results={self.stats['stale_results']} | "
             f"Timeout errors={self.stats['timeout_errors']}"
         )
         
         self.stats["frames_processed"] = 0
         self.stats["dropped_central"] = 0
         self.stats["dropped_slam"] = 0
+        self.stats["stale_results"] = 0
         self.stats["last_stats_time"] = time.time()
     
     def _print_system_metrics(self) -> None:

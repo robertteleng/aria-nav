@@ -35,7 +35,7 @@ class Config:
     """System configuration constants"""
     
     # ========== FASE 3: Shared Memory (Zero-Copy) ==========
-    USE_SHARED_MEMORY = False  # DISABLED - overhead supera beneficios (17 FPS vs 22 FPS sin SHM)
+    USE_SHARED_MEMORY = False  # DISABLED - race conditions cause 19s spikes and 36% FPS drop
     
     # ========== FASE 1: CUDA Optimizations (Class Attributes) ==========
     CUDA_OPTIMIZATIONS = True
