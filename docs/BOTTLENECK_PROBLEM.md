@@ -7,18 +7,19 @@ Real-time navigation system for visually impaired using Meta Aria glasses:
 - **Processing**: TensorRT YOLO + Depth Anything V2 in separate GPU worker processes
 - **Architecture**: Multiprocessing with separate workers for depth estimation and object detection
 
-## Current Performance
+## Current Performance (After Optimization)
 
-- **Actual FPS**: 16.3 FPS
-- **Theoretical Max**: 16.5 FPS (based on 60.6ms average iteration)
-- **Efficiency**: 98.6% (excellent!)
-- **GPU Usage**: Only 50% utilized
-- **VRAM Usage**: 1.2GB (RTX 2060 has 6GB total)
+- **Actual FPS**: 16.7 FPS (was 16.3)
+- **Theoretical Max**: 16.9 FPS (based on 59.1ms average iteration)
+- **Efficiency**: 98.7% (excellent!)
+- **GPU Usage**: Only 50% utilized (underutilized - bottleneck is architectural)
+- **VRAM Usage**: 1.2GB (RTX 2060 has 6GB total - room for double buffering)
 
 ## The Problem
 
-### Timing Breakdown (from instrumentation):
+### Timing Breakdown (from instrumentation - Latest):
 
+**Baseline (before optimization):**
 ```
 Component                           Time (ms)    % of Total
 =============================================================
@@ -32,20 +33,41 @@ Render SLAM overlays                0.81ms       1.3%
 PresentationManager.update_display  3.12ms       5.1%
 =============================================================
 TOTAL per frame                     60.65ms      100%
+Efficiency                          98.6%
+```
+
+**After Solution #3 (non-blocking queues):**
+```
+Component                           Time (ms)    % of Total
+=============================================================
+Observer (get frames from Aria)     0.33ms       0.6%
+Build frames dict                   0.23ms       0.4%
+Pipeline.process (GPU workers)      54.64ms      92.4%  ← IMPROVED -2.6%
+  └─ Non-blocking collection
+SLAM handling                       0.03ms       0.0%
+Get depth/events                    0.05ms       0.1%
+Render SLAM overlays                0.87ms       1.5%
+PresentationManager.update_display  2.98ms       5.0%
+=============================================================
+TOTAL per frame                     59.12ms      100%
+Efficiency                          98.7%
+Improvement                         -1.53ms (-2.5%)
 ```
 
 ### Key Observations:
 
-1. **92.5% of time spent waiting** for GPU workers to return results via `result_queue.get(timeout=15.0)`
-2. **GPU only at 50%** despite having work to do
-3. **Occasional spikes**: 17 frames exceeded 121ms (2x average)
-   - Worst spike: 670ms (frame 1, model loading)
-   - Regular spikes: 280-290ms (~5x average worker time)
-4. **Worker processing time**: 
-   - Depth inference: ~14ms
+1. **92.4% of time spent waiting** for GPU workers to return results
+2. **GPU only at 50%** despite having work to do (architectural limitation)
+3. **IPC overhead**: ~20-25ms gap between actual GPU work (30-35ms) and main loop wait (54ms)
+4. **Worker processing time** (measured): 
+   - Depth inference: ~14-20ms
    - YOLO RGB: ~7ms  
-   - YOLO SLAM: ~2-3ms
-   - Total: ~30ms actual GPU work
+   - YOLO SLAM: ~5ms
+   - Total GPU work: ~30-35ms
+   - Total with IPC: ~54ms (36% overhead)
+5. **Occasional spikes**: 36 frames exceeded 118ms (2x average)
+   - Worst spike: 576ms (frame 1, model loading)
+   - Regular spikes: 280-290ms (~5x average)
 
 ## Architecture Details
 
@@ -130,7 +152,73 @@ def _collect_results_with_overlap(self, frame_id):
 
 ## Potential Solutions
 
-### Option A: Non-blocking Pipeline with Frame Skip
+### ✅ Option A: Non-blocking Pipeline with Small Queues (IMPLEMENTED)
+```python
+# Reduce queue sizes and use non-blocking operations
+self.central_queue = mp.Queue(maxsize=2)  # was 4
+self.result_queue = mp.Queue(maxsize=4)
+
+def _enqueue_frames():
+    self.central_queue.put_nowait(frame)  # No blocking
+
+def _collect_results():
+    # Drain available results
+    while True:
+        result = self.result_queue.get_nowait()
+        self.cached_result = result
+    
+    # Use cached result if no new one
+    return self.cached_result
+```
+
+**Results (Implemented - Commit 4d4baf9):**
+- ✅ FPS: 16.3 → 16.7 (+2.5%)
+- ✅ Latency: 60.65ms → 59.12ms (-2.5%)
+- ✅ Pipeline.process: 56.08ms → 54.64ms (-2.6%)
+- ✅ Better spike handling
+- ❌ Limited improvement (architectural bottleneck remains)
+
+### Option B: Double Buffering Workers (RECOMMENDED NEXT STEP)
+```python
+# Two worker instances per camera, alternate
+workers_a = [CentralWorker(), SlamWorker()]
+workers_b = [CentralWorker(), SlamWorker()]
+current_worker_set = 0
+
+def process(frame):
+    # Submit to one set
+    if current_worker_set == 0:
+        submit_to_workers_a(frame_n+1)
+        result = get_from_workers_b(frame_n)  # Ready
+    else:
+        submit_to_workers_b(frame_n+1)
+        result = get_from_workers_a(frame_n)  # Ready
+    
+    current_worker_set = 1 - current_worker_set
+    return result
+```
+
+**Expected Results:**
+- 🎯 FPS: 16.7 → 24-27 (+40-60%)
+- 🎯 Latency: 59ms → 40-45ms (-24%)
+- 🎯 GPU utilization: 50% → 80-90%
+- ⚠️ VRAM: 1.2GB → 2.4GB (fits in 6GB)
+- ⚠️ Complexity: Worker synchronization, crash handling
+
+### ❌ Option C: SharedMemory Zero-Copy (FAILED)
+```python
+# Attempt: Avoid serialization overhead with shared memory
+SharedMemoryRingBuffer for zero-copy frame passing
+```
+
+**Results (Tested - REVERTED):**
+- ❌ FPS: 16.3 → 10.4 (-36%)
+- ❌ Latency: 60ms → 96ms (+60%)
+- ❌ Spike: 19.4 seconds (catastrophic)
+- 🐛 Root cause: Race conditions (no locks), buffer count mismatch
+- 🐛 Thread safety issues between put/get operations
+
+### Option D: Async Pipeline with Future Pattern
 ```python
 # Don't wait, use last available result
 def _collect_results_nonblocking(self):
@@ -143,10 +231,7 @@ def _collect_results_nonblocking(self):
     return self.cached_result  # May be from previous frame
 ```
 
-**Pros**: Simple, guaranteed responsive
-**Cons**: May repeat detections from old frames
-
-### Option B: Async Pipeline with Future Pattern
+### Option D: Async Pipeline with Future Pattern
 ```python
 # Submit frame, get Future, don't wait immediately
 def process_async(self, frame):
@@ -162,39 +247,22 @@ def process_async(self, frame):
     return self.pending_futures[0].get(timeout=0.1)
 ```
 
+**Status:** Not tested
 **Pros**: Allows frame overlap, better GPU utilization
-**Cons**: More complex, potential frame reordering
+**Cons**: More complex, potential frame reordering, similar to double buffering
 
-### Option C: Reduce Timeout with Cached Fallback
+### Option E: Optimize IPC Overhead
 ```python
-# Short timeout, fallback to previous
-try:
-    result = self.result_queue.get(timeout=0.05)  # 50ms max
-except queue.Empty:
-    log.warning("Worker timeout, reusing previous result")
-    result = self.last_result
+# Ideas not tested:
+1. Use msgpack instead of pickle (faster serialization)
+2. Compress depth maps before sending
+3. Pass only detections, not full frames
+4. Use faster IPC (pipes, sockets)
 ```
 
-**Pros**: Minimal code change, graceful degradation
-**Cons**: Still blocks (just less), may drop frames under load
-
-### Option D: Double Buffering Workers
-```python
-# Two worker instances per camera, alternate
-workers = [CentralWorker(), CentralWorker()]
-current_worker = 0
-
-def process(frame):
-    worker = workers[current_worker]
-    current_worker = 1 - current_worker
-    
-    # Submit to one worker while other finishes
-    worker.submit(frame)
-    return other_worker.get_result()
-```
-
-**Pros**: True parallel processing, maximizes GPU
-**Cons**: 2x memory, complex synchronization
+**Status:** Not tested
+**Expected:** ~5-10ms reduction (8-15% FPS gain)
+**Effort:** Medium, without addressing core architectural issue
 
 ## Questions for Evaluation
 
