@@ -10,6 +10,7 @@ from core.processing.multiproc_types import ResultMessage
 from core.processing.multiproc_types import ResultMessage
 from core.vision.yolo_processor import YoloProcessor
 from core.processing.shared_memory_manager import SharedMemoryRingBuffer
+from utils.config import Config
 
 log = logging.getLogger("SlamWorker")
 
@@ -22,10 +23,11 @@ def _set_cuda_device() -> None:
 
 
 class SlamWorker:
-    def __init__(self, slam_queue, result_queue, stop_event):
+    def __init__(self, slam_queue, result_queue, stop_event, ready_event=None):
         self.slam_queue = slam_queue
         self.result_queue = result_queue
         self.stop_event = stop_event
+        self.ready_event = ready_event
         self.yolo_processor: YoloProcessor | None = None
 
     def _load_model(self) -> None:
@@ -40,7 +42,6 @@ class SlamWorker:
             if not hasattr(self, "shm_reader") or self.shm_reader is None:
                 try:
                     # Lazy init reader
-                    from utils.config import Config
                     self.shm_reader = SharedMemoryRingBuffer(
                         name_prefix=msg["shm_name"],
                         count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
@@ -85,6 +86,11 @@ class SlamWorker:
         try:
             _set_cuda_device()
             self._load_model()
+            
+            # Signal ready to parent
+            if self.ready_event:
+                self.ready_event.set()
+                log.info("[SlamWorker] Ready event signaled")
 
             while not self.stop_event.is_set():
                 try:
@@ -107,5 +113,5 @@ class SlamWorker:
             log.info("[SlamWorker] Shutdown complete")
 
 
-def slam_gpu_worker(slam_queue, result_queue, stop_event) -> None:
-    SlamWorker(slam_queue, result_queue, stop_event).run_loop()
+def slam_gpu_worker(slam_queue, result_queue, stop_event, ready_event=None) -> None:
+    SlamWorker(slam_queue, result_queue, stop_event, ready_event).run_loop()

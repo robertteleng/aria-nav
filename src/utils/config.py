@@ -34,6 +34,9 @@ DEVICE = detect_device()
 class Config:
     """System configuration constants"""
     
+    # ========== FASE 3: Shared Memory (Zero-Copy) ==========
+    USE_SHARED_MEMORY = False  # DISABLED - overhead supera beneficios (17 FPS vs 22 FPS sin SHM)
+    
     # ========== FASE 1: CUDA Optimizations (Class Attributes) ==========
     CUDA_OPTIMIZATIONS = True
     PINNED_MEMORY = True
@@ -103,7 +106,7 @@ class Config:
         log.info("  ✓ CUDA cache cleared")
     
     # Video processing (resto de constantes como class variables)
-    TARGET_FPS = 60                         # GPU NVIDIA: 60 FPS
+    TARGET_FPS = 30                         # GPU NVIDIA: 30 FPS
     YOLO_MODEL = "checkpoints/yolo12n.pt"   # Path to model (will auto-detect .engine)
     YOLO_CONFIDENCE = 0.50
     YOLO_DEVICE = DEVICE                    # AUTO: cuda/mps/cpu

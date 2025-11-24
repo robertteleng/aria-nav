@@ -106,7 +106,8 @@ class TelemetryLogger:
         self,
         frame_number: int,
         fps: float,
-        latency_ms: float
+        latency_ms: float,
+        timing_breakdown: dict = None
     ) -> None:
         """
         Registrar métricas de rendimiento de un frame.
@@ -115,6 +116,7 @@ class TelemetryLogger:
             frame_number: Número de frame
             fps: Frames por segundo actual
             latency_ms: Latencia de procesamiento en milisegundos
+            timing_breakdown: Diccionario con timing detallado de componentes
         
         Thread-safe: Puede ser llamado desde cualquier thread.
         """
@@ -128,7 +130,11 @@ class TelemetryLogger:
         with self._buffer_lock:
             self.performance_buffer.append(metric)
         
-        self._write_jsonl(self.performance_log, asdict(metric))
+        # Write with timing breakdown if available
+        data = asdict(metric)
+        if timing_breakdown:
+            data['timing'] = timing_breakdown
+        self._write_jsonl(self.performance_log, data)
     
     # ------------------------------------------------------------------
     # Detection Metrics

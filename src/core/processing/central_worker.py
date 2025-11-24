@@ -12,6 +12,7 @@ from torch import cuda
 from core.processing.multiproc_types import ResultMessage
 from core.vision.yolo_processor import YoloProcessor
 from core.processing.shared_memory_manager import SharedMemoryRingBuffer
+from utils.config import Config
 
 log = logging.getLogger("CentralWorker")
 
@@ -24,10 +25,11 @@ def _set_cuda_device() -> None:
 
 
 class CentralWorker:
-    def __init__(self, central_queue, result_queue, stop_event):
+    def __init__(self, central_queue, result_queue, stop_event, ready_event=None):
         self.central_queue = central_queue
         self.result_queue = result_queue
         self.stop_event = stop_event
+        self.ready_event = ready_event
         self.depth_model: Any = None
         self.depth_processor: Any = None
         self.yolo_processor: YoloProcessor | None = None
@@ -194,6 +196,11 @@ class CentralWorker:
             self._load_models()
             print("[WORKER] Models loaded, entering main loop...", flush=True)
             log.info("[CentralWorker] Step 3: Models loaded, entering main loop...")
+            
+            # Signal ready to parent
+            if self.ready_event:
+                self.ready_event.set()
+                print("[WORKER] Ready event signaled", flush=True)
 
             while not self.stop_event.is_set():
                 try:
@@ -220,14 +227,14 @@ class CentralWorker:
             log.info("[CentralWorker] Shutdown complete")
 
 
-def central_gpu_worker(central_queue, result_queue, stop_event) -> None:
+def central_gpu_worker(central_queue, result_queue, stop_event, ready_event=None) -> None:
     """Entry point for central GPU worker process"""
     print("[WORKER ENTRY] central_gpu_worker starting...", flush=True)
     sys.stdout.flush()
     sys.stderr.flush()
     
     try:
-        worker = CentralWorker(central_queue, result_queue, stop_event)
+        worker = CentralWorker(central_queue, result_queue, stop_event, ready_event)
         print("[WORKER ENTRY] CentralWorker instance created", flush=True)
         worker.run_loop()
     except Exception as e:

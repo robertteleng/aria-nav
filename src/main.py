@@ -201,20 +201,29 @@ def main():
         fps_start_time = time.time() 
 
         
+        # Timing tracking and spike detection
+        timing_log = []
+        latency_history = []
+        spike_threshold_ms = 100  # Alert if frame takes >100ms
+        spike_count = 0
+        
         while not ctrl_handler.should_stop:
             try:
-
-                 # Timestamp inicio del frame
+                # Timestamp inicio del frame
                 frame_start_time = time.time()
+                t0 = frame_start_time
 
                 # Obtener datos del Observer (Solo SDK)
                 frame = observer.get_latest_frame('rgb')
+                t1 = time.time()
                 # Get SLAM frames y eventos
                 slam1_frame = observer.get_latest_frame('slam1')
                 slam2_frame = observer.get_latest_frame('slam2')
+                t2 = time.time()
                 slam_events = coordinator.get_slam_events()
                 motion_data = observer.get_motion_state()
                 motion_state = motion_data.get('state', 'unknown') if motion_data else 'unknown'
+                t3 = time.time()
                 
                 if frame is not None:
                     frames_processed += 1
@@ -225,37 +234,24 @@ def main():
                         'slam1': slam1_frame,
                         'slam2': slam2_frame,
                     }
+                    t4 = time.time()
                     
                     # Procesar con Coordinator (Solo Pipeline)
                     processed_frame = coordinator.process_frame(frame, motion_state, frames_dict=frames_dict)
+                    t5 = time.time()
                     # if hasattr(coordinator, 'handle_slam_frames'):
                     #     coordinator.handle_slam_frames(slam1_frame, slam2_frame)
 
                     slam_skip = getattr(Config, 'SLAM_FRAME_SKIP', 3)
                     if frames_processed % slam_skip == 0:
                         if hasattr(coordinator, 'handle_slam_frames'):
-                            coordinator.handle_slam_frames(slam1_frame, slam2_frame)   
+                            coordinator.handle_slam_frames(slam1_frame, slam2_frame)
+                    t6 = time.time()
                     
                     # Only get depth map if enabled
                     depth_map = coordinator.get_latest_depth_map() if Config.DEPTH_ENABLED else None
                     slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
-                    
-                     # ✅ NUEVO: Calcular métricas de performance
-                    frame_end_time = time.time()
-                    frame_latency_ms = (frame_end_time - frame_start_time) * 1000
-                    elapsed_total = frame_end_time - fps_start_time
-                    current_fps = frames_processed / elapsed_total if elapsed_total > 0 else 0
-                    
-                    # ✅ NUEVO: Log performance
-                    telemetry.log_frame_performance(
-                        frame_number=frames_processed,
-                        fps=current_fps,
-                        latency_ms=frame_latency_ms
-                    )
-                    
-                    # 🧠 MEMORY: Check if should take snapshot
-                    if memory_profiler.maybe_take_snapshot():
-                        print(f"[MEMORY] Snapshot taken at frame {frames_processed}")
+                    t7 = time.time()
                     
                     # ✅ NUEVO: Log detecciones RGB
                     current_detections = coordinator.get_current_detections()
@@ -276,11 +272,11 @@ def main():
                         if slam_events.get('slam2') and slam2_frame is not None:
                             slam2_rendered = coordinator.frame_renderer.draw_slam_detections(
                                 slam2_frame, slam_events['slam2'], color=(255, 128, 0))  # Yellow
+                    t8 = time.time()
 
                     # Actualizar UI con PresentationManager (Solo UI)
                     key = presentation.update_display(
                         frame=processed_frame,
-                        # detections=coordinator.get_current_detections(),
                         detections=current_detections,
                         motion_state=motion_state,
                         coordinator_stats=coordinator.get_status(),
@@ -289,6 +285,7 @@ def main():
                         slam2_frame=slam2_rendered,
                         slam_events=slam_events
                     )
+                    t9 = time.time()
                     
                     # Handle UI Events
                     if key == 'q':
@@ -298,6 +295,47 @@ def main():
                         print("[INFO] Testing audio system...")
                         coordinator.test_audio()
                         presentation.log_audio_command("Test del sistema", 5)
+                    
+                    # Log detailed timing breakdown
+                    timing_ms = {
+                        'get_rgb': (t1 - t0) * 1000,
+                        'get_slam': (t2 - t1) * 1000,
+                        'get_motion': (t3 - t2) * 1000,
+                        'build_dict': (t4 - t3) * 1000,
+                        'process_frame': (t5 - t4) * 1000,
+                        'slam_handling': (t6 - t5) * 1000,
+                        'get_results': (t7 - t6) * 1000,
+                        'render_slam': (t8 - t7) * 1000,
+                        'update_display': (t9 - t8) * 1000,
+                        'total': (t9 - t0) * 1000
+                    }
+                    
+                    # Update telemetry with timing breakdown
+                    frame_end_time = t9
+                    frame_latency_ms = (frame_end_time - frame_start_time) * 1000
+                    elapsed_total = frame_end_time - fps_start_time
+                    current_fps = frames_processed / elapsed_total if elapsed_total > 0 else 0
+                    
+                    telemetry.log_frame_performance(
+                        frame_number=frames_processed,
+                        fps=current_fps,
+                        latency_ms=frame_latency_ms,
+                        timing_breakdown=timing_ms
+                    )
+                    
+                    # Log every 30 frames
+                    if frames_processed % 30 == 0:
+                        avg_latency = sum(latency_history) / len(latency_history) if latency_history else 0
+                        print(f"[TIMING] Frame {frames_processed} | Avg latency: {avg_latency:.1f}ms | Spikes: {spike_count}")
+                        print(f"  Observer: RGB={timing_ms['get_rgb']:.2f}ms SLAM={timing_ms['get_slam']:.2f}ms Motion={timing_ms['get_motion']:.2f}ms")
+                        print(f"  Pipeline: process={timing_ms['process_frame']:.2f}ms")
+                        print(f"  Post: slam_handle={timing_ms['slam_handling']:.2f}ms results={timing_ms['get_results']:.2f}ms")
+                        print(f"  Render: slam={timing_ms['render_slam']:.2f}ms display={timing_ms['update_display']:.2f}ms")
+                        print(f"  TOTAL: {timing_ms['total']:.2f}ms ({1000/timing_ms['total']:.1f} FPS possible)")
+                    
+                    # 🧠 MEMORY: Check if should take snapshot
+                    if memory_profiler.maybe_take_snapshot():
+                        print(f"[MEMORY] Snapshot taken at frame {frames_processed}")
                     
                     # 🧹 MEMORY: Liberar referencias a frames para ayudar al GC
                     del frame, processed_frame, depth_map, slam1_frame, slam2_frame
