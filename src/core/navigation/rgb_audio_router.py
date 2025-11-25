@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from core.audio.audio_system import AudioSystem
 from core.audio.navigation_audio_router import NavigationAudioRouter
 from core.navigation.navigation_decision_engine import DecisionCandidate
+from utils.navigation_logger import get_navigation_logger
 
 if TYPE_CHECKING:
     from core.navigation.slam_audio_router import SlamAudioRouter
@@ -51,6 +52,10 @@ class RgbAudioRouter:
         # Build simplified TTS message (just object name)
         message = self._build_simple_message(candidate.nav_object)
         cooldown = self._parse_cooldown(metadata)
+        
+        # DEBUG: Log audio routing
+        logger = get_navigation_logger().routing
+        logger.info(f"RGB: {class_name} -> '{message}' (zone={zone}, critical={is_critical}, cooldown={cooldown}s)")
 
         router = self.audio_router
         if router is not None and hasattr(router, "enqueue_from_rgb"):
@@ -68,6 +73,7 @@ class RgbAudioRouter:
                             priority=candidate.priority,
                             metadata=metadata,
                         )
+                        logger.info(f"✓ Enqueued to NavigationAudioRouter")
                         # Notify SLAM router to avoid duplicates
                         if self.slam_router and class_name:
                             self.slam_router.register_rgb_announcement(class_name)
@@ -77,9 +83,11 @@ class RgbAudioRouter:
                         router = None
 
         # Fallback to the legacy audio system when the router is unavailable.
+        logger.info(f"Using fallback AudioSystem.queue_message()")
         self.audio_system.set_repeat_cooldown(cooldown)
+        # Set very low announcement cooldown to allow beep + TTS in quick succession
         if hasattr(self.audio_system, "set_announcement_cooldown"):
-            self.audio_system.set_announcement_cooldown(max(0.0, cooldown * 0.5))
+            self.audio_system.set_announcement_cooldown(0.0)
         self.audio_system.queue_message(message)
         
         # Notify SLAM router even in fallback path

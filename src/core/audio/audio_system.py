@@ -52,6 +52,7 @@ class AudioSystem:
         
         # TTS state
         self.tts_speaking = False
+        self.tts_rate = 130  # Default rate, will be adjusted per platform
         
         # Beep statistics
         self.beep_stats = {
@@ -77,6 +78,7 @@ class AudioSystem:
         
         if system == "Darwin" and shutil.which('say'):
             self.tts_backend = "say"
+            self.tts_rate = 190
             self.voice_preferences = ['Samantha', 'Alex', 'Victoria', 'Daniel']
             self.selected_voice = None
             print("[INFO] ✓ AudioSystem: Using 'say' for TTS on macOS.")
@@ -84,9 +86,12 @@ class AudioSystem:
         elif system == "Linux" and pyttsx3:
             try:
                 self.tts_engine = pyttsx3.init()
+                # Slower rate for Linux (espeak-ng is fast by default)
+                self.tts_rate = 130  # Much slower for clarity
                 self.tts_engine.setProperty('rate', self.tts_rate)
+                self.tts_engine.setProperty('volume', 1.0)
                 self.tts_backend = "pyttsx3"
-                print("[INFO] ✓ AudioSystem: Using pyttsx3 for TTS on Linux.")
+                print(f"[INFO] ✓ AudioSystem: Using pyttsx3 for TTS on Linux (rate={self.tts_rate}).")
             except Exception as e:
                 print(f"[ERROR] Failed to initialize pyttsx3 on Linux: {e}")
                 self.tts_backend = None
@@ -116,7 +121,10 @@ class AudioSystem:
         return self.speak_async(message, force=force)
     
     def _should_announce(self, phrase: str) -> bool:
-        if not self.tts_backend or self.tts_speaking:
+        if not self.tts_backend:
+            return False
+        # Allow overlapping announcements if announcement_cooldown is very low
+        if self.tts_speaking and self.announcement_cooldown > 0.1:
             return False
         now = time.time()
         if phrase != self.last_phrase:
@@ -155,7 +163,11 @@ class AudioSystem:
                         pass
                 self.tts_speaking = False
 
-        if self.tts_backend and (force or self._should_announce(message)):
+        should_speak = force or self._should_announce(message)
+        logger = get_navigation_logger().audio
+        logger.debug(f"speak_async('{message}', force={force}) -> should={should_speak}, backend={self.tts_backend}")
+        
+        if self.tts_backend and should_speak:
             self.last_phrase = message
             self.last_announcement_time = time.time()
             self.last_phrase_time = self.last_announcement_time

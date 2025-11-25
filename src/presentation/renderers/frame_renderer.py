@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from typing import List
 from utils.config import Config
+from utils.navigation_logger import get_navigation_logger
 
 
 class FrameRenderer:
@@ -34,6 +35,13 @@ class FrameRenderer:
         height, width = frame.shape[:2]
         annotated_frame = frame.copy()
         
+        # DEBUG: Log detection sources
+        logger = get_navigation_logger().renderer
+        rgb_count = sum(1 for d in detections if d.get('camera_source', 'rgb') == 'rgb')
+        slam_count = sum(1 for d in detections if d.get('camera_source') == 'slam')
+        if rgb_count > 0 or slam_count > 0:
+            logger.debug(f"RGB detections: {rgb_count}, SLAM detections: {slam_count}")
+        
         # Draw zone grid
         self._draw_zone_grid(annotated_frame, width, height)
         
@@ -50,7 +58,7 @@ class FrameRenderer:
         return annotated_frame
     
     def draw_slam_detections(self, frame: np.array, detections: List[dict], color: tuple = (0, 255, 255)) -> np.array:
-        """Draw SLAM detections on frame"""
+        """Draw SLAM detections on frame - ONLY SLAM detections"""
         if frame is None or not detections:
             return frame
         
@@ -59,6 +67,11 @@ class FrameRenderer:
         
         for det in detections:
             try:
+                # Filter: Only draw SLAM camera detections, skip RGB
+                camera_source = det.get('camera_source', 'slam')
+                if camera_source == 'rgb':
+                    continue
+                
                 bbox = det.get('bbox')
                 if not bbox or len(bbox) != 4:
                     continue
@@ -124,9 +137,16 @@ class FrameRenderer:
                         0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
     def _draw_detections(self, frame: np.array, detections: List[dict]):
-        """Draw detection boxes and labels - recibe solo RGB detections ya filtradas"""
+        """Draw detection boxes and labels - ONLY RGB detections"""
+        logger = get_navigation_logger().renderer
+        drawn_count = 0
         for det in detections:
             try:
+                # Filter: Only draw RGB camera detections, skip SLAM
+                camera_source = det.get('camera_source', 'rgb')
+                if camera_source != 'rgb':
+                    continue
+                
                 x1, y1, x2, y2 = det['bbox']
                 name = det.get('name', 'object')
                 zone = det.get('zone', 'center')
@@ -143,8 +163,13 @@ class FrameRenderer:
                     label += f" - {distance}"
                 cv2.putText(frame, label, (int(x1), max(20, int(y1) - 8)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-            except Exception:
+                drawn_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to draw detection: {e}")
                 continue
+        
+        if drawn_count > 0:
+            logger.info(f"Drew {drawn_count} RGB bounding boxes")
 
     def _draw_system_status(self, frame: np.array, audio_system, width: int, height: int):
         """Draw audio system status at bottom of frame"""

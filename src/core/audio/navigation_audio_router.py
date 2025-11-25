@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
 from utils.config import Config
+from utils.navigation_logger import get_navigation_logger
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
 from core.telemetry.telemetry_logger import TelemetryLogger
@@ -258,6 +259,7 @@ class NavigationAudioRouter:
     # ------------------------------------------------------------------
 
     def _run(self) -> None:
+        logger = get_navigation_logger().routing
         while self._running:
             try:
                 _priority, _order, event = self.event_queue.get(timeout=0.5)
@@ -270,8 +272,11 @@ class NavigationAudioRouter:
             self._on_event_processed(event)
 
             should_announce, trigger = self._should_announce(event)
+            logger.debug(f"Event '{event.message}': should_announce={should_announce}, trigger={trigger}")
+            
             if should_announce:
                 self._apply_audio_settings(event)
+                logger.info(f"Speaking: '{event.message}' (priority={event.priority.name}, source={event.source})")
                 speak_ok = self.audio.speak_async(event.message)
                 if speak_ok:
                     now = time.time()
@@ -283,10 +288,13 @@ class NavigationAudioRouter:
                     self._last_message = event.message
                     self._last_message_time = now
                     self._update_metrics(event, "spoken")
+                    logger.debug(f"✓ Spoken successfully")
                 else:
                     self._update_metrics(event, "skipped", reason="tts_rejected")
+                    logger.warning(f"✗ TTS rejected message")
             else:
                 self._update_metrics(event, "skipped", reason=trigger)
+                logger.debug(f"✗ Skipped: {trigger}")
 
     def _should_announce(self, event: NavigationEvent) -> Tuple[bool, str]:
         """Determine if event should be announced with anti-entrecorte logic.

@@ -9,7 +9,7 @@ import numpy as np
 @dataclass
 class FrameMessage:
     frame_id: int
-    camera: str  # 'central', 'slam1', 'slam2'
+    camera: str  # 'rgb', 'slam1', 'slam2'
     frame: np.ndarray
     timestamp: float
 

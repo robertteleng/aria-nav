@@ -244,6 +244,12 @@ class NavigationPipeline:
             if profile and yolo_start is not None:
                 timings["yolo"] = time.perf_counter() - yolo_start
 
+        # CRITICAL: Tag detections with camera_source for proper rendering separation
+        # This prevents RGB/SLAM detection mixing in web dashboard display
+        if detections:
+            for det in detections:
+                det['camera_source'] = self.camera_id  # 'rgb' for main camera
+
         return PipelineResult(
             frame=processed_frame,
             detections=detections,
@@ -299,16 +305,16 @@ class NavigationPipeline:
             self.central_queues = [mp.Queue(maxsize=2), mp.Queue(maxsize=2)]
             self.slam_queues = [mp.Queue(maxsize=2), mp.Queue(maxsize=2)]
             
-            # Create 2 Central Workers
+            # Create 2 RGB Workers
             for i in range(2):
-                worker_name = f"CentralWorker_{'A' if i==0 else 'B'}"
+                worker_name = f"RGBWorker_{'A' if i==0 else 'B'}"
                 p = mp.Process(
                     target=central_gpu_worker,
                     args=(self.central_queues[i], self.result_queue, self.stop_event, self.central_ready),
                     name=worker_name,
                 )
                 self.workers.append(p)
-                self.worker_instances["central"].append({"proc": p, "queue": self.central_queues[i], "idx": i})
+                self.worker_instances["rgb"].append({"proc": p, "queue": self.central_queues[i], "idx": i})
                 self.worker_health[worker_name] = True
 
             # Create 2 SLAM Workers
@@ -331,15 +337,15 @@ class NavigationPipeline:
             self.central_queues = [self.central_queue]
             self.slam_queues = [self.slam_queue]
             
-            # Central Worker
+            # RGB Worker
             p_central = mp.Process(
                 target=central_gpu_worker,
                 args=(self.central_queue, self.result_queue, self.stop_event, self.central_ready),
-                name="CentralWorker",
+                name="RGBWorker",
             )
             self.workers.append(p_central)
-            self.worker_instances["central"].append({"proc": p_central, "queue": self.central_queue, "idx": 0})
-            self.worker_health["CentralWorker"] = True
+            self.worker_instances["rgb"].append({"proc": p_central, "queue": self.central_queue, "idx": 0})
+            self.worker_health["RGBWorker"] = True
             
             # SLAM Worker
             p_slam = mp.Process(
@@ -356,17 +362,16 @@ class NavigationPipeline:
             worker.start()
         
         # Wait for workers to signal ready via Events
-        import time
         log.info("[Pipeline] Waiting for workers to load models and signal ready...")
         start_wait = time.time()
         max_wait = 60.0 if self.double_buffering else 30.0  # More time for double workers
         
-        # Wait for central worker(s) - shared event, so first one triggers it
+        # Wait for RGB worker(s) - shared event, so first one triggers it
         # Ideally we'd have separate events, but for now we assume if one is ready, others are close
         if not self.central_ready.wait(timeout=max_wait):
-            log.error("[Pipeline] Central worker failed to signal ready")
-            raise RuntimeError("Central worker initialization timeout")
-        log.info(f"[Pipeline] Central worker(s) ready signal received")
+            log.error("[Pipeline] RGB worker failed to signal ready")
+            raise RuntimeError("RGB worker initialization timeout")
+        log.info(f"[Pipeline] RGB worker(s) ready signal received")
         
         # Wait for SLAM worker(s)
         remaining_time = max_wait - (time.time() - start_wait)
@@ -418,7 +423,7 @@ class NavigationPipeline:
             
             try:
                 self.shm_central = SharedMemoryRingBuffer(
-                    name_prefix="aria_central",
+                    name_prefix="aria_rgb",
                     count=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2) + 2, # +2 for safety buffer
                     shape=self.shm_shape,
                     dtype=self.shm_dtype,
@@ -456,6 +461,18 @@ class NavigationPipeline:
         if central_frame is None:
             log.warning("No central frame in frames_dict, falling back")
             return self._process_sequential(frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)), profile)
+        
+        # OPTIMIZATION: Resize input frames to reduce IPC overhead
+        if getattr(Config, "INPUT_RESIZE_ENABLED", False):
+            import cv2
+            target_w = getattr(Config, "INPUT_RESIZE_WIDTH", 1024)
+            target_h = getattr(Config, "INPUT_RESIZE_HEIGHT", 1024)
+            if central_frame.shape[1] != target_w or central_frame.shape[0] != target_h:
+                central_frame = cv2.resize(central_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                # Also resize SLAM frames
+                for key in ["slam1", "slam2"]:
+                    if key in frames_dict and frames_dict[key] is not None:
+                        frames_dict[key] = cv2.resize(frames_dict[key], (target_w, target_h), interpolation=cv2.INTER_AREA)
         
         if self.image_enhancer:
             try:
@@ -511,11 +528,11 @@ class NavigationPipeline:
         worker_idx = self.submit_counter % 2 if self.double_buffering else 0
         self.submit_counter += 1
         
-        # Distribute to workers
+            # Distribute to workers
         try:
-            # Central
+            # RGB
             # Check if target worker is alive
-            target_instance = self.worker_instances["central"][worker_idx]
+            target_instance = self.worker_instances["rgb"][worker_idx]
             if not self.worker_health.get(target_instance["proc"].name, True):
                 # Try the other worker if this one is dead
                 other_idx = (worker_idx + 1) % 2
@@ -546,8 +563,8 @@ class NavigationPipeline:
                         target_queue.put_nowait(
                             {
                                 "frame_id": frame_id,
-                                "camera": "central",
-                                "shm_name": "aria_central",
+                                "camera": "rgb",
+                                "shm_name": "aria_rgb",
                                 "buffer_index": buf_idx,
                                 "shape": self.shm_shape,
                                 "dtype": self.shm_dtype,
@@ -557,7 +574,7 @@ class NavigationPipeline:
                     except queue.Full:
                         self.stats["dropped_central"] += 1
                         if self.frames_processed % 30 == 0:
-                            log.warning(f"Dropped central frame {frame_id} (queue full)")
+                            log.warning(f"Dropped RGB frame {frame_id} (queue full)")
             else:
                 # Direct mode (legacy - frame in queue)
                 with self.profiler.measure("queue_put_central"):
@@ -566,7 +583,7 @@ class NavigationPipeline:
                         target_queue.put_nowait(
                             {
                                 "frame_id": frame_id,
-                                "camera": "central",
+                                "camera": "rgb",
                                 "frame": central_frame,  # Direct pass
                                 "timestamp": timestamp,
                             }
@@ -574,9 +591,9 @@ class NavigationPipeline:
                     except queue.Full:
                         self.stats["dropped_central"] += 1
                         if self.frames_processed % 30 == 0:
-                            log.warning(f"Dropped central frame {frame_id} (queue full)")
+                            log.warning(f"Dropped RGB frame {frame_id} (queue full)")
         except Exception as e:
-            log.error(f"Error enqueuing central frame: {e}")
+            log.error(f"Error enqueuing RGB frame: {e}")
         
         # SLAM
         # Similar logic for SLAM workers
@@ -682,22 +699,29 @@ class NavigationPipeline:
                 self.pending_results[result.camera] = result
                 log.info(f"[Frame {frame_id}] First result received after model load")
             except queue.Empty:
-                log.error(f"Central worker timeout on frame {frame_id} after 15s")
+                log.error(f"RGB worker timeout on frame {frame_id} after 15s")
                 self.stats["timeout_errors"] += 1
-                raise RuntimeError("Central worker not responding")
+                raise RuntimeError("RGB worker not responding")
         
         # SOLUTION #3: If no new result, use cached result from previous frame
         if not got_new_result and self.cached_result is not None:
-            # Check age limit (100ms safety threshold)
-            age_ms = (time.time() - self.result_timestamp) * 1000
-            if age_ms > 100:
-                log.warning(f"[Frame {frame_id}] Stale result: {age_ms:.1f}ms old (>100ms limit)")
-                self.stats["stale_results"] += 1
-            
-            # Use cached result (from previous frame)
-            self.pending_results["central"] = self.cached_result
-            if frame_id % 30 == 0:
-                log.info(f"[Frame {frame_id}] Using cached result ({age_ms:.1f}ms old)")
+            # CRITICAL: Only use cached result if it's from the central camera
+            # Prevents SLAM detections from appearing in RGB frame
+            if self.cached_result.camera == "rgb":
+                # Check age limit (100ms safety threshold)
+                age_ms = (time.time() - self.result_timestamp) * 1000
+                if age_ms > 100:
+                    log.warning(f"[Frame {frame_id}] Stale result: {age_ms:.1f}ms old (>100ms limit)")
+                    self.stats["stale_results"] += 1
+                
+                # Use cached result (from previous frame)
+                self.pending_results["rgb"] = self.cached_result
+                if frame_id % 30 == 0:
+                    log.info(f"[Frame {frame_id}] Using cached result ({age_ms:.1f}ms old)")
+            else:
+                # Cached result is from SLAM, don't use it for central
+                if frame_id % 30 == 0:
+                    log.warning(f"[Frame {frame_id}] No central result, cached is {self.cached_result.camera}")
         
         # Return available results
         results = dict(self.pending_results)
@@ -706,29 +730,30 @@ class NavigationPipeline:
         return results
 
     def _merge_results(self, results: Dict[str, Any], frames_dict: Dict[str, np.ndarray]) -> PipelineResult:
-        central_result = results.get("central")
+        rgb_result = results.get("rgb")
         
-        # Solo incluir detecciones de la cámara central (RGB) en el PipelineResult
+        # Solo incluir detecciones de la cámara RGB en el PipelineResult
         # Las SLAM se manejan por separado en main.py
         all_detections = []
-        if central_result:
-            for det in central_result.detections:
-                det["camera"] = "central"
+        if rgb_result:
+            for det in rgb_result.detections:
+                det["camera"] = "rgb"
+                det["camera_source"] = "rgb"  # CRITICAL: Tag for frame renderer filtering
                 all_detections.append(det)
         
         # Update latest depth (keep reference, but clear old one first)
-        if central_result and central_result.depth_map is not None:
+        if rgb_result and rgb_result.depth_map is not None:
             # Clear old references to allow GC
             self.latest_depth_map = None
             self.latest_depth_raw = None
             # Assign new
-            self.latest_depth_map = central_result.depth_map
-            self.latest_depth_raw = central_result.depth_raw
+            self.latest_depth_map = rgb_result.depth_map
+            self.latest_depth_raw = rgb_result.depth_raw
         
         timings = {}
-        if central_result:
+        if rgb_result:
             timings["multiproc"] = True
-            timings["central_ms"] = central_result.latency_ms
+            timings["rgb_ms"] = rgb_result.latency_ms
             timings["slam1_ms"] = results.get("slam1", type("obj", (), {"latency_ms": 0})).latency_ms
             timings["slam2_ms"] = results.get("slam2", type("obj", (), {"latency_ms": 0})).latency_ms
         
@@ -738,7 +763,7 @@ class NavigationPipeline:
             result.depth_raw = None
         
         return PipelineResult(
-            frame=frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)),
+            frame=frames_dict.get("rgb", np.zeros((480, 640, 3), dtype=np.uint8)),
             detections=all_detections,
             depth_map=self.latest_depth_map,
             depth_raw=self.latest_depth_raw,
@@ -751,7 +776,7 @@ class NavigationPipeline:
         
         log.info(
             f"[STATS] {elapsed:.1f}s window: FPS={fps:.1f} | "
-            f"Dropped central={self.stats['dropped_central']} | "
+            f"Dropped RGB={self.stats['dropped_central']} | "
             f"Dropped SLAM={self.stats['dropped_slam']} | "
             f"Stale results={self.stats['stale_results']} | "
             f"Timeout errors={self.stats['timeout_errors']}"

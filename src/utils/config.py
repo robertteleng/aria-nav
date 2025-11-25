@@ -116,7 +116,7 @@ class Config:
     YOLO_FORCE_MPS = False                  # Desactivado
 
     # Peripheral vision (SLAM)
-    PERIPHERAL_VISION_ENABLED = True
+    PERIPHERAL_VISION_ENABLED = False  # DISABLED: SLAM adds IPC overhead, minimal detections
     SLAM_TARGET_FPS = 15                    # Modelo small: 15 FPS para SLAM
     SLAM_FRAME_SKIP = 4                     # Procesar cada 4 frames              
     
@@ -144,7 +144,7 @@ class Config:
     CRITICAL_ALLOWED_CLASSES = {"person", "car", "truck", "bus", "bicycle", "motorcycle"}
     CRITICAL_DISTANCE_WALKING = {"very_close", "close"}
     CRITICAL_DISTANCE_STATIONARY = {"very_close"}
-    CRITICAL_CENTER_TOLERANCE = 0.30  # ±30% from center (zona amarilla)
+    CRITICAL_CENTER_TOLERANCE = 0.45  # Increased from 0.30 to match NORMAL (±45% yellow zone)
     CRITICAL_REQUIRE_YELLOW_ZONE = False  # If True, only announce objects in center zone
     CRITICAL_BBOX_COVERAGE_THRESHOLD = 0.35  # 35% bbox coverage for close objects
     CRITICAL_REPEAT_GRACE = 1.5  # Seconds before repeating same critical
@@ -154,13 +154,13 @@ class Config:
     # Normal priority detection (obstacles, furniture)
     NORMAL_ALLOWED_CLASSES = {"chair", "table", "bottle", "door", "laptop", "couch", "bed"}
     NORMAL_DISTANCE = {"close", "medium"}
-    NORMAL_CENTER_TOLERANCE = 0.30  # Same yellow zone ±30%
+    NORMAL_CENTER_TOLERANCE = 0.45  # Increased from 0.30 to 0.45 (±45% yellow zone)
     NORMAL_REQUIRE_YELLOW_ZONE = True  # Obstacles must be in yellow zone
     NORMAL_PERSISTENCE_FRAMES = 2  # Must be detected for 2+ consecutive frames
     NORMAL_COOLDOWN = 2.5  # Longer cooldown for normal objects
     
     # Audio routing
-    AUDIO_GLOBAL_COOLDOWN = 0.8  # Minimum between any two announcements
+    AUDIO_GLOBAL_COOLDOWN = 0.3  # Minimum between any two announcements (reduced for faster response)
     AUDIO_INTERRUPT_GRACE = 0.25  # Grace period before interrupting (anti-entrecorte)
     AUDIO_QUEUE_SIZE = 12  # Increased from 3
     
@@ -178,9 +178,14 @@ class Config:
     SLAM_AUDIO_DUPLICATE_GRACE = 1.0  # Don't repeat if RGB mentioned same class recently
     SLAM_CRITICAL_ONLY = True  # Only emit SLAM events for critical distances
     
+    # Performance optimization: Input resolution
+    INPUT_RESIZE_ENABLED = True  # Resize frames before processing (reduces IPC overhead)
+    INPUT_RESIZE_WIDTH = 896  # Aggressive resize (was 1024, was 1408 originally)
+    INPUT_RESIZE_HEIGHT = 896  # ~60% fewer pixels = faster inference + less IPC
+    
     # Aria streaming
-    STREAMING_PROFILE = "profile28"  # Back to 28 for 10min test
-    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
+    STREAMING_PROFILE = "profile28"  # 30 FPS (both profiles support 30 FPS)
+    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
     STREAMING_PROFILE_WIFI = "profile15"
     STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
@@ -258,14 +263,14 @@ class Config:
     # Phase 2: Multiprocessing controls
     # Use: python run.py benchmark
     # FASE 4: Re-enabled to test parallel execution with TensorRT
-    PHASE2_MULTIPROC_ENABLED = True  # Test: Parallel RGB/Depth + SLAM workers
-    PHASE2_QUEUE_MAXSIZE = 4  # Increased: Reduce queue blocking
-    PHASE2_SLAM_QUEUE_MAXSIZE = 6  # Increased: More buffer for SLAM cameras
-    PHASE2_RESULT_QUEUE_MAXSIZE = 10  # Increased: More buffer for results
+    PHASE2_MULTIPROC_ENABLED = True  # Best performance: 16.6 FPS (vs 10.9 without)
+    PHASE2_QUEUE_MAXSIZE = 1  # OPTIMIZED: Smaller queue = less latency
+    PHASE2_SLAM_QUEUE_MAXSIZE = 1  # OPTIMIZED: Minimize IPC overhead
+    PHASE2_RESULT_QUEUE_MAXSIZE = 2  # OPTIMIZED: Just enough for overlap
     PHASE2_STATS_INTERVAL = 5.0
     PHASE2_BACKPRESSURE_TIMEOUT = 0.1  # Reduced: Faster timeout for queue.put()
     
     # Phase 7: Double Buffering (2x worker instances for ~25 FPS)
-    PHASE7_DOUBLE_BUFFERING = True  # Enable 2x worker instances per type
+    PHASE7_DOUBLE_BUFFERING = False  # Keep disabled - doesn't solve IPC overhead
     PHASE7_WORKER_HEALTH_CHECK_INTERVAL = 5.0  # Check worker health every 5s
     PHASE7_GRACEFUL_DEGRADATION = True  # Fallback to single worker on crash

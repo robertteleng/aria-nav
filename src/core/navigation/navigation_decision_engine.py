@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 
 from utils.config import Config
+from utils.navigation_logger import get_navigation_logger
 
 try:
     from core.audio.navigation_audio_router import EventPriority
@@ -124,6 +125,13 @@ class NavigationDecisionEngine:
 
         now = time.time()
         
+        # DEBUG: Log what objects we're evaluating
+        logger = get_navigation_logger().decision
+        if navigation_objects:
+            logger.info(f"Evaluating {len(navigation_objects)} objects")
+            for obj in navigation_objects[:3]:
+                logger.debug(f"  - {obj.get('class')}: zone={obj.get('zone')}, distance={obj.get('distance')}, priority={obj.get('priority'):.2f}")
+        
         # Update detection history for persistence tracking
         current_classes = {obj.get("class") for obj in navigation_objects}
         for class_name in list(self.detection_history.keys()):
@@ -133,10 +141,15 @@ class NavigationDecisionEngine:
         # Evaluate CRITICAL candidates first
         critical_candidate = self._evaluate_critical(navigation_objects, motion_state, now)
         if critical_candidate is not None:
+            logger.info(f"✓ CRITICAL candidate: {critical_candidate.nav_object.get('class')}")
             return critical_candidate
         
         # Then evaluate NORMAL candidates (if critical didn't trigger)
         normal_candidate = self._evaluate_normal(navigation_objects, motion_state, now)
+        if normal_candidate is not None:
+            logger.info(f"✓ NORMAL candidate: {normal_candidate.nav_object.get('class')}")
+        else:
+            logger.debug(f"✗ No candidate selected")
         return normal_candidate
     
     def _evaluate_critical(
@@ -226,6 +239,7 @@ class NavigationDecisionEngine:
         persistence_threshold = getattr(Config, "NORMAL_PERSISTENCE_FRAMES", 2)
         normal_cooldown = getattr(Config, "NORMAL_COOLDOWN", 2.5)
         
+        logger = get_navigation_logger().decision
         for obj in navigation_objects:
             class_name = obj.get("class", "").lower()
             if class_name not in normal_classes:
@@ -233,25 +247,33 @@ class NavigationDecisionEngine:
             
             distance = obj.get("distance", "").lower()
             if distance not in normal_distances:
+                logger.debug(f"NORMAL {class_name}: distance {distance} not in {normal_distances}")
                 continue
             
             bbox = obj.get("bbox")
-            if require_yellow_zone and not self._in_yellow_zone(bbox, center_tolerance):
+            in_yellow = self._in_yellow_zone(bbox, center_tolerance)
+            if require_yellow_zone and not in_yellow:
+                logger.debug(f"NORMAL {class_name}: not in yellow zone (require_yellow_zone={require_yellow_zone})")
                 continue
             
             # Update persistence counter
             self.detection_history[class_name] += 1
+            current_persistence = self.detection_history[class_name]
             
             # Check persistence threshold
-            if self.detection_history[class_name] < persistence_threshold:
+            if current_persistence < persistence_threshold:
+                logger.debug(f"NORMAL {class_name}: persistence {current_persistence}/{persistence_threshold}")
                 continue
             
             # Check cooldown for this specific class
             last_time = self.last_normal_announcement.get(class_name, 0.0)
-            if now - last_time < normal_cooldown:
+            time_since = now - last_time
+            if time_since < normal_cooldown:
+                logger.debug(f"NORMAL {class_name}: cooldown {time_since:.1f}s < {normal_cooldown}s")
                 continue
             
             # Normal candidate found
+            logger.info(f"NORMAL ✓ {class_name}: PASSED all checks (persistence={current_persistence}, yellow={in_yellow})")
             metadata: Dict[str, Any] = {
                 "class": class_name,
                 "spanish_name": self.object_priorities.get(class_name, {}).get("spanish", class_name),

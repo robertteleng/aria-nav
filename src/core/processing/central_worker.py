@@ -169,7 +169,7 @@ class CentralWorker:
 
         return ResultMessage(
             frame_id=frame_id,
-            camera="central",
+            camera="rgb",
             detections=detections,
             depth_map=depth_map,
             depth_raw=depth_raw,

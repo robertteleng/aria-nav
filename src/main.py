@@ -230,7 +230,7 @@ def main():
                     
                     # Construir frames_dict para Phase 2 multiproc
                     frames_dict = {
-                        'central': frame,
+                        'rgb': frame,
                         'slam1': slam1_frame,
                         'slam2': slam2_frame,
                     }

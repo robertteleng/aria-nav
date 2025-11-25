@@ -60,13 +60,26 @@ def get_vram_usage():
 def benchmark_pipeline(pipeline, test_frames, iterations=100, warmup=10):
     print(f"  Warming up ({warmup} iterations)...", end="", flush=True)
     for i in range(warmup):
-        pipeline.process(test_frames[i % len(test_frames)])
+        frame = test_frames[i % len(test_frames)]
+        # Create frames_dict for multiproc
+        frames_dict = {
+            "central": frame,
+            "slam1": frame, # Dummy
+            "slam2": frame  # Dummy
+        }
+        pipeline.process(frame, frames_dict=frames_dict)
     print(" Done")
     
     print(f"  Benchmarking ({iterations} iterations)...", end="", flush=True)
     start_time = time.time()
     for i in range(iterations):
-        pipeline.process(test_frames[i % len(test_frames)])
+        frame = test_frames[i % len(test_frames)]
+        frames_dict = {
+            "central": frame,
+            "slam1": frame,
+            "slam2": frame
+        }
+        pipeline.process(frame, frames_dict=frames_dict)
         # Simulate camera frame rate (don't push faster than 30fps input)
         # time.sleep(0.033) 
     
