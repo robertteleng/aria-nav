@@ -549,7 +549,7 @@ After successful installation:
 ## Getting Help
 
 - 📚 **Documentation**: [docs/INDEX.md](../INDEX.md)
-- 🐛 **Issues**: Check [Problem Solving Guide](../development/problem_solving_guide.md)
+- 🐛 **Issues**: Check [TROUBLESHOOTING](../TROUBLESHOOTING.md) and quick steps in [Contributing](../development/CONTRIBUTING.md)
 - 💬 **Questions**: Open GitHub issue with `[Question]` tag
 
 ---

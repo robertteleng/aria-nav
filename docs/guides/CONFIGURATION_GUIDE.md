@@ -712,7 +712,7 @@ The configuration system provides fine-grained control over all aspects of the A
 - **User Experience:** Audio quality > FPS
 - **Safety:** Better to miss 1 frame than give wrong info
 
-For detailed metrics and optimization strategies, see [DEEP_DIVE.md](../architecture/DEEP_DIVE.md) and [DATA_FLOW.md](../architecture/DATA_FLOW.md).
+For detailed metrics and optimization strategies, see [Architecture & Data Flow](../architecture/architecture_document.md). Legacy full-detail references live in [`docs/archive/architecture/`](../archive/architecture/).
 
 ---
 

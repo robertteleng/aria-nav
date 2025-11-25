@@ -84,7 +84,7 @@ docs/
 ### 2. docs/diagrams/project/ (4 files)
 
 - ✅ `00_source.md` - Keep (metadata)
-- ✅ `01_evolution_timeline.puml` - **VALUABLE** (matches PROJECT_TIMELINE.md)
+- ✅ `01_evolution_timeline.puml` - **VALUABLE** (matches history/PROJECT_TIMELINE.md)
 - ✅ `02_decision_flowchart.puml` - Keep (decision logic)
 - ✅ `03_lessons_learned.puml` - Keep (educational)
 
@@ -92,7 +92,7 @@ docs/
 
 **Recommendation:**
 - ✅ Keep all files
-- 📌 Cross-reference with PROJECT_TIMELINE.md
+- 📌 Cross-reference with history/PROJECT_TIMELINE.md
 - 🔄 Update if timeline document changes
 
 ---

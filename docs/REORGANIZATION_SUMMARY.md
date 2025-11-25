@@ -1,8 +1,8 @@
 # 📊 Documentation Reorganization Summary
 
-**Date:** November 20, 2025  
-**Branch:** feature/fase4-tensorrt  
-**Commit:** ed7deae
+**Date:** November 25, 2025  
+**Branch:** docs/audit-restructure  
+**Commit:** (post-audit consolidation)
 
 ---
 
@@ -17,21 +17,20 @@ docs/
 ├── INDEX.md                          # 🏠 Central hub - START HERE
 │
 ├── guides/                           # 👤 User-facing guides
-│   ├── QUICK_REFERENCE.md           # Common commands & workflows
-│   └── MOCK_OBSERVER_GUIDE.md       # Testing without hardware
+│   ├── QUICK_REFERENCE.md           # Comandos y flujos comunes
+│   ├── MOCK_OBSERVER_GUIDE.md       # Testing sin hardware Aria
+│   ├── CONFIGURATION_GUIDE.md       # Configuración/tuning
+│   └── PERFORMANCE_OPTIMIZATION.md  # Guía consolidada de performance
 │
 ├── architecture/                     # 🏗️ System design
-│   ├── architecture_document.md     # Complete architecture
-│   ├── pipeline_overview.md         # Vision pipeline details
-│   ├── navigation_audio_flow.md     # Audio routing
-│   └── audio_spatial_summary.md     # Spatial audio design
+│   ├── architecture_document.md     # Arquitectura + flujo de datos (consolidado)
+│   ├── pipeline_overview.md         # Detalle pipeline visión
+│   ├── navigation_audio_flow.md     # Routing audio
+│   └── audio_spatial_summary.md     # Diseño audio espacial
 │
 ├── development/                      # 💻 Developer workflows
-│   ├── development_workflow.md      # Git flow, testing, deployment
-│   ├── development_methodology.md   # Agile practices
-│   ├── git_commit_guide.md          # Commit conventions
-│   ├── problem_solving_guide.md     # Debugging strategies
-│   └── problem_solving_guide_simple.md # Quick troubleshooting
+│   ├── CONTRIBUTING.md              # Workflow, ramas, commits, testing
+│   └── archive/development/         # Metodologías y guías históricas
 │
 ├── migration/                        # 🚀 Platform migration
 │   ├── NUC_MIGRATION.md            # ⭐ Consolidated migration guide
@@ -39,20 +38,19 @@ docs/
 │   └── LINUX_AUDIO.md              # macOS → Linux audio
 │
 ├── setup/                            # ⚙️ Installation
+│   ├── SETUP.md                    # Instalación
 │   └── meta_aria_profiles.md        # Aria profiles reference
 │
 ├── history/                          # 📜 Project history
+│   ├── PROJECT_TIMELINE.md         # Línea de tiempo (movido desde raíz)
 │   ├── development_diary.md         # Detailed dev log
 │   └── daily_notes.md              # Quick session notes
 │
 ├── archive/                          # 🗄️ Deprecated docs
 │   ├── README.md                    # Archive index
-│   ├── MIGRATION_PLAN_OLD.md
-│   ├── migration_nuc_rtx2060.md
-│   ├── migracion_nuc11_rtx2060.md
-│   ├── FASE4_FIX_DEPTH_TENSORRT.md
-│   ├── PHASE2_DEPTH_PLAN.md
-│   └── OPTIMIZATION_RECOMMENDATIONS.md
+│   ├── cuda/                       # Fases CUDA/TensorRT (archivadas)
+│   ├── development/                # Guías/metodologías históricas
+│   └── troubleshooting/            # Versión completa previa
 │
 ├── testing/                          # 🧪 Test documentation
 │   └── navigation_audio_testing.md
@@ -62,54 +60,35 @@ docs/
 │   ├── diagram.puml
 │   └── [project/uml subdirs]
 │
-├── cuda optimization/                # ⚡ CUDA/TensorRT notes
-│   ├── OPTIMIZATION_PLAN.md
-│   ├── DEPTH_TENSORRT_STATUS.md
-│   ├── FASE_1_IMPLEMENTATION.md
-│   ├── FASE_2_IMPLEMENTATION.md
-│   ├── FASE_4_FINAL_RESULTS.md
-│   └── FASE_4_TENSORRT_NOTES.md
-│
-├── presentation/                     # 📊 Presentation materials
-│   └── [presentation files]
-│
-└── practicas/                        # 🎓 Practice/learning notes
-    └── [practice materials]
+└── TROUBLESHOOTING.md               # Catálogo de síntomas→acciones (raíz)
 ```
 
 ---
 
 ## 🔄 Changes Made
 
-### ✨ Created
-- `INDEX.md` - Central documentation hub
-- `guides/QUICK_REFERENCE.md` - Quick reference for common tasks
-- `migration/NUC_MIGRATION.md` - Consolidated migration guide
-- `archive/README.md` - Archive documentation
+### ✨ Created / Consolidated
+- `architecture/architecture_document.md` - Arquitectura + data flow consolidado
+- `guides/PERFORMANCE_OPTIMIZATION.md` - Guía práctica de rendimiento
+- `development/CONTRIBUTING.md` - Flujo de desarrollo y commits
+- `troubleshooting` (catálogo corto) + `archive/troubleshooting/TROUBLESHOOTING_FULL.md`
 
 ### 🔀 Moved
 | From | To | Reason |
 |------|-----|--------|
-| Root level | `docs/migration/` | Better organization |
-| `AUDIO_MIGRATION_GUIDE.md` | `migration/AUDIO_ROUTER_MIGRATION.md` | Consistent naming |
-| `MIGRATION_PLAN.md` | `archive/MIGRATION_PLAN_OLD.md` | Superseded |
-| `OPTIMIZATION_RECOMMENDATIONS.md` | `archive/` | Implemented/outdated |
-| `meta_aria_profiles.md` | `setup/` | Setup documentation |
-| `docs/LINUX_AUDIO_SOLUTION.md` | `migration/LINUX_AUDIO.md` | Migration context |
-| `docs/MOCK_OBSERVER_GUIDE.md` | `guides/` | User guide |
-| Development guides | `development/` | Clear categorization |
-| History docs | `history/` | Separate from active docs |
-| Phase plans | `archive/` | Historical only |
+| `PROJECT_TIMELINE.md` (root) | `history/PROJECT_TIMELINE.md` | Historia en carpeta history |
+| `migration/CUDA_OPTIMIZATION.md` + `cuda optimization/` | `archive/cuda/` + stub | Mantener histórico fuera de activos |
+| Development guides legacy | `archive/development/` | Mantener activo solo CONTRIBUTING |
 
-### 🗑️ Archived
-- `migration_nuc_rtx2060.md` (Spanish draft)
-- `migracion_nuc11_rtx2060.md` (Spanish detailed)
-- `FASE4_FIX_DEPTH_TENSORRT.md` (Completed)
-- `PHASE2_DEPTH_PLAN.md` (Completed)
+### 🗑️ Archivado / Reubicado
+- Fases CUDA/TensorRT detalladas (FASE_*), planes antiguos de migración
+- Guías de metodología y problem solving largas
+- Troubleshooting completo previo (ahora en `archive/troubleshooting/`)
 
-### ✏️ Updated
-- `README.md` - Modern layout with badges, concise content, links to INDEX.md
-- All documentation cross-references updated
+### ✏️ Actualizado
+- `INDEX.md` - Navegación hacia arquitectura consolidada, performance y timeline en history
+- `TROUBLESHOOTING.md` - Catálogo breve orientado a síntomas
+- Enlaces a performance/perfilado y archivo ajustados
 
 ---
 
@@ -141,9 +120,9 @@ docs/
 3. Setup: [Quick Reference](guides/QUICK_REFERENCE.md)
 
 ### For Developers
-1. Start: [Development Workflow](development/development_workflow.md)
-2. Reference: [Problem Solving Guide](development/problem_solving_guide.md)
-3. Standards: [Git Commit Guide](development/git_commit_guide.md)
+1. Start: [Contributing](development/CONTRIBUTING.md)
+2. Referencias históricas: [archive/development/](archive/development/)
+3. Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ### For Migration
 1. Start: [NUC Migration Guide](migration/NUC_MIGRATION.md)
@@ -152,13 +131,12 @@ docs/
 
 ---
 
-## 📊 Statistics
+## 📊 Statistics (post-audit)
 
-- **Total Markdown Files:** 40+
-- **Archived Documents:** 7
-- **New Documents:** 4
-- **Reorganized:** 15+
-- **Categories:** 9 (guides, architecture, development, migration, setup, history, archive, testing, diagrams)
+- **Total Markdown Files:** 62 (incluye archivo)
+- **Activos:** 37 | **Archivados:** 25
+- **Líneas totales:** ~17.8k (archivo ~10.2k)
+- **Categorías:** 9 (setup, guides, architecture, development, testing, migration, history, archive, diagrams)
 
 ---
 

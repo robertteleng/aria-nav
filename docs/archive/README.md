@@ -9,7 +9,7 @@ This folder contains **deprecated, superseded, or historical documentation** tha
 - `MIGRATION_PLAN_OLD.md` - Original migration plan (replaced by current NUC migration guide)
 
 ### 📂 phases/ - Phase Plans (Historical)
-- `FASE4_FIX_DEPTH_TENSORRT.md` - Phase 4 TensorRT depth fix (completed, see [CUDA_OPTIMIZATION.md](../migration/CUDA_OPTIMIZATION.md))
+- `FASE4_FIX_DEPTH_TENSORRT.md` - Phase 4 TensorRT depth fix (completed, see [CUDA_OPTIMIZATION.md](cuda/CUDA_OPTIMIZATION.md))
 - `PHASE2_DEPTH_PLAN.md` - Phase 2 depth estimation plan (completed)
 
 ### 📄 Root Files
@@ -20,7 +20,7 @@ This folder contains **deprecated, superseded, or historical documentation** tha
 - `OPTIMIZATION_RECOMMENDATIONS.md` - Early optimization ideas (integrated into codebase)
 
 **Reference Materials:**
-- `problem_solving_guide_v1.md` - Original problem-solving guide (replaced by [problem_solving_guide.md](../development/problem_solving_guide.md))
+- `problem_solving_guide_v1.md` - Original problem-solving guide (replaced por contenido en `../archive/development/` y `development/CONTRIBUTING.md`)
 - `technical_presentation_summary.md` - Technical presentation materials (November 2025)
 
 ---

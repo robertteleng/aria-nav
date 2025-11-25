@@ -66,14 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[DOCS]** Added CONCEPTS.md glossary in learning/
 - **[DOCS]** Updated BOTTLENECK_PROBLEM.md with analysis options
 
-### Planned
-- Fisheye undistortion for cameras (deferred - needs optimization for multi-camera)
-- Web Dashboard frame skip optimization
-- Hardware migration to Intel NUC + RTX 2060
-- Multi-language audio support (Spanish, English)
-- Mobile companion app
-- Cloud telemetry dashboard
-- Object tracking to reduce flicker
+### Roadmap
+- [ ] Fisheye undistortion for cameras (deferred - needs optimization for multi-camera)
+- [ ] Web Dashboard frame skip optimization
+- [ ] Multi-language audio support (Spanish, English)
+- [ ] Mobile companion app
+- [ ] Cloud telemetry dashboard
+- [ ] Object tracking to reduce flicker
 - FP16/INT8 quantization experiments
 
 ---
@@ -506,10 +505,10 @@ v2.0.0: 18.4 FPS (+ Async telemetry)
 
 ---
 
-**Project Status:** ✅ Production Ready  
-**Current Version:** 2.0.0  
-**Next Target:** 3.0.0 (Hardware Migration → Intel NUC + RTX 2060)
+**Project Status:** 🔬 Innovation & Research
+**Current Version:** 2.0.0
+**Hardware:** Intel NUC 11 + NVIDIA RTX 2060 (6GB)
 
 ---
 
-*For detailed technical information, see [PROJECT_TIMELINE.md](docs/PROJECT_TIMELINE.md)*
+*For detailed technical information, see [docs/INDEX.md](docs/INDEX.md)*

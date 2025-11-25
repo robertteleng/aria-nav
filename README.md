@@ -106,7 +106,8 @@ See [NUC Migration Guide](docs/migration/NUC_MIGRATION.md) for CUDA setup.
 | [🏗️ Architecture](docs/architecture/architecture_document.md) | System design and components |
 | [🔧 Setup Guide](docs/setup/SETUP.md) | Detailed installation instructions |
 | [🧪 Testing Guide](docs/testing/README.md) | Test strategy and execution |
-| [🐛 Problem Solving](docs/development/problem_solving_guide.md) | Debugging strategies |
+| [🐛 Troubleshooting](docs/TROUBLESHOOTING.md) | Catálogo de síntomas→acciones |
+| [🤝 Contributing](docs/development/CONTRIBUTING.md) | Workflow, ramas, commits, pruebas |
 
 ---
 
@@ -211,9 +212,11 @@ aria-nav/
 
 ## 🤝 Contributing
 
-This is a Master's thesis project (TFM 2025). Contributions welcome after publication.
-
-See [Development Workflow](docs/development/development_workflow.md) for guidelines.
+Contributions are welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on:
+- Code style and conventions
+- Testing requirements
+- Pull request process
+- Development workflow
 
 ---
 
@@ -247,4 +250,4 @@ Universidad [Your University]
 
 ---
 
-**Status:** ✅ Active development | 🚀 Ready for migration to production hardware
+**Status:** 🔬 Innovation & Research | 🚀 Active Development

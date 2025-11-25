@@ -190,7 +190,7 @@ Types:
 - chore: Maintenance
 ```
 
-See [Git Commit Guide](../development/git_commit_guide.md) for details.
+See [Contributing](../development/CONTRIBUTING.md) for branch/commit conventions.
 
 ---
 
@@ -246,7 +246,7 @@ aria-nav/
 
 ## 🆘 Getting Help
 
-1. Check [Problem Solving Guide](../development/problem_solving_guide.md)
+1. Check [Contributing](../development/CONTRIBUTING.md) for quick debug pointers; then [TROUBLESHOOTING](../TROUBLESHOOTING.md)
 2. Review logs in `logs/` directory
 3. Run diagnostics: `python tools/diagnostics.py` (if available)
 4. Open issue with reproduction steps

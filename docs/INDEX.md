@@ -7,7 +7,7 @@
 
 | Document | Description | Priority |
 |----------|-------------|----------|
-| [**PROJECT_TIMELINE.md**](PROJECT_TIMELINE.md) | **Complete 10-iteration development history** | ⭐⭐⭐ |
+| [**PROJECT_TIMELINE.md**](history/PROJECT_TIMELINE.md) | **Complete 10-iteration development history** | ⭐⭐⭐ |
 | [**CHANGELOG.md**](../CHANGELOG.md) | **Version history with all features/fixes** | ⭐⭐⭐ |
 | [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md) | **Complete guide to debugging issues** | ⭐⭐⭐ |
 | [Setup Guide](setup/SETUP.md) | Detailed installation and configuration | ⭐⭐ |
@@ -30,9 +30,9 @@
 
 | Document | Description | Level |
 |----------|-------------|-------|
-| [**Deep Dive**](architecture/DEEP_DIVE.md) | **Comprehensive technical analysis (13K LOC explained)** | ⭐⭐⭐ |
-| [**Data Flow**](architecture/DATA_FLOW.md) | **Frame-by-frame journey with timing breakdown** | ⭐⭐⭐ |
-| [Architecture Overview](architecture/architecture_document.md) | System architecture fundamentals | ⭐⭐ |
+| [**Architecture & Data Flow**](architecture/architecture_document.md) | **Consolidated architecture, timing, pipelines** | ⭐⭐⭐ |
+| [Deep Dive (Archive)](archive/architecture/DEEP_DIVE.md) | Full legacy deep-dive reference | 📦 Archive |
+| [Data Flow (Archive)](archive/architecture/DATA_FLOW.md) | Frame-by-frame legacy trace | 📦 Archive |
 | [Pipeline Details](architecture/pipeline_overview.md) | Vision pipeline breakdown | ⭐⭐ |
 | [Audio System](architecture/audio_spatial_summary.md) | Spatial audio architecture | ⭐ |
 | [Navigation Audio Flow](architecture/navigation_audio_flow.md) | Audio routing architecture | ⭐ |
@@ -65,10 +65,8 @@
 
 | Document | Purpose |
 |----------|---------|
-| [Development Workflow](development/development_workflow.md) | Git flow, testing, deployment |
-| [Development Methodology](development/development_methodology.md) | Agile practices, note-taking |
-| [Problem Solving Guide](development/problem_solving_guide.md) | Debugging strategies |
-| [Git Commit Guide](development/git_commit_guide.md) | Commit message conventions |
+| [Contributing & Development](development/CONTRIBUTING.md) | Workflow, branches, commits, testing |
+| [Development (Archive)](archive/development/) | Metodología, guías de problemas (histórico) |
 
 ---
 
@@ -97,8 +95,8 @@
 ### Performance Optimization
 | Document | Focus | Achievement |
 |----------|-------|-------------|
-| [**CUDA Optimization**](migration/CUDA_OPTIMIZATION.md) | **Complete optimization guide** | **+426% FPS** |
-| [CUDA Phase Documentation](cuda optimization/README.md) | Phase-by-phase details (FASE 1-4) | 3.5 → 18.4 FPS |
+| [**Performance Optimization Guide**](guides/PERFORMANCE_OPTIMIZATION.md) | **Consolidated tuning (18–22 FPS)** | TensorRT + ONNX + skips |
+| [CUDA Optimization Archive](archive/cuda/) | Phase-by-phase historical docs (FASE 1-4) | 3.5 → 18.4 FPS |
 
 ---
 
@@ -106,7 +104,7 @@
 
 | Document | Coverage | Purpose |
 |----------|----------|---------|
-| [**PROJECT_TIMELINE.md**](PROJECT_TIMELINE.md) | **All 10 iterations** | **Complete development journey** |
+| [**PROJECT_TIMELINE.md**](history/PROJECT_TIMELINE.md) | **All 10 iterations** | **Complete development journey** |
 | [**CHANGELOG.md**](../CHANGELOG.md) | **v1.0 → v2.0** | **All features, fixes, improvements** |
 | [Development Diary](history/development_diary.md) | 2024-2025 | Daily development log |
 | [Daily Notes](history/daily_notes.md) | Chronological | Quick session notes |
@@ -128,26 +126,25 @@
 
 ### I want to...
 
-1. **Understand the project** → Start with [PROJECT_TIMELINE.md](PROJECT_TIMELINE.md)
+1. **Understand the project** → Start with [PROJECT_TIMELINE.md](history/PROJECT_TIMELINE.md)
 2. **Install the system** → See [Setup Guide](setup/SETUP.md)
 3. **Debug an issue** → Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 4. **See what changed** → Read [CHANGELOG.md](../CHANGELOG.md)
-5. **Optimize performance** → Review [CUDA Optimization](migration/CUDA_OPTIMIZATION.md)
+5. **Optimize performance** → Review [Performance Optimization Guide](guides/PERFORMANCE_OPTIMIZATION.md)
 6. **Test without hardware** → Use [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md)
-7. **Understand architecture** → See [Architecture Overview](architecture/architecture_document.md)
+7. **Understand architecture** → See [Architecture & Data Flow](architecture/architecture_document.md)
 8. **Find a diagram** → Check [PUML Audit](PUML_AUDIT.md)
 
 ---
 
 ## 📈 Documentation Stats
 
-- **Total Files:** 54 Markdown documents
-- **Active Docs:** 47 (7 archived)
-- **Total Lines:** 17,271 lines of documentation (984KB)
+- **Total Files:** 62 Markdown documents (incl. archive)
+- **Active Docs:** 37 (25 archived)
+- **Total Lines:** ~17,800 (archivo ~10,200)
 - **Diagrams:** 37 PlantUML files
 - **Categories:** 9 (setup, guides, architecture, development, testing, migration, history, archive, diagrams)
-- **Archive Structure:** Organized into migration/ and phases/ subdirectories
-- **Last Major Update:** November 25, 2025 (Archive reorganization + MLflow integration)
+- **Last Major Update:** November 25, 2025 (Arquitectura consolidada + perf + troubleshooting catálogo)
 
 ---
 
@@ -195,8 +192,8 @@ See [archive/README.md](archive/README.md) for complete inventory.
 ## 🆘 Getting Help
 
 1. **First time?** → Start with [README](../README.md) and [Setup Guide](setup/SETUP.md)
-2. **Development?** → Check [Development Workflow](development/development_workflow.md)
-3. **Debugging?** → See [Problem Solving Guide](development/problem_solving_guide.md)
+2. **Development?** → Check [Contributing & Development](development/CONTRIBUTING.md)
+3. **Debugging?** → See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 4. **Migration?** → Read [NUC Migration Guide](migration/NUC_MIGRATION.md)
 5. **API Reference?** → Check inline docstrings in `src/` modules
 

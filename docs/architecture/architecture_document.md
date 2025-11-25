@@ -1,404 +1,246 @@
-# 🏗️ Arquitectura Detallada - TFM Sistema Navegación para Ciegos con Gafas Aria
+# 🧭 Aria Navigation System — Arquitectura y Flujo de Datos (Innovación)
 
-## 📋 **Información del Proyecto**
-- **Nombre**: Sistema de Navegación Asistida para Personas con Discapacidad Visual
-- **Hardware**: Meta Aria Glasses
-- **Estado Actual**: Día 2 completado
-- **Objetivo**: Sistema de navegación en tiempo real con audio direccional
+> Referencia técnica consolidada para el build de innovación (no producción comercial).
+> Target actual: 18-22 FPS en RTX 2060 con Meta Aria Glasses usando YOLO TensorRT + Depth ONNX.
 
----
-
-## 🎯 **Visión General del Sistema**
-
-### **Objetivo Principal**
-Desarrollar un sistema de navegación en tiempo real que utilice computer vision y audio direccional para asistir a personas con discapacidad visual en entornos urbanos y domésticos.
-
-### **Casos de Uso Principales**
-1. **Navegación urbana**: Detectar peatones, vehículos, señales de tráfico
-2. **Navegación indoor**: Identificar obstáculos, puertas, escaleras
-3. **Interacción social**: Reconocer personas y gestos básicos
-4. **Seguridad**: Alertas de peligros inmediatos
+## 🏃‍♂️ Lectura Rápida (30s)
+- Propósito: navegación asistida en tiempo real con audio espacial para usuarios con discapacidad visual.
+- Arquitectura: Observer → Coordinator → Pipelines (RGB/SLAM) → Decision Engine → Audio Router.
+- Ritmo: YOLO cada 3er frame, Depth cada 12º frame; latencia típica captura→decisión ~107ms, E2E con audio ~150ms.
+- Hardware objetivo: Meta Aria Glasses + compute unit (Intel NUC + RTX 2060, 6GB VRAM).
+- Estado: build de investigación, optimizado con TensorRT FP16 + ONNX CUDA; telemetry y MLflow locales.
 
 ---
 
-## 🏛️ **Arquitectura del Sistema**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    ARIA GLASSES                             │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   CÁMARA RGB    │   MICRÓFONOS    │    ALTAVOCES            │
-│   (640x480)     │   (Stereo)      │    (Audio Direccional)  │
-└─────────────────┴─────────────────┴─────────────────────────┘
-         │                 │                     ▲
-         ▼                 ▼                     │
-┌─────────────────────────────────────────────────────────────┐
-│                  PROCESSING UNIT                            │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌──────────────────┐ ┌──────────────┐ │
-│  │  VISION MODULE  │  │  AUDIO MODULE    │ │ NAVIGATION   │ │
-│  │                 │  │                  │ │ MODULE       │ │
-│  │ • YOLOv11n      │  │ • TTS Engine     │ │ • Path Plan  │ │
-│  │ • Object Track  │  │ • Audio Queue    │ │ • Obstacles  │ │
-│  │ • Zone Detect   │  │ • Spatial Audio  │ │ • Priorities │ │
-│  └─────────────────┘  └──────────────────┘ └──────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+## 📚 Índice
+1. [Visión General](#visión-general)
+2. [Stack de Hardware y Runtime](#stack-de-hardware-y-runtime)
+3. [Patrón Arquitectónico y Directorios](#patrón-arquitectónico-y-directorios)
+4. [Pipelines y Flujos de Datos](#pipelines-y-flujos-de-datos)
+5. [Component Deep Dive](#component-deep-dive)
+6. [Modelo de Objetos y Prioridades](#modelo-de-objetos-y-prioridades)
+7. [Configuración Esencial](#configuración-esencial)
+8. [Performance y Recursos](#performance-y-recursos)
+9. [Decisiones de Diseño](#decisiones-de-diseño)
+10. [Testing, Telemetría y Observabilidad](#testing-telemetría-y-observabilidad)
+11. [Roadmap de Innovación](#roadmap-de-innovación)
+12. [Referencias](#referencias)
 
 ---
 
-## 🧩 **Componentes Principales**
+## Visión General
+- Solución de navegación asistida en tiempo real con **CV + audio espacial**.
+- Iteración actual orientada a **aprendizaje/experimentación** (no SLA productivo).
+- Flujo núcleo: captura → realce → detección → profundidad → fusión → tracking → priorización → audio TTS direccional.
 
-### **1. Vision Processing Module**
+## Stack de Hardware y Runtime
+- **Dispositivo**: Meta Aria (RGB 640x480@60fps, SLAM 640x480@30fps, IMU 1000Hz).
+- **Compute unit**: Intel i7 + RTX 2060 (6GB VRAM), 32GB RAM, Ubuntu 22.04.
+- **Targets**: 18-22 FPS sostenidos; YOLO ~40ms, Depth ~27ms; uso VRAM ~1.5GB (25% de 6GB).
+
+## Patrón Arquitectónico y Directorios
+- **Separación de responsabilidades**: Observer (I/O), Coordinator (orquestación), Pipelines (RGB/SLAM), Decision Engine, Audio Router, Presentation.
+- **Mapa de código (extracto)**:
+```
+src/
+├── main.py                       # Entrada y selección de modo
+├── core/
+│   ├── observer.py / mock_observer.py
+│   ├── navigation/
+│   │   ├── coordinator.py / navigation_pipeline.py
+│   │   ├── navigation_decision_engine.py / builder.py
+│   │   ├── rgb_audio_router.py / slam_audio_router.py
+│   ├── vision/                   # YOLO, depth, enhancers, tracking
+│   ├── audio/                    # audio_system.py, navigation_audio_router.py
+│   ├── telemetry/                # loggers async
+│   └── processing/               # workers (experimental)
+├── presentation/                 # dashboards y renderers
+└── utils/                        # config, profiler, monitors
+```
+- **Razonamiento**: testabilidad (mocks), intercambiabilidad de hardware, y habilitar pipelines paralelos (RGB + SLAM opcional).
+
+## Pipelines y Flujos de Datos
+
+### Main Loop (alto nivel)
+```
+Aria SDK → Observer → Coordinator
+  ├─ RGB pipeline (60fps in, frame skip activo)
+  ├─ SLAM pipeline (periférico, opcional)
+  └─ Decision Engine → Audio Router → Audio System (TTS + espacial)
+```
+
+### Línea de Tiempo (Frame N = 180, 60 FPS)
+```
+Time(ms) | Componente             | Operación                      | Data
+0        | Aria SDK               | Captura RGB                    | (480,640,3) u8
+2        | Observer               | Undistort + rotación           | (480,640,3) u8
+6        | ImageEnhancer          | Brillo/contraste               | (480,640,3) u8
+8        | NavPipeline            | Skip check (180%3==0 → YOLO)   | -
+10       | YOLO TensorRT FP16     | Resize + BCHW + inferencia     | 40ms
+54       | YOLOProcessor          | NMS                            | detections
+56       | NavPipeline            | Depth? (180%12==0 → sí)        | -
+58       | DepthEstimator ONNX    | Resize + normaliza             | (518,518,3)
+64       | ONNX Runtime (CUDA)    | Inferencia                     | 27ms
+91       | DepthEstimator         | Reescalar depth map            | (480,640)
+93       | NavPipeline            | Fusión depth+detecciones       | detections+depth
+95       | ObjectTracker          | Tracking                       | tracked objs
+97       | NavPipeline            | Clasificar zonas L/C/R         | tracked objs
+99       | DecisionEngine         | Calcular prioridad             | list prioridades
+101      | DecisionEngine         | Comando top                    | "Close person center"
+103      | AudioRouter            | Cooldown check (2s)            | ok
+105      | AudioRouter            | Enqueue TTS                    | queue
+107      | AudioSystem            | Síntesis                       | wav buffer
+150      | AudioSystem            | Play                           | salida
+```
+- **Latencia captura→decisión**: ~107ms. **E2E con audio**: ~150ms.
+- **Frame skip**: YOLO cada 3er frame; Depth cada 12º; efectivo 18-22 FPS.
+
+### RGB Pipeline (detallado)
+1) Realce de imagen (~2ms)
+2) YOLO TensorRT FP16 (40ms) @640x640
+3) Depth-Anything v2 ONNX CUDA (27ms, 1/12 frames) @518x518
+4) Fusión depth+detecciones (~1ms)
+5) Tracking temporal (~2ms)
+6) Clasificación espacial zonas (~1ms)
+7) Decision Engine (~3ms)
+8) Audio routing (~2ms)
+
+### SLAM Pipeline (periférico, opcional)
+- SLAM L/R @30fps → rectificación (~5ms) → YOLO paralelo (~40ms c/u) → detección lateral → audio "Caution left/right". Sin depth (usa tamaño bbox).
+
+### Memoria (flujo)
+- YOLO TensorRT ~800MB, Depth ONNX ~500MB, contexto CUDA ~200MB → ~1.5GB VRAM en uso; headroom ~4.5GB.
+
+## Component Deep Dive
+
+### Observer (`src/core/observer.py`)
+- Abstracción de hardware (RGB, SLAM, IMU). Implementaciones: `AriaObserver` (real) y `MockObserver` (desarrollo sin hardware).
+- Garantiza frames contiguos y rotación correcta para YOLO.
+
+### Coordinator (`src/core/navigation/coordinator.py`)
+- Inicializa modelos (YOLO, Depth), pipelines RGB/SLAM y Decision Engine.
+- Loop principal: obtiene frames, aplica frame-skip, encola detecciones, actualiza dashboards, maneja shutdown limpio.
+- Multiprocessing experimental (Phase 6) deshabilitado por defecto.
+
+### Navigation Pipeline (`src/core/navigation/navigation_pipeline.py`)
+- Etapas modulables (enhance → detect → depth → track → zone → priority).
+- Estrategia de skip configurable: `YOLO_FRAME_SKIP=3`, `DEPTH_FRAME_SKIP=12`.
+- Fusión depth/bboxes y clasificación espacial antes de priorizar.
+
+### YOLO Processor (`src/core/vision/yolo_processor.py`)
+- Exportado a TensorRT FP16 (`workspace=4GB`, batch=1, input 640x640). Latencia ~40ms vs ~120ms PyTorch.
+- Optimiza: layer fusion, FP16, input fijo (sin dynamic shapes).
+
+### Depth Estimator (`src/core/vision/depth_estimator.py`)
+- Modelo Depth-Anything v2 Small en ONNX Runtime CUDA (~27ms). Input 518x518.
+- Fusión a nivel de bbox:
 ```python
-class VisionModule:
-    ├── YOLOv11n Detection Engine
-    ├── Object Tracking System  
-    ├── Zone Classification (Left/Center/Right)
-    ├── Distance Estimation
-    └── Detection Buffer & Smoothing
+def fuse_depth(detections, depth_map):
+    for det in detections:
+        x1,y1,x2,y2 = det.bbox
+        mean = depth_map[y1:y2, x1:x2].mean()
+        det.distance = 1.0 / (mean + 1e-6)
+        det.distance_bucket = bucket(det.distance)  # close/medium/far
 ```
 
-**Responsabilidades:**
-- Captura de video en tiempo real (30-60 FPS)
-- Detección de objetos con YOLOv11n
-- Seguimiento temporal de objetos
-- Clasificación espacial en zonas
-- Estimación de distancia relativa
-
-**Input**: RGB Video Stream (640x480)
-**Output**: Detection Objects con posición y metadata
-
-### **2. Audio Processing Module**
+### Decision Engine (`src/core/navigation/navigation_decision_engine.py`)
+- Prioridad = f(distancia, zona, clase, motion_state).
 ```python
-class AudioModule:
-    ├── Text-to-Speech Engine (pyttsx3)
-    ├── Audio Message Queue
-    ├── Spatial Audio Processing
-    ├── Priority Management
-    └── Threading System
+def calculate_priority(det, motion_state):
+    p = 100 if det.distance_bucket=="close" else 50 if det.distance_bucket=="medium" else 10
+    p += 30 if det.zone=="center" else 10
+    if det.class_name in ["car","truck","bus"]: p += 40
+    elif det.class_name in ["person","bicycle","motorcycle"]: p += 20
+    if motion_state=="stationary": p *= 0.5
+    return p
 ```
+- Genera comando natural: `"Close {class} {zone}"` → TTS.
 
-**Responsabilidades:**
-- Conversión texto a voz en tiempo real
-- Cola de mensajes sin solapamiento
-- Procesamiento de audio espacial
-- Control de prioridades y cooldowns
-- Ejecución asíncrona no bloqueante
+### Audio Router (`src/core/audio/navigation_audio_router.py`)
+- Cola prioritaria + cooldown (2s por comando) para evitar spam.
+- Puede interrumpir comandos de menor prioridad; soporta beeps proporcionales a distancia.
 
-**Input**: Detection Objects + Spatial Data
-**Output**: Audio Commands direccionales
+### Telemetry (`src/core/telemetry/loggers/telemetry_logger.py`)
+- Logger async con cola `maxsize=2000` y flush en background. No bloquea loop principal, bufferiza y escribe en `logs/session_*/telemetry/*.jsonl`.
+- Señales clave: FPS, latencia por etapa, eventos de audio y detección.
 
-### **3. Navigation Intelligence Module**
-```python
-class NavigationModule:
-    ├── Object Priority System
-    ├── Spatial Reasoning
-    ├── Safety Alert System
-    ├── Context Awareness
-    └── User Preference Engine
-```
+### Presentation Layer
+- Dashboards OpenCV / Rerun / Web para debugging visual; no requerido para uso ciego pero útil para iteración.
 
-**Responsabilidades:**
-- Priorización inteligente de objetos
-- Análisis de contexto espacial
-- Generación de alertas de seguridad
-- Adaptación a preferencias de usuario
-- Toma de decisiones de navegación
+## Modelo de Objetos y Prioridades
+- **Críticos (P8-10):** person, stop sign, car, truck, bus.
+- **Importantes (P5-7):** bicycle, motorcycle, traffic light, stairs.
+- **Contextuales (P1-4):** door, chair, bench.
+- **Modificadores:** distancia (close x2, medium x1.5), zona (center +30%).
+- Ajustables en `Config` según entorno (indoor/outdoor).
 
----
-
-## 📊 **Flujo de Datos Detallado**
-
-### **Pipeline Principal**
-```
-1. [CAMERA] → RGB Frame (640x480, 30fps)
-2. [YOLO] → Object Detections (bbox, class, confidence)  
-3. [PROCESSING] → Spatial Analysis (zone, distance, priority)
-4. [FILTERING] → Relevant Objects Only
-5. [INTELLIGENCE] → Priority Ranking & Context
-6. [AUDIO] → TTS Message Generation
-7. [OUTPUT] → Spatial Audio Commands
-```
-
-### **Flujo Temporal**
-```
-Frame N:   Capture → Detect → Process → Queue Audio
-Frame N+1: Capture → Detect → Process → Queue Audio
-...
-Audio Thread: [Continuous] → Play Queued Messages
-```
-
----
-
-## 🎯 **Objetos de Navegación y Prioridades**
-
-### **Clasificación por Importancia**
-
-#### **🔴 Críticos (Prioridad 8-10)**
-```python
-critical_objects = {
-    'person': {'priority': 10, 'spanish': 'persona'},
-    'stop sign': {'priority': 9, 'spanish': 'señal de stop'},
-    'car': {'priority': 8, 'spanish': 'coche'},
-    'truck': {'priority': 8, 'spanish': 'camión'},
-    'bus': {'priority': 8, 'spanish': 'autobús'}
-}
-```
-
-#### **🟡 Importantes (Prioridad 5-7)**
-```python
-important_objects = {
-    'bicycle': {'priority': 7, 'spanish': 'bicicleta'},
-    'motorcycle': {'priority': 7, 'spanish': 'motocicleta'},
-    'traffic light': {'priority': 6, 'spanish': 'semáforo'},
-    'stairs': {'priority': 5, 'spanish': 'escaleras'}
-}
-```
-
-#### **🟢 Contextuales (Prioridad 1-4)**
-```python
-contextual_objects = {
-    'door': {'priority': 4, 'spanish': 'puerta'},
-    'chair': {'priority': 3, 'spanish': 'silla'},
-    'bench': {'priority': 2, 'spanish': 'banco'}
-}
-```
-
-### **Sistema de Modificadores de Prioridad**
-```python
-priority_modifiers = {
-    'distance': {
-        'muy_cerca': 2.0,    # Multiplicador x2
-        'cerca': 1.5,        # Multiplicador x1.5  
-        'lejos': 1.0         # Sin modificador
-    },
-    'position': {
-        'centro': 1.3,       # +30% prioridad
-        'izquierda': 1.0,    # Sin modificador
-        'derecha': 1.0       # Sin modificador
-    }
-}
-```
-
----
-
-## 🔧 **Configuraciones Técnicas**
-
-### **Vision Processing**
+## Configuración Esencial
 ```yaml
-vision_config:
-  model: "yolov11n.pt"
-  input_resolution: [640, 480]
-  target_fps: 30
+vision:
+  model: yolov11/12n TensorRT
+  input_resolution: 640x640
   confidence_threshold: 0.5
-  nms_threshold: 0.45
-  detection_buffer_size: 5
-```
+  yolo_frame_skip: 3
+  depth_frame_skip: 12
+  depth_model: depth-anything-v2-small.onnx
 
-### **Audio System**
-```yaml
-audio_config:
-  tts_engine: "pyttsx3"
-  speech_rate: 150  # WPM
+audio:
+  tts_engine: pyttsx3
+  speech_rate: 150
   volume: 0.9
-  voice_language: "es"
+  cooldown_seconds: 2.0
   queue_max_size: 3
-  announcement_cooldown: 2.0  # seconds
+
+spatial:
+  zones: left[0,213], center[213,426], right[426,640]
+  distance_pixels:
+    person_close: 200
+    car_close: 150
 ```
+- **Parámetros críticos para perf**: skips, input size, precision (FP16), cola de audio (tamaño/cooldown).
 
-### **Spatial Processing**
-```yaml
-spatial_config:
-  zones:
-    left: [0, 213]      # pixels
-    center: [213, 426]  # pixels  
-    right: [426, 640]   # pixels
-  distance_estimation:
-    person_close: 200   # bbox height pixels
-    person_medium: 100  # bbox height pixels
-    car_close: 150      # bbox height pixels
-    car_medium: 75      # bbox height pixels
-```
+## Performance y Recursos
+- **Latencia (frame con depth):** ~78ms pipeline + ~43ms TTS → ~150ms E2E.
+- **Latencia sin depth:** ~51ms (se usa en frames intermedios).
+- **Evolución por fases:**
 
----
+| Fase | Enfoque | FPS | Cambio clave |
+|------|---------|-----|--------------|
+| Baseline | PyTorch puro | 3.5 | N/A |
+| 1-2 | TensorRT + ONNX | 10.2 | Optimización de modelos |
+| 3 | Shared Memory | 6.6 | Race conditions (revertido) |
+| 4 | Frame skip + tuning | 18.4 | Skip inteligente |
+| 5 | Queues no bloqueantes | 18.8 | Timeouts en colas |
+| 6 | CUDA Streams híbrido | 19.0 | Depth || YOLO (+0.6 FPS) |
 
-## ⚡ **Performance y Optimizaciones**
+- **CUDA Streams (híbrido):** YOLO TensorRT + Depth ONNX en streams separados; sincronización limita la ganancia a ~3%.
+- **Uso VRAM:** ~1.5GB de 6GB (25%); suficiente margen para tracking avanzado o VLM experimental.
+- **Bottlenecks actuales:** YOLO 40ms, Depth 27ms, preprocessing 5ms, resto 6ms.
 
-### **Métricas Objetivo**
-```yaml
-performance_targets:
-  detection_fps: 30-60
-  audio_latency: <1000ms
-  memory_usage: <2GB
-  cpu_usage: <70%
-  battery_life: >4hours
-```
+## Decisiones de Diseño
+- **Arquitectura separada (Observer/Coordinator/Pipelines)**: testabilidad y reemplazo de hardware sin tocar lógica.
+- **Frame skip (YOLO/Depth)**: trade-off rendimiento/respuesta; sin skip → ~8 FPS (inviable).
+- **TensorRT + ONNX**: cada modelo en su framework óptimo; PyTorch-only → 3.5 FPS.
+- **Telemetry async**: evita bloqueos I/O y picos de 250ms; batch writes.
+- **MLflow local con SQLite**: portabilidad y consultas rápidas; sin server remoto.
 
-### **Optimizaciones Implementadas**
+## Testing, Telemetría y Observabilidad
+- **Unit/integration**: `tests/` cubre visión, audio, spatial, priority.
+- **Profiling**: `utils/profiler.py`, `memory_profiler.py`, `resource_monitor.py`.
+- **Debugging rápido**:
+  - FPS bajo → `nvidia-smi`, habilitar profiler, revisar skips.
+  - Audio lag → cooldown/queue, TTS backend.
+  - CUDA OOM → bajar resolución depth, desactivar SLAM, reducir buffers.
+- **Logs**: `logs/session_*/telemetry/*.jsonl` + `decision_engine.log`, `audio_system.log`.
 
-#### **Vision Optimizations**
-- **YOLOv11n**: Modelo nano para máximo performance
-- **Resolution**: 640x480 balanceando calidad/velocidad
-- **Buffer smoothing**: Reduce detecciones falsas
-- **Confidence filtering**: Solo objetos >50% confianza
+## Roadmap de Innovación (2025)
+- Q1: multi-idioma (ES/EN), optimizar undistortion, tracking (ByteTrack).
+- Q2: VLM ligero (descripciones de escena), app móvil compañera, dashboard de telemetría cloud-lite.
+- Q3-Q4: piloto real con usuarios, refinar audio espacial 3D, publicación y apertura parcial.
 
-#### **Audio Optimizations**  
-- **Threading**: Audio no bloquea detección
-- **Queue system**: Evita solapamiento de mensajes
-- **Cooldown**: Previene spam de anuncios
-- **Priority queue**: Mensajes importantes primero
+## Referencias
+- YOLO (Ultralytics), TensorRT docs, ONNX Runtime CUDA.
+- Project Aria SDK.
+- Depth Anything v2.
+- MLflow Tracking (SQLite backend).
 
-#### **Memory Optimizations**
-- **Detection buffer**: Circular buffer tamaño fijo
-- **Model caching**: YOLO se carga una vez
-- **Garbage collection**: Limpieza automática de objetos
-
----
-
-## 🛣️ **Plan de Desarrollo por Días**
-
-### **✅ Día 1 - Base Foundation (COMPLETADO)**
-- [x] Setup básico de captura de video
-- [x] Integración YOLOv11n
-- [x] Detección en tiempo real funcionando
-- [x] Performance optimizado a 60fps
-
-### **✅ Día 2 - Audio Direccional (COMPLETADO)**  
-- [x] Integración Text-to-Speech
-- [x] Sistema de zonas espaciales
-- [x] Audio queue y threading
-- [x] Priorización de objetos
-- [x] Mensajes contextuales
-
-### **🔄 Día 3 - Audio Espacial 3D (EN PROGRESO)**
-- [ ] Implementar audio posicional
-- [ ] Calibración de distancia mejorada  
-- [ ] Navegación turn-by-turn básica
-- [ ] Testing en entornos reales
-
-### **📅 Días Futuros - Funcionalidades Avanzadas**
-- **Día 4**: Reconocimiento de gestos y personas
-- **Día 5**: Integración GPS y mapas
-- **Día 6**: Machine Learning personalizado
-- **Día 7**: Optimización para Aria hardware
-
----
-
-## 🧪 **Testing y Validación**
-
-### **Unit Tests**
-```python
-test_modules = [
-    "test_vision_detection",
-    "test_audio_generation", 
-    "test_spatial_processing",
-    "test_priority_system",
-    "test_performance_metrics"
-]
-```
-
-### **Integration Tests**
-```python
-integration_scenarios = [
-    "indoor_navigation",
-    "outdoor_crosswalk",
-    "crowded_environment", 
-    "low_light_conditions",
-    "multiple_audio_sources"
-]
-```
-
-### **User Testing Criteria**
-- **Accuracy**: >90% detecciones correctas
-- **Latency**: <1s respuesta audio
-- **Usability**: Comprensión >95% mensajes
-- **Safety**: 0 falsos negativos críticos
-
----
-
-## 📱 **Deployment Architecture**
-
-### **Hardware Requirements**
-```yaml
-aria_glasses:
-  cpu: ARM64 processor
-  ram: 4GB minimum
-  storage: 32GB
-  cameras: RGB + Depth sensors
-  audio: Stereo speakers + microphones
-  connectivity: WiFi + Bluetooth
-  battery: 8+ hours
-```
-
-### **Software Stack**
-```yaml
-software_stack:
-  os: Android/Linux embedded
-  python: 3.8+
-  frameworks:
-    - OpenCV 4.5+
-    - Ultralytics YOLO
-    - PyTorch Mobile
-    - pyttsx3
-  dependencies:
-    - numpy
-    - threading
-    - queue
-    - time
-```
-
----
-
-## 🔒 **Consideraciones de Privacidad y Seguridad**
-
-### **Privacy by Design**
-- **Local Processing**: Todo el procesamiento en device
-- **No Cloud**: Sin envío de video/audio a servidores
-- **Encrypted Storage**: Configuraciones usuario encriptadas
-- **Minimal Data**: Solo almacenar preferencias esenciales
-
-### **Safety Measures**
-- **Fail-Safe Audio**: Alertas críticas nunca se pierden
-- **Battery Monitoring**: Avisos de batería baja
-- **Performance Monitoring**: Degradación automática si necesario
-- **Emergency Protocols**: Procedimientos de emergencia
-
----
-
-## 📈 **Roadmap Futuro**
-
-### **Versión 2.0 - Advanced Features**
-- **Computer Vision**: Reconocimiento facial, lectura de texto
-- **AI Assistant**: Interacción por voz natural
-- **Social Integration**: Compartir rutas y puntos de interés
-- **Health Monitoring**: Métricas de actividad y movilidad
-
-### **Versión 3.0 - Ecosystem**
-- **Smart City Integration**: Conexión con semáforos inteligentes
-- **AR Overlay**: Realidad aumentada para usuarios con visión parcial
-- **Multi-device**: Sincronización con smartphone y smartwatch
-- **Community Features**: Red de usuarios para feedback colaborativo
-
----
-
-## 📚 **Referencias Técnicas**
-
-### **Papers y Research**
-- YOLOv11 Architecture and Performance Analysis
-- Real-time Object Detection for Assistive Technology
-- Spatial Audio Processing for Navigation Systems
-- Computer Vision Applications in Accessibility
-
-### **Frameworks y Libraries**
-- [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
-- [OpenCV](https://opencv.org/)
-- [pyttsx3](https://pypi.org/project/pyttsx3/)
-- [Meta Aria SDK](https://www.meta.com/smart-glasses/)
-
----
-
-**📊 Estado del Proyecto**: 2/7 días completados  
-**🎯 Próximo Milestone**: Audio espacial 3D  
-**📅 Última actualización**: Día 2 - Sistema audio direccional  
-**✅ Performance actual**: 30-60fps, <1s latencia audio
