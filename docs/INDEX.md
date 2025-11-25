@@ -53,10 +53,11 @@
 
 | Guide | Purpose | Status |
 |-------|---------|--------|
-| [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | ✅ Active |
-| [Audio Configuration](guides/audio_config.md) | Audio system setup (macOS/Linux) | ✅ Active |
-| [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ✅ Active |
-| [**Troubleshooting**](TROUBLESHOOTING.md) | **Complete debugging guide** | ✅ Active |
+| [**Configuration Guide**](guides/CONFIGURATION_GUIDE.md) | **Complete system configuration and tuning** | ⭐⭐⭐ |
+| [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ⭐⭐ |
+| [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | ⭐⭐ |
+| [Audio Configuration](guides/audio_config.md) | Audio system setup (macOS/Linux) | ⭐ |
+| [**Troubleshooting**](TROUBLESHOOTING.md) | **Complete debugging guide** | ⭐⭐⭐ |
 
 ---
 
