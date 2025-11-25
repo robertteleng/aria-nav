@@ -116,7 +116,7 @@ class Config:
     YOLO_FORCE_MPS = False                  # Desactivado
 
     # Peripheral vision (SLAM)
-    PERIPHERAL_VISION_ENABLED = False  # DISABLED: SLAM adds IPC overhead, minimal detections
+    PERIPHERAL_VISION_ENABLED = True  #SLAM adds IPC overhead, minimal detections
     SLAM_TARGET_FPS = 15                    # Modelo small: 15 FPS para SLAM
     SLAM_FRAME_SKIP = 4                     # Procesar cada 4 frames              
     

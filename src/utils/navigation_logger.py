@@ -16,13 +16,17 @@ class NavigationLogger:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self):
+    def __init__(self, session_dir: Path = None):
         if self._initialized:
             return
         
-        # Create logs directory with timestamp
-        timestamp = int(datetime.now().timestamp() * 1000)
-        self.log_dir = Path("logs") / f"session_{timestamp}"
+        # Use provided session directory or create new one
+        if session_dir is None:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.log_dir = Path("logs") / f"session_{timestamp}"
+        else:
+            self.log_dir = Path(session_dir)
+        
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Setup loggers
@@ -76,9 +80,9 @@ class NavigationLogger:
 # Global instance
 _nav_logger = None
 
-def get_navigation_logger():
+def get_navigation_logger(session_dir: Path = None):
     """Get or create navigation logger instance."""
     global _nav_logger
     if _nav_logger is None:
-        _nav_logger = NavigationLogger()
+        _nav_logger = NavigationLogger(session_dir=session_dir)
     return _nav_logger

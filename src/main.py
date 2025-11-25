@@ -173,6 +173,12 @@ def main():
             device_manager.subscribe()
             print("  ✅ AriaObserver conectado con calibraciones RGB + SLAM")
         
+        # 0b. Inicializar NavigationLogger ANTES del coordinator (con mismo session_dir)
+        print("  📝 Inicializando NavigationLogger...")
+        from utils.navigation_logger import get_navigation_logger
+        nav_logger = get_navigation_logger(session_dir=telemetry.get_session_dir())
+        print(f"  ✅ NavigationLogger ready (logs → {nav_logger.log_dir})")
+        
         # 3. Navigation Coordinator Setup (Solo Pipeline)
         print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")
         builder = Builder()

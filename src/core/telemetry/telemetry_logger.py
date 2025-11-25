@@ -8,6 +8,7 @@ import atexit
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict
+from datetime import datetime
 
 
 @dataclass
@@ -71,10 +72,10 @@ class TelemetryLogger:
         base_dir = Path(output_dir)
         base_dir.mkdir(parents=True, exist_ok=True)
         
-        # Crear sesión única
-        self.session_id = int(time.time() * 1000)  # Milisegundos
+        # Crear sesión única con timestamp legible
+        self.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.session_start = time.time()
-        self.output_dir = base_dir / f"session_{self.session_id}"
+        self.output_dir = base_dir / f"session_{self.session_timestamp}"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Archivos de log
@@ -91,12 +92,16 @@ class TelemetryLogger:
         
         # Log de inicio
         self._log_system_event("session_start", {
-            "session_id": self.session_id,
+            "session": self.session_timestamp,
             "timestamp": self.session_start
         })
         
-        print(f"[TELEMETRY] Nueva sesión: {self.session_id}")
+        print(f"[TELEMETRY] Nueva sesión: {self.session_timestamp}")
         print(f"[TELEMETRY] Carpeta: {self.output_dir}")
+    
+    def get_session_dir(self) -> Path:
+        """Return the session directory path for use by other loggers."""
+        return self.output_dir
     
     # ------------------------------------------------------------------
     # Performance Metrics
@@ -257,7 +262,7 @@ class TelemetryLogger:
         """Registrar eventos del sistema."""
         payload = {
             "timestamp": time.time(),
-            "session_id": self.session_id,
+            "session": self.session_timestamp,
             "event_type": event_type,
             **data
         }
@@ -287,7 +292,7 @@ class TelemetryLogger:
         """
         payload = {
             "timestamp": time.time(),
-            "session_id": self.session_id,
+            "session": self.session_timestamp,
             **resource_data
         }
         self._write_jsonl(self.resource_log, payload)
@@ -341,7 +346,7 @@ class TelemetryLogger:
             audio_by_source[audio.source] = audio_by_source.get(audio.source, 0) + 1
         
         summary = {
-            "session_id": self.session_id,
+            "session": self.session_timestamp,
             "duration_seconds": session_duration,
             "total_frames": len(perf_copy),
             "avg_fps": sum(fps_values) / len(fps_values) if fps_values else 0,
@@ -375,7 +380,7 @@ class TelemetryLogger:
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)
         
-        print(f"[TELEMETRY] Sesión finalizada: {self.session_id}")
+        print(f"[TELEMETRY] Sesión finalizada: {self.session_timestamp}")
         print(f"[TELEMETRY] Resumen guardado: {summary_path.name}")
         
         return summary
