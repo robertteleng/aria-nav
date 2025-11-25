@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from typing import List
 from utils.config import Config
-from utils.navigation_logger import get_navigation_logger
+from core.telemetry.loggers.navigation_logger import get_navigation_logger
 
 
 class FrameRenderer:

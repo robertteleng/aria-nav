@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 
 from utils.config import Config
-from utils.navigation_logger import get_navigation_logger
+from core.telemetry.loggers.navigation_logger import get_navigation_logger
 
 try:
     from core.audio.navigation_audio_router import EventPriority

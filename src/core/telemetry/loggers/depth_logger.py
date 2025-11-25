@@ -4,13 +4,14 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
+from pathlib import Path
 
 
 class DepthLogger:
     """Writes depth-related logs to a dedicated file in the session directory"""
     
-    def __init__(self, session_dir: Optional[str] = None):
+    def __init__(self, session_dir: Optional[Union[str, Path]] = None):
         if session_dir:
             # Use provided session directory and create telemetry subfolder
             session_root = Path(session_dir)
@@ -65,14 +66,14 @@ class DepthLogger:
 # Singleton instance
 _depth_logger = None
 
-def get_depth_logger(session_dir: Optional[str] = None) -> DepthLogger:
+def get_depth_logger(session_dir: Optional[Union[str, Path]] = None) -> DepthLogger:
     """Get or create the global depth logger instance"""
     global _depth_logger
     if _depth_logger is None:
         _depth_logger = DepthLogger(session_dir=session_dir)
     return _depth_logger
 
-def init_depth_logger(session_dir: str):
+def init_depth_logger(session_dir: Union[str, Path]):
     """Initialize depth logger with a specific session directory"""
     global _depth_logger
     _depth_logger = DepthLogger(session_dir=session_dir)

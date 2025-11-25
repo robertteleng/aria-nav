@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from utils.config import Config
-from utils.depth_logger import get_depth_logger
+from core.telemetry.loggers.depth_logger import get_depth_logger
 from .gpu_utils import configure_mps_environment, empty_mps_cache, get_preferred_device
 
 

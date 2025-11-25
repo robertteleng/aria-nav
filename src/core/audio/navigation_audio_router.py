@@ -10,10 +10,10 @@ from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
 from utils.config import Config
-from utils.navigation_logger import get_navigation_logger
+from core.telemetry.loggers.navigation_logger import get_navigation_logger
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
-from core.telemetry.telemetry_logger import TelemetryLogger
+from core.telemetry.loggers.telemetry_logger import TelemetryLogger
 
 
 class EventPriority(Enum):

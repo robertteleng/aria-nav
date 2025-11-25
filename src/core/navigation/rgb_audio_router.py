@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from core.audio.audio_system import AudioSystem
 from core.audio.navigation_audio_router import NavigationAudioRouter
 from core.navigation.navigation_decision_engine import DecisionCandidate
-from utils.navigation_logger import get_navigation_logger
+from core.telemetry.loggers.navigation_logger import get_navigation_logger
 
 if TYPE_CHECKING:
     from core.navigation.slam_audio_router import SlamAudioRouter

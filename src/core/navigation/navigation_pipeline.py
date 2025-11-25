@@ -14,7 +14,7 @@ import torch  # FASE 1 / Tarea 4: Para CUDA streams
 from core.processing.shared_memory_manager import SharedMemoryRingBuffer
 
 from utils.config import Config
-from utils.depth_logger import get_depth_logger
+from core.telemetry.loggers.depth_logger import get_depth_logger
 from utils.profiler import get_profiler
 from utils.system_monitor import get_monitor
 

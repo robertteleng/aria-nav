@@ -35,10 +35,10 @@ from core.navigation.builder import Builder  # Factory
 from presentation.presentation_manager import PresentationManager  # Solo UI
 
 # Telemetría centralizada
-from core.telemetry.telemetry_logger import AsyncTelemetryLogger
+from core.telemetry.loggers.telemetry_logger import AsyncTelemetryLogger
 
 # Depth logger
-from utils.depth_logger import init_depth_logger
+from core.telemetry.loggers.depth_logger import init_depth_logger
 
 def main():
     """
@@ -175,7 +175,7 @@ def main():
         
         # 0b. Inicializar NavigationLogger ANTES del coordinator (con mismo session_dir)
         print("  📝 Inicializando NavigationLogger...")
-        from utils.navigation_logger import get_navigation_logger
+        from core.telemetry.loggers.navigation_logger import get_navigation_logger
         nav_logger = get_navigation_logger(session_dir=telemetry.get_session_dir())
         print(f"  ✅ NavigationLogger ready (logs → {nav_logger.log_dir})")
         
