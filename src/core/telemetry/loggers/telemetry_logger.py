@@ -730,8 +730,11 @@ class AsyncTelemetryLogger(TelemetryLogger):
         try:
             import mlflow
 
-            # SQLite backend local
-            tracking_uri = f"sqlite:///{Path.home() / 'mlruns' / 'mlflow.db'}"
+            # SQLite backend dentro del proyecto
+            project_root = Path(__file__).resolve().parents[4]  # src/core/telemetry/loggers/ -> root
+            mlruns_dir = project_root / "mlruns"
+            mlruns_dir.mkdir(exist_ok=True)
+            tracking_uri = f"sqlite:///{mlruns_dir / 'mlflow.db'}"
             mlflow.set_tracking_uri(tracking_uri)
             mlflow.set_experiment(self._mlflow_experiment)
 
