@@ -75,10 +75,14 @@ class TelemetryLogger:
         # Crear sesión única con timestamp legible
         self.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.session_start = time.time()
-        self.output_dir = base_dir / f"session_{self.session_timestamp}"
+        self.session_dir = base_dir / f"session_{self.session_timestamp}"
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Crear subcarpeta telemetry dentro de la sesión
+        self.output_dir = self.session_dir / "telemetry"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Archivos de log
+        # Archivos de log en subcarpeta telemetry
         self.performance_log = self.output_dir / "performance.jsonl"
         self.detections_log = self.output_dir / "detections.jsonl"
         self.audio_log = self.output_dir / "audio_events.jsonl"
@@ -101,7 +105,7 @@ class TelemetryLogger:
     
     def get_session_dir(self) -> Path:
         """Return the session directory path for use by other loggers."""
-        return self.output_dir
+        return self.session_dir
     
     # ------------------------------------------------------------------
     # Performance Metrics
@@ -375,7 +379,7 @@ class TelemetryLogger:
         # Log evento de cierre
         self._log_system_event("session_end", summary)
         
-        # Guardar resumen en archivo separado
+        # Guardar resumen en carpeta telemetry
         summary_path = self.output_dir / "summary.json"
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)

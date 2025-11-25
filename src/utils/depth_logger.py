@@ -12,17 +12,20 @@ class DepthLogger:
     
     def __init__(self, session_dir: Optional[str] = None):
         if session_dir:
-            # Use provided session directory
-            self.log_dir = Path(session_dir)
+            # Use provided session directory and create telemetry subfolder
+            session_root = Path(session_dir)
+            self.log_dir = session_root / "telemetry"
         else:
             # Fallback: create in logs root
             log_dir = Path(__file__).parent.parent.parent / "logs"
             log_dir.mkdir(exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.log_dir = log_dir / f"session_{timestamp}_depth_only"
-            self.log_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            session_root = log_dir / f"session_{timestamp}_depth_only"
+            self.log_dir = session_root / "telemetry"
         
-        # Create depth log files
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create depth log files in telemetry subfolder
         self.log_file = self.log_dir / "depth_debug.log"
         self.metrics_file = self.log_dir / "depth_metrics.jsonl"
         
