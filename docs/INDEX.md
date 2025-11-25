@@ -28,12 +28,14 @@
 
 ## 🏗️ Architecture & Design
 
-| Document | Description |
-|----------|-------------|
-| [Architecture Overview](architecture/architecture_document.md) | Complete system architecture |
-| [Pipeline Details](architecture/pipeline_overview.md) | Vision pipeline breakdown |
-| [Audio System](architecture/audio_spatial_summary.md) | Spatial audio architecture |
-| [Navigation Audio Flow](architecture/navigation_audio_flow.md) | Audio routing architecture |
+| Document | Description | Level |
+|----------|-------------|-------|
+| [**Deep Dive**](architecture/DEEP_DIVE.md) | **Comprehensive technical analysis (13K LOC explained)** | ⭐⭐⭐ |
+| [**Data Flow**](architecture/DATA_FLOW.md) | **Frame-by-frame journey with timing breakdown** | ⭐⭐⭐ |
+| [Architecture Overview](architecture/architecture_document.md) | System architecture fundamentals | ⭐⭐ |
+| [Pipeline Details](architecture/pipeline_overview.md) | Vision pipeline breakdown | ⭐⭐ |
+| [Audio System](architecture/audio_spatial_summary.md) | Spatial audio architecture | ⭐ |
+| [Navigation Audio Flow](architecture/navigation_audio_flow.md) | Audio routing architecture | ⭐ |
 
 ### 📊 Diagrams
 | Diagram | Purpose | Location |
