@@ -4,17 +4,24 @@ This folder contains **deprecated, superseded, or historical documentation** tha
 
 ## 📁 Contents
 
-### Migration Plans (Superseded)
-- `MIGRATION_PLAN_OLD.md` - Original migration plan (replaced by [NUC_MIGRATION.md](../migration/NUC_MIGRATION.md))
-- `migration_nuc_rtx2060.md` - Draft migration doc (Spanish, consolidated into main guide)
-- `migracion_nuc11_rtx2060.md` - Detailed migration steps (consolidated into main guide)
+### 📂 migration/ - Migration Plans (Superseded)
+- `migracion_nuc11_rtx2060.md` - Detailed migration steps (Spanish, consolidated into [NUC_MIGRATION.md](../migration/NUC_MIGRATION.md))
+- `MIGRATION_PLAN_OLD.md` - Original migration plan (replaced by current NUC migration guide)
 
-### Phase Plans (Historical)
-- `FASE4_FIX_DEPTH_TENSORRT.md` - Phase 4 TensorRT depth fix (completed)
+### 📂 phases/ - Phase Plans (Historical)
+- `FASE4_FIX_DEPTH_TENSORRT.md` - Phase 4 TensorRT depth fix (completed, see [CUDA_OPTIMIZATION.md](../migration/CUDA_OPTIMIZATION.md))
 - `PHASE2_DEPTH_PLAN.md` - Phase 2 depth estimation plan (completed)
 
-### Optimization (Superseded)
+### 📄 Root Files
+
+**Historical Analysis & Planning:**
+- `BOTTLENECK_PROBLEM.md` - Performance bottleneck analysis (completed, integrated into optimizations)
+- `OPTIMIZATION_NEXT_STEPS.md` - Completed optimization roadmap (Phases 1-7 done)
 - `OPTIMIZATION_RECOMMENDATIONS.md` - Early optimization ideas (integrated into codebase)
+
+**Reference Materials:**
+- `problem_solving_guide_v1.md` - Original problem-solving guide (replaced by [problem_solving_guide.md](../development/problem_solving_guide.md))
+- `technical_presentation_summary.md` - Technical presentation materials (November 2025)
 
 ---
 

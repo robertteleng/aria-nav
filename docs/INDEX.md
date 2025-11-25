@@ -1,7 +1,7 @@
 # 📚 Aria Navigation - Documentation Index
 
-> **Central documentation hub for the Aria Navigation System**  
-> Last updated: November 20, 2025
+> **Central documentation hub for the Aria Navigation System**
+> Last updated: November 25, 2025
 
 ## 🎯 Essential Documents (Start Here)
 
@@ -138,11 +138,13 @@
 
 ## 📈 Documentation Stats
 
-- **Total Files:** 45+ Markdown documents
-- **Total Lines:** 10,000+ lines of documentation
+- **Total Files:** 54 Markdown documents
+- **Active Docs:** 47 (7 archived)
+- **Total Lines:** 17,271 lines of documentation (984KB)
 - **Diagrams:** 37 PlantUML files
 - **Categories:** 9 (setup, guides, architecture, development, testing, migration, history, archive, diagrams)
-- **Last Major Update:** November 20, 2025 (Complete consolidation)
+- **Archive Structure:** Organized into migration/ and phases/ subdirectories
+- **Last Major Update:** November 25, 2025 (Archive reorganization + MLflow integration)
 
 ---
 
@@ -178,7 +180,12 @@
 
 ## 🗄️ Archive
 
-Deprecated or superseded documentation moved to [`archive/`](archive/) folder.
+Deprecated or superseded documentation organized in [`archive/`](archive/) folder:
+- **migration/** - Historical migration plans (superseded by current guides)
+- **phases/** - Completed phase planning documents
+- **Root files** - Early optimization docs and deprecated guides
+
+See [archive/README.md](archive/README.md) for complete inventory.
 
 ---
 
