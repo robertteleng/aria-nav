@@ -1,14 +1,16 @@
-"""Telemetría centralizada - Sistema de métricas para TFM."""
+"""Telemetría centralizada - Sistema de métricas para navegación asistida."""
 
 import json
 import time
 import threading
 import queue
 import atexit
+import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 
 @dataclass
@@ -508,49 +510,59 @@ class TelemetryLogger:
 class AsyncTelemetryLogger(TelemetryLogger):
     """
     Telemetry logger con I/O asíncrona para eliminar bottlenecks.
-    
+
     Features:
     - Queue para escrituras no bloqueantes
     - Background thread con batch writes
     - Flush interval configurable (default: 1.0s)
     - Buffer size configurable (default: 100 líneas)
     - Graceful shutdown con atexit
-    
+    - Export automático a MLflow al finalizar sesión
+
     Beneficios:
     - Elimina spikes de 250-300ms cada ~80 frames
     - Batch writes reducen syscalls
     - Main thread nunca bloqueado por I/O
-    
+
     Riesgo:
     - Últimos frames pueden perderse si crash abrupto
       (mitigado con atexit flush)
     """
-    
+
     def __init__(
         self,
         output_dir: Optional[Path] = None,
         flush_interval: float = 2.0,
         buffer_size: int = 100,
-        queue_maxsize: int = 2000
+        queue_maxsize: int = 2000,
+        mlflow_enabled: bool = True,
+        mlflow_experiment: str = "aria-navigation"
     ):
         """
         Inicializar async telemetry logger.
-        
+
         Args:
             output_dir: Directorio base para logs
             flush_interval: Segundos entre flushes automáticos (default: 2.0s)
             buffer_size: Líneas acumuladas antes de flush forzado (default: 100)
             queue_maxsize: Tamaño máximo de la cola (default: 2000, previene OOM)
+            mlflow_enabled: Exportar a MLflow al finalizar (default: True)
+            mlflow_experiment: Nombre del experimento MLflow
         """
         # Queue para escrituras asíncronas (ANTES de super().__init__)
         self._write_queue: queue.Queue = queue.Queue(maxsize=queue_maxsize)
         self._flush_interval = flush_interval
         self._buffer_size = buffer_size
         self._shutdown_flag = threading.Event()
-        
+
+        # MLflow config
+        self._mlflow_enabled = mlflow_enabled
+        self._mlflow_experiment = mlflow_experiment
+        self._mlflow_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mlflow")
+
         # Ahora sí, inicializar base class (que llama a _write_jsonl)
         super().__init__(output_dir)
-        
+
         # Background thread para flush
         self._flush_thread = threading.Thread(
             target=self._flush_worker,
@@ -558,17 +570,21 @@ class AsyncTelemetryLogger(TelemetryLogger):
             name="AsyncTelemetryFlusher"
         )
         self._flush_thread.start()
-        
+
         # Registrar shutdown handler para flush final
         atexit.register(self._shutdown)
-        
+
         self._log_system_event("async_telemetry_enabled", {
             "flush_interval": flush_interval,
             "buffer_size": buffer_size,
-            "queue_maxsize": queue_maxsize
+            "queue_maxsize": queue_maxsize,
+            "mlflow_enabled": mlflow_enabled,
+            "mlflow_experiment": mlflow_experiment
         })
-        
+
         print(f"[TELEMETRY] Modo asíncrono activado (flush={flush_interval}s, buffer={buffer_size})")
+        if mlflow_enabled:
+            print(f"[TELEMETRY] MLflow habilitado: {mlflow_experiment}")
     
     def _write_jsonl(self, path: Path, data: Dict[str, Any]) -> None:
         """
@@ -646,17 +662,125 @@ class AsyncTelemetryLogger(TelemetryLogger):
     def _shutdown(self) -> None:
         """
         Graceful shutdown: flush pendiente y detener thread.
-        
+
         Llamado automáticamente por atexit.
         """
         print("[TELEMETRY] Flushing pending writes...")
         self._shutdown_flag.set()
-        
+
         # Esperar a que el thread termine (con timeout)
         self._flush_thread.join(timeout=5.0)
-        
+
         if self._flush_thread.is_alive():
             print("[TELEMETRY WARNING] Flush thread did not terminate cleanly")
         else:
             print("[TELEMETRY] Shutdown complete")
+
+        # Shutdown MLflow executor
+        self._mlflow_executor.shutdown(wait=False)
+
+    def finalize_session(
+        self,
+        model_name: str = "yolo12n",
+        resolution: int = 640,
+        depth_enabled: bool = True,
+        tensorrt_enabled: bool = True,
+        extra_params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Finalizar sesión, generar resumen y exportar a MLflow.
+
+        Args:
+            model_name: Nombre del modelo YOLO
+            resolution: Resolución de entrada
+            depth_enabled: Si depth estimation estaba activo
+            tensorrt_enabled: Si TensorRT estaba activo
+            extra_params: Parámetros adicionales para MLflow
+
+        Returns:
+            Dict con estadísticas de la sesión
+        """
+        # Llamar al método padre para generar summary.json
+        summary = super().finalize_session()
+
+        # Export a MLflow (async, no bloquea)
+        if self._mlflow_enabled:
+            self._mlflow_executor.submit(
+                self._export_to_mlflow,
+                summary,
+                model_name,
+                resolution,
+                depth_enabled,
+                tensorrt_enabled,
+                extra_params or {}
+            )
+
+        return summary
+
+    def _export_to_mlflow(
+        self,
+        summary: Dict[str, Any],
+        model_name: str,
+        resolution: int,
+        depth_enabled: bool,
+        tensorrt_enabled: bool,
+        extra_params: Dict[str, Any]
+    ) -> None:
+        """Export de sesión a MLflow (ejecutado en thread separado)."""
+        try:
+            import mlflow
+
+            # SQLite backend local
+            tracking_uri = f"sqlite:///{Path.home() / 'mlruns' / 'mlflow.db'}"
+            mlflow.set_tracking_uri(tracking_uri)
+            mlflow.set_experiment(self._mlflow_experiment)
+
+            with mlflow.start_run(run_name=self.session_timestamp):
+                # Parámetros de configuración
+                mlflow.log_params({
+                    "model_name": model_name,
+                    "resolution": resolution,
+                    "depth_enabled": depth_enabled,
+                    "tensorrt_enabled": tensorrt_enabled,
+                    **extra_params
+                })
+
+                # Métricas de performance
+                mlflow.log_metrics({
+                    "duration_seconds": summary.get("duration_seconds", 0),
+                    "total_frames": summary.get("total_frames", 0),
+                    "avg_fps": summary.get("avg_fps", 0),
+                    "min_fps": summary.get("min_fps", 0),
+                    "max_fps": summary.get("max_fps", 0),
+                    "avg_latency_ms": summary.get("avg_latency_ms", 0),
+                    "max_latency_ms": summary.get("max_latency_ms", 0),
+                    "frames_below_25fps": summary.get("frames_below_25fps", 0),
+                    "total_detections": summary.get("total_detections", 0),
+                    "total_audio_events": summary.get("total_audio_events", 0),
+                })
+
+                # Detecciones por clase
+                for cls, count in summary.get("detections_by_class", {}).items():
+                    safe_cls = cls.replace(" ", "_").replace("-", "_")
+                    mlflow.log_metric(f"det_{safe_cls}", count)
+
+                # Detecciones por distancia
+                for bucket, count in summary.get("detections_by_distance_bucket", {}).items():
+                    mlflow.log_metric(f"dist_{bucket}", count)
+
+                # Tags
+                mlflow.set_tag("session_dir", str(self.session_dir))
+
+                # Artifact: guardar summary.json
+                summary_path = self.output_dir / "summary.json"
+                if summary_path.exists():
+                    mlflow.log_artifact(str(summary_path))
+
+            print(f"[MLflow] Sesión exportada: {self.session_timestamp}")
+            print(f"[MLflow] Ver resultados: mlflow ui --backend-store-uri \"{tracking_uri}\"")
+
+        except ImportError:
+            print("[MLflow] mlflow no instalado - skip export (pip install mlflow)")
+        except Exception as e:
+            print(f"[MLflow] Error exportando: {e}")
 

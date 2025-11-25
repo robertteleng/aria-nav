@@ -152,19 +152,21 @@ python examples/test_mock_basic.py
 
 ## 📊 Performance
 
-### Current (macOS MPS)
-- **FPS:** 18-20 fps
-- **YOLO Latency:** 45-60ms
-- **Depth Latency:** 120-180ms
-- **Frame Skip:** 3x YOLO, 12x Depth
+### Current (Linux CUDA + TensorRT) ✅
+- **FPS:** 18-22 fps (RTX 2060)
+- **YOLO Latency:** ~40ms (TensorRT FP16)
+- **Depth Latency:** ~27ms (ONNX Runtime CUDA)
+- **End-to-end:** ~48ms
+- **GPU Memory:** ~1.5GB / 6GB
 
-### Target (Linux CUDA + TensorRT)
-- **FPS:** 60+ fps
-- **YOLO Latency:** <20ms
-- **Depth Latency:** <50ms
-- **Frame Skip:** Minimal
+### Optimization Journey
+```
+v1.0: 3.5 FPS (baseline)
+v1.9: 18.4 FPS (+426% with TensorRT/ONNX)
+v2.0: 19.0 FPS (+3% with Phase 6 hybrid streams)
+```
 
-See [Migration Guide](docs/migration/NUC_MIGRATION.md) for optimization roadmap.
+See [CHANGELOG.md](CHANGELOG.md) for detailed performance history.
 
 ---
 
@@ -198,10 +200,12 @@ aria-nav/
 - [x] Audio routing with priorities
 - [x] Web dashboard
 - [x] Motion state detection
-- [ ] TensorRT optimization
-- [ ] NUC + RTX 2060 migration
+- [x] TensorRT optimization (YOLO FP16)
+- [x] NUC + RTX 2060 migration
+- [x] MLflow experiment tracking
 - [ ] Multi-language support
 - [ ] Mobile companion app
+- [ ] Fisheye undistortion optimization
 
 ---
 

@@ -10,15 +10,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **[FEAT]** MLflow integration for experiment tracking
+  - Automatic export to MLflow at session end
+  - SQLite backend (`~/mlruns/mlflow.db`) - no server needed
+  - Tracks: FPS, latency, detections by class, GPU metrics
+  - Configurable via `mlflow_enabled` parameter
+  - View results: `mlflow ui --backend-store-uri "sqlite:////home/$USER/mlruns/mlflow.db"`
 - **[FEAT]** Phase 6: Hybrid Multiprocessing + CUDA Streams
   - CUDA Streams enabled in main RGB process (Depth || YOLO parallel)
   - Multiprocessing workers remain sequential (YOLO-only, no depth)
   - Configuration: `PHASE6_HYBRID_STREAMS = True`
   - Performance: 19.0 FPS sustained (vs 18.4 FPS Phase 4 baseline)
   - VRAM: ~1.5GB / 6GB (25% utilization, 75% headroom available)
+- **[FEAT]** Phase 7: Double buffering with health monitoring
+  - Worker health checks every 5s
+  - Graceful degradation on worker failure
+  - Benchmark script: `benchmark_phase7_double_buffering.py`
+- **[FEAT]** Detailed timing instrumentation for bottleneck analysis
+  - Frame-level timing breakdown (enhancement, depth, YOLO, routing)
+  - `tools/analyze_timing.py` - timing analysis script
+  - Component latency tracking in telemetry
+- **[FEAT]** Enhanced navigation distance estimation
+  - Depth map integration with detection bounding boxes
+  - Distance calculation from depth values within bbox
+  - Improved accuracy for close/medium/far categorization
+- **[FEAT]** Shared Memory (Zero-Copy) implementation (Phase 3)
+  - SharedMemoryRingBuffer for image passing
+  - Disabled by default due to race conditions (19s spikes, 36% FPS drop)
+  - Available via `USE_SHARED_MEMORY = True` flag for experimentation
+
+### Changed
+- **[REFACTOR]** Telemetry system consolidation
+  - Moved all loggers to `src/core/telemetry/loggers/`
+  - Unified timestamp format across all log files
+  - All logs now organized in `logs/session_*/telemetry/` subfolder
+  - Removed redundant test files (19 files cleaned up)
+- **[REFACTOR]** Renamed `central` → `rgb` for consistency
+  - `central_worker.py` still exists but processes RGB camera
+  - Dashboard labels updated to match
+- **[PERF]** Pipeline optimization with non-blocking queues
+  - Queue.put with timeout instead of blocking
+  - +2.5% FPS improvement
+  - Reduced IPC overhead
+
+### Fixed
 - **[FIX]** YOLO input format issue (was receiving HWC tensors, now receives numpy HWC)
   - Removed premature tensor conversion that bypassed YOLO preprocessing
   - YOLO now handles HWC→BCHW conversion internally as designed
+- **[FIX]** RGB/SLAM detections now properly separated in web dashboard
+- **[FIX]** `pynvml` deprecation warning - use `nvidia-ml-py` instead
+
+### Documentation
+- **[DOCS]** Added SCALABILITY_GUIDE.md - future scaling strategies
+- **[DOCS]** Added MOONDREAM_INTEGRATION.md - VLM integration roadmap
+- **[DOCS]** Added CONCEPTS.md glossary in learning/
+- **[DOCS]** Updated BOTTLENECK_PROBLEM.md with analysis options
 
 ### Planned
 - Fisheye undistortion for cameras (deferred - needs optimization for multi-camera)
