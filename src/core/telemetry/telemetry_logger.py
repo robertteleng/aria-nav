@@ -79,11 +79,10 @@ class TelemetryLogger:
         self.session_dir = base_dir / f"session_{self.session_timestamp}"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         
-        # Crear subcarpeta telemetry dentro de la sesión
-        self.output_dir = self.session_dir / "telemetry"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Log files directly in session directory
+        self.output_dir = self.session_dir
         
-        # Setup Python loggers instead of JSONL files
+        # Setup Python loggers
         self._setup_logger("performance", "performance.log")
         self._setup_logger("detections", "detections.log")
         self._setup_logger("audio", "audio_events.log")

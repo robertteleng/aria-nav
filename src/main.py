@@ -138,7 +138,7 @@ def main():
         
         # 0b. Inicializar depth logger con la misma sesión
         print("  🔍 Inicializando DepthLogger...")
-        init_depth_logger(session_dir=telemetry.output_dir)
+        init_depth_logger(session_dir=str(telemetry.output_dir))
         
         # 1. Observer Setup - Real o Mock
         if use_mock:

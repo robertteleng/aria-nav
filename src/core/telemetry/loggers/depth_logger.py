@@ -1,34 +1,41 @@
 """Dedicated logger for depth estimation debugging"""
 
-import os
+import logging
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
-from pathlib import Path
+from typing import Optional
 
 
 class DepthLogger:
     """Writes depth-related logs to a dedicated file in the session directory"""
     
-    def __init__(self, session_dir: Optional[Union[str, Path]] = None):
+    def __init__(self, session_dir: Optional[str] = None):
         if session_dir:
-            # Use provided session directory and create telemetry subfolder
-            session_root = Path(session_dir)
-            self.log_dir = session_root / "telemetry"
+            # Use provided session directory
+            self.log_dir = Path(session_dir)
         else:
             # Fallback: create in logs root
             log_dir = Path(__file__).parent.parent.parent / "logs"
             log_dir.mkdir(exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            session_root = log_dir / f"session_{timestamp}_depth_only"
-            self.log_dir = session_root / "telemetry"
+            self.log_dir = log_dir / f"session_{timestamp}_depth_only"
         
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create depth log files in telemetry subfolder
+        # Create depth log files directly in session directory
         self.log_file = self.log_dir / "depth_debug.log"
-        self.metrics_file = self.log_dir / "depth_metrics.jsonl"
+        
+        # Setup Python logger for metrics
+        self.metrics_logger = logging.getLogger("depth.metrics")
+        self.metrics_logger.setLevel(logging.INFO)
+        self.metrics_logger.handlers.clear()
+        
+        handler = logging.FileHandler(self.log_dir / "depth_metrics.log")
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.metrics_logger.addHandler(handler)
         
         self.log(f"=" * 80)
         self.log(f"DEPTH ESTIMATION DEBUG LOG")
@@ -52,8 +59,7 @@ class DepthLogger:
     def log_metric(self, metric_data: dict):
         """Log a metric entry as JSON"""
         metric_data['timestamp'] = datetime.now().timestamp()
-        with open(self.metrics_file, "a") as f:
-            f.write(json.dumps(metric_data) + "\n")
+        self.metrics_logger.info(json.dumps(metric_data))
     
     def section(self, title: str):
         """Create a section header"""
@@ -66,14 +72,14 @@ class DepthLogger:
 # Singleton instance
 _depth_logger = None
 
-def get_depth_logger(session_dir: Optional[Union[str, Path]] = None) -> DepthLogger:
+def get_depth_logger(session_dir: Optional[str] = None) -> DepthLogger:
     """Get or create the global depth logger instance"""
     global _depth_logger
     if _depth_logger is None:
         _depth_logger = DepthLogger(session_dir=session_dir)
     return _depth_logger
 
-def init_depth_logger(session_dir: Union[str, Path]):
+def init_depth_logger(session_dir: str):
     """Initialize depth logger with a specific session directory"""
     global _depth_logger
     _depth_logger = DepthLogger(session_dir=session_dir)

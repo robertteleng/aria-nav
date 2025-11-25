@@ -23,12 +23,10 @@ class NavigationLogger:
         # Use provided session directory or create new one
         if session_dir is None:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            session_root = Path("logs") / f"session_{timestamp}"
+            self.log_dir = Path("logs") / f"session_{timestamp}"
         else:
-            session_root = Path(session_dir)
+            self.log_dir = Path(session_dir)
         
-        # Create telemetry subdirectory
-        self.log_dir = session_root / "telemetry"
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Setup loggers
