@@ -10,13 +10,25 @@ from typing import Optional
 class DepthLogger:
     """Writes depth-related logs to a dedicated file in the session directory"""
     
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, session_dir: Optional[str] = None):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self, session_dir: Optional[str] = None):
+        if self._initialized:
+            return
+            
         if session_dir:
             # Use provided session directory
             self.log_dir = Path(session_dir)
         else:
-            # Fallback: create in logs root
-            log_dir = Path(__file__).parent.parent.parent / "logs"
+            # Fallback: create in project root logs/
+            project_root = Path(__file__).resolve().parents[4]
+            log_dir = project_root / "logs"
             log_dir.mkdir(exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             self.log_dir = log_dir / f"session_{timestamp}_depth_only"
@@ -36,6 +48,8 @@ class DepthLogger:
         formatter = logging.Formatter('%(asctime)s - %(message)s')
         handler.setFormatter(formatter)
         self.metrics_logger.addHandler(handler)
+        
+        DepthLogger._initialized = True
         
         self.log(f"=" * 80)
         self.log(f"DEPTH ESTIMATION DEBUG LOG")

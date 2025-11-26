@@ -283,7 +283,7 @@ class NavigationPipeline:
         
         # Worker instance tracking
         self.worker_instances = {
-            "central": [],
+            "rgb": [],
             "slam": []
         }
         self.worker_health = {}  # {name: is_alive}
@@ -293,7 +293,7 @@ class NavigationPipeline:
         self.stop_event = mp.Event()
         
         # Events for readiness
-        self.central_ready = mp.Event()
+        self.rgb_ready = mp.Event()
         self.slam_ready = mp.Event()
         
         self.workers = []
@@ -310,7 +310,7 @@ class NavigationPipeline:
                 worker_name = f"RGBWorker_{'A' if i==0 else 'B'}"
                 p = mp.Process(
                     target=central_gpu_worker,
-                    args=(self.central_queues[i], self.result_queue, self.stop_event, self.central_ready),
+                    args=(self.central_queues[i], self.result_queue, self.stop_event, self.rgb_ready),
                     name=worker_name,
                 )
                 self.workers.append(p)
@@ -340,7 +340,7 @@ class NavigationPipeline:
             # RGB Worker
             p_central = mp.Process(
                 target=central_gpu_worker,
-                args=(self.central_queue, self.result_queue, self.stop_event, self.central_ready),
+                args=(self.central_queue, self.result_queue, self.stop_event, self.rgb_ready),
                 name="RGBWorker",
             )
             self.workers.append(p_central)
@@ -368,7 +368,7 @@ class NavigationPipeline:
         
         # Wait for RGB worker(s) - shared event, so first one triggers it
         # Ideally we'd have separate events, but for now we assume if one is ready, others are close
-        if not self.central_ready.wait(timeout=max_wait):
+        if not self.rgb_ready.wait(timeout=max_wait):
             log.error("[Pipeline] RGB worker failed to signal ready")
             raise RuntimeError("RGB worker initialization timeout")
         log.info(f"[Pipeline] RGB worker(s) ready signal received")
@@ -393,7 +393,7 @@ class NavigationPipeline:
         
         self.stats = {
             "frames_processed": 0,
-            "dropped_central": 0,
+            "dropped_rgb": 0,
             "dropped_slam": 0,
             "timeout_errors": 0,
             "stale_results": 0,  # SOLUTION #3: Track stale result usage
@@ -411,7 +411,7 @@ class NavigationPipeline:
 
         # PHASE 3: Shared Memory Initialization (optional)
         self.use_shared_memory = getattr(Config, "USE_SHARED_MEMORY", False)
-        self.shm_central = None
+        self.shm_rgb = None
         self.shm_slam1 = None
         self.shm_slam2 = None
         
@@ -422,7 +422,7 @@ class NavigationPipeline:
             self.shm_dtype = np.uint8
             
             try:
-                self.shm_central = SharedMemoryRingBuffer(
+                self.shm_rgb = SharedMemoryRingBuffer(
                     name_prefix="aria_rgb",
                     count=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2) + 2, # +2 for safety buffer
                     shape=self.shm_shape,
@@ -456,19 +456,19 @@ class NavigationPipeline:
         frame_id = self.frames_processed
         self.frames_processed += 1
         
-        # Enhancement solo en central
-        central_frame = frames_dict.get("central")
-        if central_frame is None:
-            log.warning("No central frame in frames_dict, falling back")
-            return self._process_sequential(frames_dict.get("central", np.zeros((480, 640, 3), dtype=np.uint8)), profile)
+        # Enhancement solo en RGB
+        rgb_frame = frames_dict.get("rgb")
+        if rgb_frame is None:
+            log.warning("No rgb frame in frames_dict, falling back")
+            return self._process_sequential(frames_dict.get("rgb", np.zeros((480, 640, 3), dtype=np.uint8)), profile)
         
         # OPTIMIZATION: Resize input frames to reduce IPC overhead
         if getattr(Config, "INPUT_RESIZE_ENABLED", False):
             import cv2
             target_w = getattr(Config, "INPUT_RESIZE_WIDTH", 1024)
             target_h = getattr(Config, "INPUT_RESIZE_HEIGHT", 1024)
-            if central_frame.shape[1] != target_w or central_frame.shape[0] != target_h:
-                central_frame = cv2.resize(central_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            if rgb_frame.shape[1] != target_w or rgb_frame.shape[0] != target_h:
+                rgb_frame = cv2.resize(rgb_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
                 # Also resize SLAM frames
                 for key in ["slam1", "slam2"]:
                     if key in frames_dict and frames_dict[key] is not None:
@@ -476,16 +476,16 @@ class NavigationPipeline:
         
         if self.image_enhancer:
             try:
-                central_frame = self.image_enhancer.enhance_frame(central_frame)
+                rgb_frame = self.image_enhancer.enhance_frame(rgb_frame)
             except Exception as err:
                 log.warning(f"Image enhancement failed: {err}")
         
         # Phase 1: Enqueue frames to workers (non-blocking)
         timestamp = time.time()
-        self._enqueue_frames(frame_id, frames_dict, central_frame, timestamp)
+        self._enqueue_frames(frame_id, frames_dict, rgb_frame, timestamp)
         
         # Phase 2: Collect results with overlap (puede ser de frame anterior)
-        results = self._collect_results_with_overlap(frame_id, central_frame, profile)
+        results = self._collect_results_with_overlap(frame_id, rgb_frame, profile)
         
         # Update stats
         self.stats["frames_processed"] += 1
@@ -514,7 +514,7 @@ class NavigationPipeline:
                     else:
                         log.warning(f"[Pipeline] ⚠️ Degrading performance: {alive_count} {category} workers remaining")
 
-    def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], central_frame: np.ndarray, timestamp: float) -> None:
+    def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], rgb_frame: np.ndarray, timestamp: float) -> None:
         """Phase 1: Enviar frames a workers (no espera resultados)"""
         
         # Monitor health periodically
@@ -554,8 +554,8 @@ class NavigationPipeline:
                         return cv2.resize(frame, (target_shape[1], target_shape[0]))
                     return frame
                 
-                central_ready = _prepare_frame(central_frame, self.shm_shape)
-                buf_idx = self.shm_central.put(central_ready)
+                rgb_ready = _prepare_frame(rgb_frame, self.shm_shape)
+                buf_idx = self.shm_rgb.put(rgb_ready)
                 
                 with self.profiler.measure("queue_put_central"):
                     # SOLUTION #3: put_nowait - drop frame if worker busy
@@ -572,7 +572,7 @@ class NavigationPipeline:
                             }
                         )
                     except queue.Full:
-                        self.stats["dropped_central"] += 1
+                        self.stats["dropped_rgb"] += 1
                         if self.frames_processed % 30 == 0:
                             log.warning(f"Dropped RGB frame {frame_id} (queue full)")
             else:
@@ -584,12 +584,12 @@ class NavigationPipeline:
                             {
                                 "frame_id": frame_id,
                                 "camera": "rgb",
-                                "frame": central_frame,  # Direct pass
+                                "frame": rgb_frame,  # Direct pass
                                 "timestamp": timestamp,
                             }
                         )
                     except queue.Full:
-                        self.stats["dropped_central"] += 1
+                        self.stats["dropped_rgb"] += 1
                         if self.frames_processed % 30 == 0:
                             log.warning(f"Dropped RGB frame {frame_id} (queue full)")
         except Exception as e:
@@ -661,7 +661,7 @@ class NavigationPipeline:
                         log.error(f"Error enqueuing {camera} frame: {e}")
         
     
-    def _collect_results_with_overlap(self, frame_id: int, central_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
+    def _collect_results_with_overlap(self, frame_id: int, rgb_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
         """SOLUTION #3: Non-blocking collection with age-limited cache"""
         results = {}
         
@@ -776,14 +776,14 @@ class NavigationPipeline:
         
         log.info(
             f"[STATS] {elapsed:.1f}s window: FPS={fps:.1f} | "
-            f"Dropped RGB={self.stats['dropped_central']} | "
+            f"Dropped RGB={self.stats['dropped_rgb']} | "
             f"Dropped SLAM={self.stats['dropped_slam']} | "
             f"Stale results={self.stats['stale_results']} | "
             f"Timeout errors={self.stats['timeout_errors']}"
         )
         
         self.stats["frames_processed"] = 0
-        self.stats["dropped_central"] = 0
+        self.stats["dropped_rgb"] = 0
         self.stats["dropped_slam"] = 0
         self.stats["stale_results"] = 0
         self.stats["last_stats_time"] = time.time()
@@ -844,7 +844,7 @@ class NavigationPipeline:
         
         # Cleanup Shared Memory
         try:
-            if hasattr(self, 'shm_central'): self.shm_central.cleanup()
+            if hasattr(self, 'shm_central'): self.shm_rgb.cleanup()
             if hasattr(self, 'shm_slam1'): self.shm_slam1.cleanup()
             if hasattr(self, 'shm_slam2'): self.shm_slam2.cleanup()
         except Exception as e:

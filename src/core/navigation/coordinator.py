@@ -183,9 +183,10 @@ class Coordinator:
         annotated_frame = processed_frame
         if self.frame_renderer is not None:
             try:
-                # Pipeline solo devuelve detecciones RGB (central camera)
+                # Dibujar solo navigation_objects (ya filtrados por el decision engine)
+                # Esto evita boxes fantasma de detecciones irrelevantes
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
-                    processed_frame, detections, self.audio_system, depth_map
+                    processed_frame, navigation_objects, self.audio_system, depth_map
                 )
             except Exception as err:
                 print(f"[WARN] Frame rendering skipped: {err}")
@@ -201,8 +202,9 @@ class Coordinator:
             except Exception as err:
                 print(f"[WARN] Dashboard update skipped: {err}")
 
-        # Guardar estado actual
-        self.current_detections = detections
+        # Guardar estado actual: usar navigation_objects (filtrados) en lugar de detections (raw)
+        # Esto evita mostrar en el dashboard objetos irrelevantes que no pasaron el filtro de navegación
+        self.current_detections = navigation_objects
 
         if self.profile_enabled:
             self._profile_acc['total'] += time.perf_counter() - total_start

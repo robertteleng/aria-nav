@@ -33,6 +33,9 @@ class WebDashboard:
         self.current_slam1_frame = None  
         self.current_slam2_frame = None
         
+        # Pending detections for current frame (cleared when new frame arrives)
+        self._pending_detections = []
+        
         # Placeholder cache (avoid recreating constantly)
         self._placeholder_cache = {}
         
@@ -92,20 +95,50 @@ class WebDashboard:
         
         @self.app.route('/detections')
         def get_detections():
-            return jsonify({
-                'recent_detections': self.recent_detections,
-                'detection_count': len(self.recent_detections)
-            })
+            try:
+                # Convert DetectedObject dataclasses to JSON-serializable dicts
+                serializable_detections = []
+                for det in self.recent_detections:
+                    if isinstance(det, dict):
+                        # Already a dict, ensure numpy types are converted
+                        det_dict = {k: (float(v) if hasattr(v, 'item') else v) 
+                                   for k, v in det.items()}
+                    else:
+                        # DetectedObject dataclass - convert to dict with native Python types
+                        det_dict = {
+                            'name': det.name,
+                            'confidence': float(det.confidence),
+                            'bbox': [int(x) for x in det.bbox],
+                            'center_x': float(det.center_x),
+                            'center_y': float(det.center_y),
+                            'area': float(det.area),
+                            'zone': det.zone,
+                            'distance_bucket': det.distance_bucket,
+                            'relevance_score': float(det.relevance_score),
+                            'depth_value': float(det.depth_value) if det.depth_value is not None else None,
+                            'depth_raw': float(det.depth_raw) if det.depth_raw is not None else None,
+                        }
+                    serializable_detections.append(det_dict)
+                
+                return jsonify({
+                    'recent_detections': serializable_detections,
+                    'detection_count': len(serializable_detections)
+                })
+            except Exception as e:
+                print(f"[WEB ERROR] /detections endpoint failed: {e}")
+                return jsonify({'recent_detections': [], 'detection_count': 0, 'error': str(e)}), 500
         
         @self.app.route('/video_feed/<stream_type>')
         def video_feed(stream_type):
             def generate_frames():
                 while True:
                     frame = None
+                    pending_dets = []
                     
                     with self._frame_lock:
                         if stream_type == 'rgb':
                             frame = self.current_rgb_frame
+                            pending_dets = self._pending_detections.copy()
                         elif stream_type == 'depth':
                             frame = self.current_depth_frame
                         elif stream_type == 'slam1':
@@ -114,6 +147,9 @@ class WebDashboard:
                             frame = self.current_slam2_frame
                     
                     if frame is not None:
+                        # NOTE: El frame ya viene con bounding boxes dibujados por frame_renderer
+                        # No necesitamos dibujarlos de nuevo aquí
+                        
                         # Resize for web efficiency
                         height, width = frame.shape[:2]
                         if width > 640:
@@ -548,10 +584,12 @@ class WebDashboard:
     # =================================================================
     
     def log_rgb_frame(self, frame: np.ndarray):
-        """Update RGB frame - Observer pattern compatibility"""
+        """Update RGB frame - Observer pattern compatibility
+        NOTE: El frame ya viene con bounding boxes dibujados por frame_renderer"""
         if frame is not None:
             with self._frame_lock:
-                self.current_rgb_frame = frame  # Direct assign (lock protects)
+                # Store frame (already has detections drawn)
+                self.current_rgb_frame = frame.copy()
     
     def log_depth_map(self, depth_map: np.ndarray):
         """Update depth frame - Observer pattern compatibility"""  
@@ -600,15 +638,18 @@ class WebDashboard:
     def log_detections(self, detections: List[Dict], frame_shape: Optional[tuple] = None):
         """Log detections - Observer pattern compatibility"""
         if detections:
-            # Add timestamp to detections
+            # Add timestamp to detections for stats
             for detection in detections:
-                detection['timestamp'] = time.strftime("%H:%M:%S")
+                if isinstance(detection, dict):
+                    detection['timestamp'] = time.strftime("%H:%M:%S")
             
+            # Keep recent detections for stats/display
             self.recent_detections.extend(detections)
-            
-            # Keep only recent detections
             if len(self.recent_detections) > self.max_recent_detections:
                 self.recent_detections = self.recent_detections[-self.max_recent_detections:]
+            
+            # NOTE: NO dibujamos aquí porque el frame_renderer ya dibujó los bounding boxes
+            # El frame que llega ya tiene las detecciones anotadas
             
             # Update stats
             self.stats['detections_total'] += len(detections)
@@ -677,6 +718,90 @@ class WebDashboard:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 color,
+                1,
+                cv2.LINE_AA,
+            )
+
+    def _draw_rgb_detections(self, frame: np.ndarray, detections: List) -> None:
+        """Draw RGB detections on frame with bounding boxes and labels"""
+        if frame is None or not detections:
+            return
+        
+        height, width = frame.shape[:2]
+        
+        for det in detections:
+            # Handle both dict and DetectedObject dataclass
+            if isinstance(det, dict):
+                # Skip SLAM detections (only draw RGB)
+                if det.get('camera_source') in ['slam1', 'slam2']:
+                    continue
+                bbox = det.get('bbox')
+                name = det.get('name', det.get('class_name', 'object'))
+                confidence = det.get('confidence')
+                distance_str = det.get('distance_bucket', det.get('distance', ''))
+            else:
+                # DetectedObject dataclass
+                bbox = getattr(det, 'bbox', None)
+                name = getattr(det, 'name', 'object')
+                confidence = getattr(det, 'confidence', None)
+                distance_str = getattr(det, 'distance_bucket', '')
+            
+            if not bbox or len(bbox) != 4:
+                continue
+            
+            # Get bbox coordinates
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            
+            # Clamp to frame boundaries
+            x1 = max(0, min(width - 1, x1))
+            x2 = max(0, min(width - 1, x2))
+            y1 = max(0, min(height - 1, y1))
+            y2 = max(0, min(height - 1, y2))
+            
+            if x2 <= x1 or y2 <= y1:
+                continue
+            
+            # Choose color based on distance
+            if distance_str in ['very_close']:
+                color = (0, 0, 255)  # Red for very close
+            elif distance_str in ['close']:
+                color = (0, 165, 255)  # Orange for close
+            elif distance_str in ['medium']:
+                color = (0, 255, 255)  # Yellow for medium
+            else:
+                color = (0, 255, 0)  # Green for far
+            
+            # Draw bounding box
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            
+            # Prepare label
+            label = name
+            if confidence is not None:
+                label = f"{label} {confidence:.0%}"
+            
+            if distance_str and distance_str not in {'', 'unknown'}:
+                label = f"{label} {distance_str}"
+            
+            # Draw label background
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+            )
+            cv2.rectangle(
+                frame,
+                (x1, y1 - text_height - baseline - 4),
+                (x1 + text_width, y1),
+                color,
+                -1  # Filled
+            )
+            
+            # Draw label text
+            cv2.putText(
+                frame,
+                label,
+                (x1, y1 - baseline - 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),  # White text
                 1,
                 cv2.LINE_AA,
             )

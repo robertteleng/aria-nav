@@ -68,7 +68,7 @@ class TelemetryLogger:
         
         # Setup carpeta base
         if output_dir is None:
-            project_root = Path(__file__).resolve().parents[3]
+            project_root = Path(__file__).resolve().parents[4]
             output_dir = project_root / "logs"
         
         base_dir = Path(output_dir)
@@ -80,11 +80,10 @@ class TelemetryLogger:
         self.session_dir = base_dir / f"session_{self.session_timestamp}"
         self.session_dir.mkdir(parents=True, exist_ok=True)
         
-        # Crear subcarpeta telemetry dentro de la sesión
-        self.output_dir = self.session_dir / "telemetry"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        # Log files directly in session directory (no telemetry subfolder)
+        self.output_dir = self.session_dir
         
-        # Archivos de log en subcarpeta telemetry
+        # Archivos de log directamente en session_YYYY-MM-DD_HH-MM-SS/
         self.performance_log = self.output_dir / "performance.jsonl"
         self.detections_log = self.output_dir / "detections.jsonl"
         self.audio_log = self.output_dir / "audio_events.jsonl"
@@ -730,8 +729,24 @@ class AsyncTelemetryLogger(TelemetryLogger):
         try:
             import mlflow
 
-            # SQLite backend local
-            tracking_uri = f"sqlite:///{Path.home() / 'mlruns' / 'mlflow.db'}"
+            # SQLite backend local - prefer project's `mlruns/` folder
+            try:
+                project_root = Path(__file__).resolve().parents[4]
+                mlruns_dir = project_root / "mlruns"
+                mlruns_dir.mkdir(parents=True, exist_ok=True)
+                db_path = mlruns_dir / "mlflow.db"
+                tracking_uri = f"sqlite:///{db_path}"
+            except Exception as e:
+                # Fallback: use user's home directory if project path creation fails
+                fallback_dir = Path.home() / "mlruns"
+                try:
+                    fallback_dir.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+                db_path = fallback_dir / "mlflow.db"
+                tracking_uri = f"sqlite:///{db_path}"
+
+            print(f"[TELEMETRY] MLflow tracking URI: {tracking_uri}")
             mlflow.set_tracking_uri(tracking_uri)
             mlflow.set_experiment(self._mlflow_experiment)
 
