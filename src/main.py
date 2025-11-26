@@ -230,7 +230,16 @@ def main():
                 motion_data = observer.get_motion_state()
                 motion_state = motion_data.get('state', 'unknown') if motion_data else 'unknown'
                 t3 = time.time()
-                
+            
+            except KeyboardInterrupt:
+                print("\n[INFO] ⌨️ Ctrl+C detected in main loop, stopping...")
+                break
+            except Exception as e:
+                print(f"[WARN] Error obtaining frames: {e}")
+                time.sleep(0.1)
+                continue
+            
+            try:
                 if frame is not None:
                     frames_processed += 1
                     
@@ -362,6 +371,9 @@ def main():
                     
                     last_stats_print = current_time
                 
+            except KeyboardInterrupt:
+                print("\n[INFO] ⌨️ Ctrl+C detected in processing loop, stopping...")
+                break
             except Exception as e:
                 print(f"[WARN] Error en processing loop: {e}")
                 time.sleep(0.1)  # Evitar spam de errores

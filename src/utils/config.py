@@ -185,7 +185,7 @@ class Config:
     
     # Aria streaming
     STREAMING_PROFILE = "profile28"  # 30 FPS (both profiles support 30 FPS)
-    STREAMING_INTERFACE = "wifi"  # "usb" or "wifi"
+    STREAMING_INTERFACE = "usb"  # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
     STREAMING_PROFILE_WIFI = "profile15"
     STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
@@ -234,7 +234,7 @@ class Config:
     # Spatial zone configuration (improved with center zone)
     ZONE_SYSTEM = "five_zones"  # "four_quadrants" or "five_zones"
     CENTER_ZONE_WIDTH_RATIO = 0.4  # 40% del ancho total
-    CENTER_ZONE_HEIGHT_RATIO = 0.25  # 25% del alto total
+    CENTER_ZONE_HEIGHT_RATIO = 0.4  # 25% del alto total
     CENTER_ZONE_PRIORITY_BOOST = 1.5  # Multiplicador de prioridad para zona central
 
     # IMAGE ENHANCEMENT SETTINGS

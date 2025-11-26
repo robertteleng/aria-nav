@@ -11,7 +11,7 @@ class NavigationLogger:
     _instance = None
     _initialized = False
     
-    def __new__(cls):
+    def __new__(cls, session_dir: Path = None):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -23,7 +23,8 @@ class NavigationLogger:
         # Use provided session directory or create new one
         if session_dir is None:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.log_dir = Path("logs") / f"session_{timestamp}"
+            project_root = Path(__file__).resolve().parents[4]
+            self.log_dir = project_root / "logs" / f"session_{timestamp}"
         else:
             self.log_dir = Path(session_dir)
         

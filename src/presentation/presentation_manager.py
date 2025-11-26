@@ -4,6 +4,10 @@
 Maneja toda la parte de UI/visualización que antes estaba en el Observer
 """
 
+import os
+# Disable Qt plugins for OpenCV (fixes "Could not find Qt platform plugin" error)
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
 import cv2
 import time
 import threading
