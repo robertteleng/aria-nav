@@ -9,7 +9,7 @@
 |----------|-------------|----------|
 | [**PROJECT_TIMELINE.md**](history/PROJECT_TIMELINE.md) | **Complete 10-iteration development history** | ⭐⭐⭐ |
 | [**CHANGELOG.md**](../CHANGELOG.md) | **Version history with all features/fixes** | ⭐⭐⭐ |
-| [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md) | **Complete guide to debugging issues** | ⭐⭐⭐ |
+| [**TROUBLESHOOTING.md**](guides/TROUBLESHOOTING.md) | **Complete guide to debugging issues** | ⭐⭐⭐ |
 | [Setup Guide](setup/SETUP.md) | Detailed installation and configuration | ⭐⭐ |
 | [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ⭐⭐ |
 
@@ -45,7 +45,7 @@
 | [UML Evolution](diagrams/uml/03_*_clean.puml) | Class/package/sequence diagrams | ⭐ LATEST |
 | [Project Timeline](diagrams/project/01_evolution_timeline.puml) | Development timeline visualization | Reference |
 
-**→ See [PUML_AUDIT.md](PUML_AUDIT.md) for complete diagram inventory**
+**→ See [PUML_AUDIT.md](diagrams/PUML_AUDIT.md) for complete diagram inventory**
 
 ---
 
@@ -57,7 +57,8 @@
 | [Quick Reference](guides/QUICK_REFERENCE.md) | Common commands and workflows | ⭐⭐ |
 | [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md) | Testing without Aria hardware | ⭐⭐ |
 | [Audio Configuration](guides/audio_config.md) | Audio system setup (macOS/Linux) | ⭐ |
-| [**Troubleshooting**](TROUBLESHOOTING.md) | **Complete debugging guide** | ⭐⭐⭐ |
+| [**Troubleshooting**](guides/TROUBLESHOOTING.md) | **Complete debugging guide** | ⭐⭐⭐ |
+| [**Scalability Guide**](guides/SCALABILITY_GUIDE.md) | Resource capacity and scaling | ⭐ |
 
 ---
 
@@ -106,9 +107,8 @@
 |----------|----------|---------|
 | [**PROJECT_TIMELINE.md**](history/PROJECT_TIMELINE.md) | **All 10 iterations** | **Complete development journey** |
 | [**CHANGELOG.md**](../CHANGELOG.md) | **v1.0 → v2.0** | **All features, fixes, improvements** |
-| [Development Diary](history/development_diary.md) | 2024-2025 | Daily development log |
 | [Daily Notes](history/daily_notes.md) | Chronological | Quick session notes |
-| [Phase Plans](history/phases/) | By phase | Historical planning docs |
+| [Phase Plans](archive/phases/) | By phase | Historical planning docs |
 
 ---
 
@@ -116,8 +116,8 @@
 
 | Document | Purpose |
 |----------|---------|
-| [PUML Audit](PUML_AUDIT.md) | Complete diagram inventory (37 files) |
-| [Documentation Reorganization](REORGANIZATION_SUMMARY.md) | November 2025 restructuring |
+| [PUML Audit](diagrams/PUML_AUDIT.md) | Complete diagram inventory (37 files) |
+| [Documentation Reorganization](history/REORGANIZATION_SUMMARY.md) | November 2025 restructuring |
 | [Archive](archive/README.md) | Deprecated/completed documentation |
 
 ---
@@ -128,12 +128,12 @@
 
 1. **Understand the project** → Start with [PROJECT_TIMELINE.md](history/PROJECT_TIMELINE.md)
 2. **Install the system** → See [Setup Guide](setup/SETUP.md)
-3. **Debug an issue** → Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+3. **Debug an issue** → Check [TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
 4. **See what changed** → Read [CHANGELOG.md](../CHANGELOG.md)
 5. **Optimize performance** → Review [Performance Optimization Guide](guides/PERFORMANCE_OPTIMIZATION.md)
 6. **Test without hardware** → Use [Mock Observer Guide](guides/MOCK_OBSERVER_GUIDE.md)
 7. **Understand architecture** → See [Architecture & Data Flow](architecture/architecture_document.md)
-8. **Find a diagram** → Check [PUML Audit](PUML_AUDIT.md)
+8. **Find a diagram** → Check [PUML Audit](diagrams/PUML_AUDIT.md)
 
 ---
 
@@ -193,7 +193,7 @@ See [archive/README.md](archive/README.md) for complete inventory.
 
 1. **First time?** → Start with [README](../README.md) and [Setup Guide](setup/SETUP.md)
 2. **Development?** → Check [Contributing & Development](development/CONTRIBUTING.md)
-3. **Debugging?** → See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+3. **Debugging?** → See [TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
 4. **Migration?** → Read [NUC Migration Guide](migration/NUC_MIGRATION.md)
 5. **API Reference?** → Check inline docstrings in `src/` modules
 
