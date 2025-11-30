@@ -1,4 +1,28 @@
-"""RGB-specific routing layer that formats decisions before audio output."""
+"""
+RGB camera audio routing layer for navigation decisions.
+
+This module provides the RgbAudioRouter class which translates navigation decisions
+from the RGB camera into audio feedback (spatial beeps + TTS messages). It coordinates
+with the SLAM audio router to prevent duplicate announcements for the same object.
+
+Features:
+- Spatial beep playback with directional feedback (left/center/right)
+- Distance-based volume adjustment for beeps
+- Simple TTS messages (object name only)
+- Priority-based audio routing via NavigationAudioRouter
+- Duplicate detection coordination with SLAM cameras
+- Configurable per-source cooldown periods
+- Fallback to legacy AudioSystem when router unavailable
+
+Architecture:
+    DecisionCandidate → RgbAudioRouter → [NavigationAudioRouter OR AudioSystem]
+                            ↓
+                     SlamAudioRouter (notify to prevent duplicates)
+
+Usage:
+    rgb_router = RgbAudioRouter(audio_system, audio_router, slam_router)
+    rgb_router.route(decision_candidate)  # Plays beep + speaks object name
+"""
 
 from __future__ import annotations
 
