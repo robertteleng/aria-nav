@@ -1,4 +1,36 @@
-"""Centralized audio routing for multi-camera navigation events."""
+"""
+Centralized audio routing for multi-camera navigation events.
+
+This module provides a priority-based audio event queue that coordinates TTS announcements
+from multiple camera sources (RGB frontal, SLAM1/SLAM2 peripheral) with intelligent
+cooldown management and anti-stutter logic.
+
+Features:
+- Priority-based event queue (CRITICAL > HIGH > MEDIUM > LOW)
+- Per-source cooldown management (RGB: 1.2s, SLAM: 3.0s default)
+- Global cooldown to prevent audio spam (0.8s default)
+- Anti-stutter duplicate message detection
+- CRITICAL event interruption with grace period
+- Telemetry integration for audio event tracking
+- Thread-safe metrics collection
+
+Priority Levels:
+- CRITICAL: Can interrupt ongoing speech after grace period (0.25s)
+- HIGH/MEDIUM/LOW: Respect global/source cooldowns, cannot interrupt
+
+Architecture:
+    RGB/SLAM Event → NavigationEvent → PriorityQueue → Worker Thread → AudioSystem
+                                            ↓
+                                      Cooldown Logic
+                                            ↓
+                                      TTS speak_async()
+
+Usage:
+    router = NavigationAudioRouter(audio_system, telemetry)
+    router.start()
+    router.enqueue_from_rgb("Person", EventPriority.HIGH)
+    router.enqueue_from_slam(slam_event, "Car approaching", EventPriority.CRITICAL)
+"""
 
 from __future__ import annotations
 
@@ -41,12 +73,12 @@ class NavigationEvent:
 class NavigationAudioRouter:
     """Priority queue for navigation events across RGB and SLAM feeds."""
     def __init__(
-        self, 
+        self,
         audio_system: AudioSystem,
-        telemetry: Optional[TelemetryLogger] = None  # 🆕
+        telemetry: Optional[TelemetryLogger] = None
     ) -> None:
         self.audio = audio_system
-        self.telemetry = telemetry  # 🆕
+        self.telemetry = telemetry
         
         self.event_queue: "queue.PriorityQueue[tuple[int, int, NavigationEvent | None]]" = queue.PriorityQueue(maxsize=16)
         self._running = False
@@ -139,7 +171,7 @@ class NavigationAudioRouter:
                 per_source.setdefault(key, self._make_source_stats())
 
     def _update_metrics(self, event: NavigationEvent, action: str, reason: Optional[str] = None) -> None:
-        """🔧 Actualizado con telemetría centralizada"""
+        """Update metrics for audio event tracking with centralized telemetry."""
         now = time.time()
         with self._metrics_lock:
             stats = self._ensure_source_stats(event.source)
@@ -150,8 +182,7 @@ class NavigationAudioRouter:
                 stats["last_event_ts"] = now
             elif action == "processed":
                 self.events_processed += 1
-                self.metrics["events_processed"] = self.events_processed
-                self.metrics["last_decision_ts"] = now
+                self.metrics["events_processed"] = self.metrics["last_decision_ts"] = now
             elif action == "spoken":
                 self.events_spoken += 1
                 self.metrics["events_spoken"] = self.events_spoken
@@ -167,8 +198,8 @@ class NavigationAudioRouter:
                 stats["dropped"] += 1
 
             self.metrics["queue_size"] = max(self.event_queue.qsize(), 0)
-        
-        # 🆕 Log a telemetría centralizada
+
+        # Log to centralized telemetry
         if self.telemetry:
             self.telemetry.log_audio_event(
                 action=action,
@@ -354,7 +385,7 @@ class NavigationAudioRouter:
         if not event.source.startswith("slam"):
             return True, "non_slam"
 
-        # Para eventos periféricos, comprobar separación entre ambos canales
+        # For peripheral events, check spacing between both SLAM channels
         slam_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
         primary_last = max(
             self._last_source_announcement.get(SLAM1_SOURCE, 0.0),
