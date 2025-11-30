@@ -536,14 +536,14 @@ class NavigationPipeline:
         """Check if workers are alive and handle failures"""
         if not self.graceful_degradation:
             return
-            
+
         for category, instances in self.worker_instances.items():
             for instance in instances:
                 worker = instance["proc"]
                 if not worker.is_alive() and self.worker_health.get(worker.name, False):
                     log.error(f"[Pipeline] ⚠️ Worker {worker.name} CRASHED! Exitcode: {worker.exitcode}")
                     self.worker_health[worker.name] = False
-                    
+
                     # Check if we have any workers left in this category
                     alive_count = sum(1 for inst in instances if self.worker_health.get(inst["proc"].name, False))
                     if alive_count == 0:
@@ -551,151 +551,123 @@ class NavigationPipeline:
                     else:
                         log.warning(f"[Pipeline] ⚠️ Degrading performance: {alive_count} {category} workers remaining")
 
+    def _prepare_frame_for_shm(self, frame: np.ndarray, target_shape: tuple) -> np.ndarray:
+        """Prepare frame for shared memory by resizing if needed."""
+        if frame.shape != target_shape:
+            import cv2
+            return cv2.resize(frame, (target_shape[1], target_shape[0]))
+        return frame
+
+    def _get_healthy_worker(self, category: str, worker_idx: int):
+        """Get healthy worker instance, falling back to alternate if primary is dead."""
+        target_instance = self.worker_instances[category][worker_idx]
+        if not self.worker_health.get(target_instance["proc"].name, True):
+            # Try the other worker if this one is dead
+            other_idx = (worker_idx + 1) % 2
+            other_instance = self.worker_instances[category][other_idx]
+            if self.worker_health.get(other_instance["proc"].name, True):
+                return other_instance
+            else:
+                return None  # Both dead
+        return target_instance
+
+    def _enqueue_frame_shm(self, target_queue, frame_id: int, camera: str,
+                           frame: np.ndarray, shm_buffer, timestamp: float,
+                           stat_key: str = "dropped_rgb") -> None:
+        """Enqueue frame using shared memory mode."""
+        frame_ready = self._prepare_frame_for_shm(frame, self.shm_shape)
+        buf_idx = shm_buffer.put(frame_ready)
+
+        profiler_key = "queue_put_central" if camera == "rgb" else "queue_put_slam"
+        with self.profiler.measure(profiler_key):
+            try:
+                target_queue.put_nowait({
+                    "frame_id": frame_id,
+                    "camera": camera,
+                    "shm_name": f"aria_{camera}",
+                    "buffer_index": buf_idx,
+                    "shape": self.shm_shape,
+                    "dtype": self.shm_dtype,
+                    "timestamp": timestamp,
+                })
+            except queue.Full:
+                self.stats[stat_key] += 1
+                if self.frames_processed % 30 == 0:
+                    log.warning(f"Dropped {camera} frame {frame_id} (queue full)")
+
+    def _enqueue_frame_direct(self, target_queue, frame_id: int, camera: str,
+                             frame: np.ndarray, timestamp: float,
+                             stat_key: str = "dropped_rgb") -> None:
+        """Enqueue frame using direct mode (legacy)."""
+        profiler_key = "queue_put_central" if camera == "rgb" else "queue_put_slam"
+        with self.profiler.measure(profiler_key):
+            try:
+                target_queue.put_nowait({
+                    "frame_id": frame_id,
+                    "camera": camera,
+                    "frame": frame,
+                    "timestamp": timestamp,
+                })
+            except queue.Full:
+                self.stats[stat_key] += 1
+                if self.frames_processed % 30 == 0:
+                    log.warning(f"Dropped {camera} frame {frame_id} (queue full)")
+
     def _enqueue_frames(self, frame_id: int, frames_dict: Dict[str, np.ndarray], rgb_frame: np.ndarray, timestamp: float) -> None:
-        """Phase 1: Enviar frames a workers (no espera resultados)"""
-        
+        """Phase 1: Send frames to workers (non-blocking)"""
+
         # Monitor health periodically
         if time.time() - self.last_health_check > self.worker_health_interval:
             self._monitor_worker_health()
             self.last_health_check = time.time()
-        
+
         # Determine target worker index (Round Robin)
-        # If double buffering is off, this is always 0
-        # If on, it toggles 0, 1, 0, 1...
         worker_idx = self.submit_counter % 2 if self.double_buffering else 0
         self.submit_counter += 1
-        
-            # Distribute to workers
-        try:
-            # RGB
-            # Check if target worker is alive
-            target_instance = self.worker_instances["rgb"][worker_idx]
-            if not self.worker_health.get(target_instance["proc"].name, True):
-                # Try the other worker if this one is dead
-                other_idx = (worker_idx + 1) % 2
-                other_instance = self.worker_instances["central"][other_idx]
-                if self.worker_health.get(other_instance["proc"].name, True):
-                    target_instance = other_instance
-                    # log.debug(f"Redirecting frame {frame_id} to {target_instance['proc'].name}")
-                else:
-                    # Both dead
-                    return
 
-            target_queue = target_instance["queue"]
-            
+        # RGB: Get healthy worker and enqueue
+        try:
+            rgb_worker = self._get_healthy_worker("rgb", worker_idx)
+            if rgb_worker is None:
+                return  # All RGB workers dead
+
             if self.use_shared_memory:
-                # Shared Memory mode (Zero-Copy)
-                def _prepare_frame(frame, target_shape):
-                    if frame.shape != target_shape:
-                        import cv2
-                        return cv2.resize(frame, (target_shape[1], target_shape[0]))
-                    return frame
-                
-                rgb_ready = _prepare_frame(rgb_frame, self.shm_shape)
-                buf_idx = self.shm_rgb.put(rgb_ready)
-                
-                with self.profiler.measure("queue_put_central"):
-                    # SOLUTION #3: put_nowait - drop frame if worker busy
-                    try:
-                        target_queue.put_nowait(
-                            {
-                                "frame_id": frame_id,
-                                "camera": "rgb",
-                                "shm_name": "aria_rgb",
-                                "buffer_index": buf_idx,
-                                "shape": self.shm_shape,
-                                "dtype": self.shm_dtype,
-                                "timestamp": timestamp,
-                            }
-                        )
-                    except queue.Full:
-                        self.stats["dropped_rgb"] += 1
-                        if self.frames_processed % 30 == 0:
-                            log.warning(f"Dropped RGB frame {frame_id} (queue full)")
+                self._enqueue_frame_shm(
+                    rgb_worker["queue"], frame_id, "rgb",
+                    rgb_frame, self.shm_rgb, timestamp, "dropped_rgb"
+                )
             else:
-                # Direct mode (legacy - frame in queue)
-                with self.profiler.measure("queue_put_central"):
-                    # SOLUTION #3: put_nowait - drop frame if worker busy
-                    try:
-                        target_queue.put_nowait(
-                            {
-                                "frame_id": frame_id,
-                                "camera": "rgb",
-                                "frame": rgb_frame,  # Direct pass
-                                "timestamp": timestamp,
-                            }
-                        )
-                    except queue.Full:
-                        self.stats["dropped_rgb"] += 1
-                        if self.frames_processed % 30 == 0:
-                            log.warning(f"Dropped RGB frame {frame_id} (queue full)")
+                self._enqueue_frame_direct(
+                    rgb_worker["queue"], frame_id, "rgb",
+                    rgb_frame, timestamp, "dropped_rgb"
+                )
         except Exception as e:
             log.error(f"Error enqueuing RGB frame: {e}")
-        
-        # SLAM
-        # Similar logic for SLAM workers
-        target_instance_slam = self.worker_instances["slam"][worker_idx]
-        if not self.worker_health.get(target_instance_slam["proc"].name, True):
-             # Try the other worker if this one is dead
-            other_idx = (worker_idx + 1) % 2
-            other_instance = self.worker_instances["slam"][other_idx]
-            if self.worker_health.get(other_instance["proc"].name, True):
-                target_instance_slam = other_instance
-            else:
-                return
-        
-        target_queue_slam = target_instance_slam["queue"]
 
-        if self.use_shared_memory:
-            def _prepare_frame(frame, target_shape):
-                if frame.shape != target_shape:
-                    import cv2
-                    return cv2.resize(frame, (target_shape[1], target_shape[0]))
-                return frame
-            
-            for camera, shm_buffer in [("slam1", self.shm_slam1), ("slam2", self.shm_slam2)]:
-                slam_frame = frames_dict.get(camera)
-                if slam_frame is not None:
-                    try:
-                        slam_ready = _prepare_frame(slam_frame, self.shm_shape)
-                        buf_idx = shm_buffer.put(slam_ready)
-                        
-                        # SOLUTION #3: put_nowait for SLAM too
-                        try:
-                            target_queue_slam.put_nowait(
-                                {
-                                    "frame_id": frame_id,
-                                    "camera": camera,
-                                    "shm_name": f"aria_{camera}",
-                                    "buffer_index": buf_idx,
-                                    "shape": self.shm_shape,
-                                    "dtype": self.shm_dtype,
-                                    "timestamp": timestamp,
-                                }
-                            )
-                        except queue.Full:
-                            self.stats["dropped_slam"] += 1
-                    except Exception as e:
-                        log.error(f"Error enqueuing {camera} frame: {e}")
-        else:
-            # Direct mode
-            for camera in ["slam1", "slam2"]:
-                slam_frame = frames_dict.get(camera)
-                if slam_frame is not None:
-                    try:
-                        # SOLUTION #3: put_nowait for SLAM direct mode
-                        target_queue_slam.put_nowait(
-                            {
-                                "frame_id": frame_id,
-                                "camera": camera,
-                                "frame": slam_frame,  # Direct pass
-                                "timestamp": timestamp,
-                            }
-                        )
-                    except queue.Full:
-                        self.stats["dropped_slam"] += 1
-                    except Exception as e:
-                        log.error(f"Error enqueuing {camera} frame: {e}")
+        # SLAM: Get healthy worker and enqueue both cameras
+        slam_worker = self._get_healthy_worker("slam", worker_idx)
+        if slam_worker is None:
+            return  # All SLAM workers dead
+
+        for camera in ["slam1", "slam2"]:
+            slam_frame = frames_dict.get(camera)
+            if slam_frame is None:
+                continue
+
+            try:
+                if self.use_shared_memory:
+                    shm_buffer = self.shm_slam1 if camera == "slam1" else self.shm_slam2
+                    self._enqueue_frame_shm(
+                        slam_worker["queue"], frame_id, camera,
+                        slam_frame, shm_buffer, timestamp, "dropped_slam"
+                    )
+                else:
+                    self._enqueue_frame_direct(
+                        slam_worker["queue"], frame_id, camera,
+                        slam_frame, timestamp, "dropped_slam"
+                    )
+            except Exception as e:
+                log.error(f"Error enqueuing {camera} frame: {e}")
         
     
     def _collect_results_with_overlap(self, frame_id: int, rgb_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
