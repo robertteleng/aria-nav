@@ -1,4 +1,4 @@
-"""🌐 Camera geometry for 3D projections and cross-camera matching validation."""
+"""Camera geometry for 3D projections and cross-camera matching validation."""
 
 from __future__ import annotations
 
