@@ -1,32 +1,36 @@
 """
 External third-party dependencies for the Aria Navigation System.
 
-This package contains external libraries and models that are not part of the
-core navigation system but were essential for model optimization workflows.
+This package contains external libraries and models used for TensorRT optimization
+workflows in the navigation system.
 
 Modules:
-- depth_anything_v2: Depth Anything V2 model architecture (LEGACY - not currently used)
+- depth_anything_v2: Depth Anything V2 model architecture for TensorRT export
   - Source: https://github.com/DepthAnything/Depth-Anything-V2
   - License: Apache 2.0
-  - Purpose: Originally used for TensorRT/ONNX export workflow
-  - Status: LEGACY - Current implementation uses HuggingFace transformers instead
+  - Purpose: Required for TensorRT/ONNX export workflow
+  - Status: ACTIVE in production when TensorRT .engine files are available
 
-⚠️ IMPORTANT: The depth_anything_v2 code is currently NOT used at runtime.
-   The active depth estimation uses `transformers.AutoModelForDepthEstimation`
-   from HuggingFace (see core/vision/depth_estimator.py lines 181-191).
+TensorRT Workflow:
+   This local copy is essential for the TensorRT optimization pipeline because
+   the HuggingFace transformers wrapper doesn't expose the underlying model
+   architecture needed for torch.onnx.export().
 
-Historical Context:
-   This local copy was needed for TensorRT optimization workflow because
-   the HuggingFace wrapper doesn't expose the underlying model architecture
-   needed for torch.onnx.export(). See docs/cuda optimization/FASE_4_TENSORRT_NOTES.md
-   for the original export workflow that required direct access to DepthAnythingV2 class.
+Production Runtime Flow:
+   1. Config sets DEPTH_BACKEND = "depth_anything_v2" and USE_TENSORRT = True
+   2. If TensorRT .engine file exists in checkpoints/:
+      - Uses ONNX Runtime with TensorRT backend (FAST - production mode)
+   3. If .engine file NOT found (e.g., on dev machines without checkpoints/):
+      - Falls back to HuggingFace transformers with PyTorch (SLOW - dev mode)
+      - See core/vision/depth_estimator.py lines 147-191 for fallback logic
 
-Current Runtime Flow:
-   1. Config sets DEPTH_BACKEND = "depth_anything_v2"
-   2. DepthEstimator loads via HuggingFace transformers (NOT from src/external/)
-   3. Optional: If TensorRT ONNX exists, uses ONNX Runtime instead
+Note on checkpoints/ folder:
+   The checkpoints/ folder containing .engine files is in .gitignore and does
+   not sync between machines. This is why development machines may not have
+   TensorRT models and will use PyTorch fallback.
 
-If you need to re-export to ONNX/TensorRT:
-   See tools/export_depth_tensorrt.py for the export script that uses
-   this local copy.
+TensorRT Export Workflow:
+   To re-export models to ONNX/TensorRT format, use:
+   - tools/export_depth_tensorrt.py (requires this local depth_anything_v2 copy)
+   - See docs/cuda optimization/FASE_4_TENSORRT_NOTES.md for detailed workflow
 """
