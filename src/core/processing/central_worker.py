@@ -1,3 +1,40 @@
+"""
+Central GPU worker for parallel vision processing (Phase 2 multiprocessing).
+
+This module provides a dedicated GPU worker process that runs YOLO detection
+and Depth Anything V2 depth estimation in parallel using CUDA streams for
+maximum throughput.
+
+Architecture:
+- Dedicated GPU process (CUDA device 0)
+- Parallel execution: YOLO and depth estimation with CUDA streams
+- Zero-copy shared memory ring buffer support
+- Headless operation (offscreen Qt platform)
+
+Models:
+- Depth Anything V2 (ViT-Small, GPU-optimized native implementation)
+- YOLO object detection (TensorRT/PyTorch)
+
+Performance:
+- Parallel GPU execution with CUDA streams
+- Zero-copy frame transfers via shared memory
+- GPU-only depth inference (no CPU transfers during processing)
+- Typical latency: 15-25ms per frame on NVIDIA GPU
+
+Usage:
+    # Entry point for multiprocessing.Process
+    from multiprocessing import Process, Queue, Event
+
+    central_queue = Queue()
+    result_queue = Queue()
+    stop_event = Event()
+    ready_event = Event()
+
+    p = Process(target=central_gpu_worker, args=(central_queue, result_queue, stop_event, ready_event))
+    p.start()
+    ready_event.wait()  # Wait for models to load
+"""
+
 import logging
 import os
 import queue
