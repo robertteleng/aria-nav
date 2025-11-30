@@ -39,15 +39,16 @@ class RgbAudioRouter:
         metadata = dict(candidate.metadata or {})
         zone = str(candidate.nav_object.get("zone", "center")).strip()
         class_name = str((candidate.nav_object.get("class") or "")).strip()
-        
+        distance = str(candidate.nav_object.get("distance", "")).strip() or None
+
         # Determine if critical based on priority
         from core.audio.navigation_audio_router import EventPriority
-        is_critical = (candidate.priority == EventPriority.CRITICAL or 
-                      (isinstance(candidate.priority, EventPriority) and 
+        is_critical = (candidate.priority == EventPriority.CRITICAL or
+                      (isinstance(candidate.priority, EventPriority) and
                        candidate.priority.value == 1))
-        
-        # Play spatial beep FIRST (instant directional feedback)
-        self.audio_system.play_spatial_beep(zone, is_critical=is_critical)
+
+        # Play spatial beep FIRST (instant directional feedback) with distance-based volume
+        self.audio_system.play_spatial_beep(zone, is_critical=is_critical, distance=distance)
         
         # Build simplified TTS message (just object name)
         message = self._build_simple_message(candidate.nav_object)
