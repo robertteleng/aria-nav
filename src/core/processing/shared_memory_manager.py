@@ -1,3 +1,34 @@
+"""
+Zero-copy shared memory ring buffer for inter-process frame passing.
+
+This module provides a SharedMemoryRingBuffer class that enables zero-copy
+frame transfers between processes using Python's multiprocessing.shared_memory.
+The ring buffer maintains N fixed-size shared memory blocks for round-robin
+frame distribution.
+
+Architecture:
+- Creator process: Creates N shared memory blocks
+- Producer: Writes frames to blocks in round-robin fashion
+- Consumer: Reads frames from specific block indices (via queue messages)
+- Zero-copy: Direct memory views, no pickling/unpickling overhead
+
+Benefits:
+- Eliminates frame serialization overhead (~10-15ms saved per frame)
+- Constant memory footprint (fixed ring buffer size)
+- Thread-safe round-robin indexing
+
+Usage:
+    # Producer process (creates shared memory)
+    ring = SharedMemoryRingBuffer(name_prefix='aria_rgb', count=4, shape=(1408, 1408, 3))
+    idx = ring.put(frame)  # Write frame, get buffer index
+    queue.put({'buffer_index': idx, ...})  # Send index to consumer
+
+    # Consumer process (attaches to existing memory)
+    ring = SharedMemoryRingBuffer(name_prefix='aria_rgb', count=4, shape=(1408, 1408, 3), create=False)
+    msg = queue.get()
+    frame = ring.get(msg['buffer_index'])  # Zero-copy read
+"""
+
 import logging
 import multiprocessing.shared_memory as shm
 import numpy as np
