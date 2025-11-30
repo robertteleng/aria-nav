@@ -124,7 +124,11 @@ class Coordinator:
             latest_events={},
         )
         # Capa simétrica a SlamAudioRouter: formatea eventos RGB antes de encolarlos.
-        self.slam_router = SlamAudioRouter(self.audio_router)
+        # 🌍 Pass global_tracker for cross-camera tracking
+        self.slam_router = SlamAudioRouter(
+            self.audio_router,
+            global_tracker=self.decision_engine.global_tracker
+        )
         self.rgb_router = RgbAudioRouter(audio_system, self.audio_router, self.slam_router)
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()

@@ -35,8 +35,9 @@ class SlamRoutingState:
 class SlamAudioRouter:
     """Encapsulates SLAM submission and audio routing logic with critical-only filtering."""
 
-    def __init__(self, audio_router: Optional[NavigationAudioRouter]) -> None:
+    def __init__(self, audio_router: Optional[NavigationAudioRouter], global_tracker=None) -> None:
         self.audio_router = audio_router
+        self.global_tracker = global_tracker  # 🌍 Reference to GlobalObjectTracker
         # Track RGB frontal announcements to avoid SLAM duplicates
         self._rgb_class_history: Dict[str, float] = {}
         self.duplicate_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
@@ -47,13 +48,63 @@ class SlamAudioRouter:
     def register_rgb_announcement(self, class_name: str) -> None:
         """Register an RGB frontal announcement to avoid SLAM duplicates."""
         self._rgb_class_history[class_name] = time.time()
-    
+
     def _is_duplicate_with_rgb(self, class_name: str) -> bool:
         """Check if this class was recently announced from RGB frontal."""
         if class_name not in self._rgb_class_history:
             return False
         elapsed = time.time() - self._rgb_class_history[class_name]
         return elapsed < self.duplicate_grace
+
+    def _enrich_with_track_ids(self, events: List["SlamDetectionEvent"], source: CameraSource) -> None:
+        """Enrich SLAM events with global track IDs for cross-camera tracking."""
+        if not self.global_tracker:
+            return
+
+        # Convert camera source to string format
+        camera_str = source.value  # "slam1" or "slam2"
+
+        # Convert events to detection format expected by tracker
+        detections = []
+        for event in events:
+            detections.append({
+                "class": event.object_name,
+                "bbox": event.bbox,
+                "zone": event.zone,
+                "confidence": event.confidence,
+            })
+
+        # Get track IDs from global tracker (no cooldown check, just matching)
+        # We use a very short cooldown (0.01s) since we handle cooldowns separately in audio router
+        cooldown_per_class = {event.object_name: 0.01 for event in events}
+        tracking_results = self.global_tracker.update_and_check(
+            detections, cooldown_per_class, camera_source=camera_str
+        )
+
+        # Enrich events with track_ids
+        for i, (detection, track_id, should_announce) in enumerate(tracking_results):
+            if i < len(events):
+                events[i].track_id = track_id
+
+    def _is_duplicate_with_track_id(self, event: "SlamDetectionEvent") -> bool:
+        """
+        Check if this event's track was recently announced (cross-camera dedup).
+
+        Uses track_id to detect same object across cameras (e.g., person seen in SLAM1
+        then appearing in RGB should not be re-announced).
+        """
+        if not self.global_tracker or event.track_id is None:
+            # Fallback to class-based dedup if no tracker or no track_id
+            return self._is_duplicate_with_rgb(event.object_name)
+
+        # Check if this track was recently announced
+        track = self.global_tracker.tracks.get(event.track_id)
+        if not track:
+            return False
+
+        # If announced recently, it's a duplicate
+        time_since_announce = time.time() - track.last_announced
+        return time_since_announce < self.duplicate_grace
 
     def submit_and_route(
         self,
@@ -77,6 +128,10 @@ class SlamAudioRouter:
         state.last_indices[source] = latest_index
         state.latest_events[source] = events
 
+        # 🌍 Enrich events with global track_ids for cross-camera tracking
+        if self.global_tracker:
+            self._enrich_with_track_ids(events, source)
+
         if self.audio_router:
             for event in events:
                 # Filter: skip if not critical distance when SLAM_CRITICAL_ONLY is enabled
@@ -88,11 +143,11 @@ class SlamAudioRouter:
                     )
                     if not is_critical_distance:
                         continue
-                
-                # Filter: skip if recently announced from RGB frontal
-                if self._is_duplicate_with_rgb(event.object_name):
+
+                # Filter: skip if recently announced by track_id (cross-camera dedup)
+                if self._is_duplicate_with_track_id(event):
                     continue
-                
+
                 priority = self._determine_slam_priority(event)
                 message = self._build_slam_message(event)
                 self.audio_router.enqueue_from_slam(event, message, priority)
