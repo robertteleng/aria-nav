@@ -1,4 +1,28 @@
-"""Dedicated logger for depth estimation debugging"""
+"""
+Dedicated logger for depth estimation debugging.
+
+This module provides a singleton logger for depth-specific debugging and metrics,
+separate from general telemetry to facilitate depth model optimization and
+troubleshooting.
+
+Features:
+- Singleton pattern (one instance per session)
+- Dual output: file logging + console with [DEPTH] marker
+- JSON metrics logging for quantitative analysis
+- Section headers for organizing debug output
+
+Log Files:
+- depth_debug.log: Human-readable debug messages with timestamps
+- depth_metrics.log: JSON-formatted metrics (inference time, accuracy, etc.)
+
+Usage:
+    from core.telemetry.loggers.depth_logger import get_depth_logger
+
+    depth_logger = get_depth_logger(session_dir="logs/session_2024-01-15_10-30-00")
+    depth_logger.log("Processing frame 42...")
+    depth_logger.log_metric({"frame_id": 42, "inference_ms": 15.2})
+    depth_logger.section("MiDaS Inference")
+"""
 
 import logging
 import json
