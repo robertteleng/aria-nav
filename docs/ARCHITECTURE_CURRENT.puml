@@ -1,0 +1,196 @@
+@startuml Arquitectura_Actual
+!theme plain
+title Aria Navigation - Arquitectura Actual (Nov 2025)
+
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+
+' === ENTRADA DE DATOS ===
+package "Hardware (Meta Aria)" <<External>> {
+    [RGB Camera] as RGB
+    [SLAM1 Camera] as SLAM1
+    [SLAM2 Camera] as SLAM2
+    [IMU Sensors] as IMU
+}
+
+' === CAPA SDK ===
+package "SDK Layer" {
+    [Observer] as OBS
+    note right of OBS
+        Recibe datos del SDK
+        359 líneas
+        - on_image_received()
+        - on_imu_received()
+        - get_motion_state()
+    end note
+}
+
+' === CAPA DE CONSTRUCCIÓN ===
+package "Factory" {
+    [Builder] as BUILD
+    note right of BUILD
+        Crea todos los componentes
+        Inyección de dependencias
+    end note
+}
+
+' === CAPA DE PROCESAMIENTO ===
+package "Processing Layer" {
+
+    package "Vision" {
+        [ImageEnhancer] as ENH
+        [YoloProcessor] as YOLO
+        [DepthEstimator] as DEPTH
+    }
+
+    [NavigationPipeline] as PIPE
+    note bottom of PIPE
+        **ARCHIVO COMPLEJO**
+        898 líneas
+        - Modo sequential
+        - Modo multiprocessing
+        - CUDA streams
+    end note
+
+    package "Multiprocessing (opcional)" <<Optional>> {
+        [CentralWorker] as CWORKER
+        [SlamWorker] as SWORKER
+    }
+}
+
+' === CAPA DE DECISIÓN ===
+package "Decision Layer" {
+    [Coordinator] as COORD
+    note right of COORD
+        Orquesta el pipeline
+        464 líneas
+    end note
+
+    [NavigationDecisionEngine] as ENGINE
+    note right of ENGINE
+        Prioriza detecciones
+        Zonas: left/center/right
+        Distancias: very_close/close/medium/far
+    end note
+}
+
+' === CAPA DE AUDIO ===
+package "Audio Layer" {
+    [AudioSystem] as AUDIO
+    note right of AUDIO
+        TTS (macOS/Linux)
+        Beeps espaciales
+    end note
+
+    [NavigationAudioRouter] as ROUTER
+    note bottom of ROUTER
+        **ARCHIVO COMPLEJO**
+        393 líneas
+        - Priority queue
+        - Cooldowns por fuente
+        - RGB: 1.2s
+        - SLAM: 3.0s
+    end note
+}
+
+' === CAPA DE PRESENTACIÓN ===
+package "Presentation Layer" {
+    [PresentationManager] as PRES
+
+    [OpenCVDashboard] as OPENCV
+    [WebDashboard] as WEB
+    [RerunDashboard] as RERUN
+
+    note bottom of WEB
+        **ARCHIVO COMPLEJO**
+        942 líneas
+    end note
+}
+
+' === CAPA DE TELEMETRÍA ===
+package "Telemetry" {
+    [TelemetryLogger] as TELEM
+    note right of TELEM
+        **ARCHIVO COMPLEJO**
+        802 líneas
+        - Métricas de rendimiento
+        - Detecciones
+        - Eventos de audio
+    end note
+}
+
+' === CONFIGURACIÓN ===
+package "Config" {
+    [Config] as CFG
+    note right of CFG
+        275 líneas
+        60+ atributos
+        Flags de fases dispersos
+    end note
+}
+
+' === CONEXIONES ===
+
+' Hardware -> Observer
+RGB --> OBS : frames 30fps
+SLAM1 --> OBS : frames
+SLAM2 --> OBS : frames
+IMU --> OBS : accel/gyro
+
+' Builder crea componentes
+BUILD ..> YOLO : crea
+BUILD ..> AUDIO : crea
+BUILD ..> PIPE : crea
+BUILD ..> ENGINE : crea
+BUILD ..> COORD : crea
+
+' Observer -> Coordinator
+OBS --> COORD : frames + motion_state
+
+' Coordinator orquesta
+COORD --> PIPE : process()
+COORD --> ENGINE : evaluate()
+COORD --> ROUTER : route_event()
+COORD --> TELEM : log()
+
+' Pipeline de visión
+PIPE --> ENH : enhance
+PIPE --> YOLO : detect
+PIPE --> DEPTH : estimate
+
+' Multiprocessing (opcional)
+PIPE ..> CWORKER : si multiproc
+PIPE ..> SWORKER : si multiproc
+
+' Decision -> Audio
+ENGINE --> ROUTER : detection_events
+ROUTER --> AUDIO : speak/beep
+
+' Coordinator -> Presentation
+COORD --> PRES : annotated_frame
+PRES --> OPENCV : render
+PRES --> WEB : stream
+PRES --> RERUN : 3D view
+
+' Config afecta todo
+CFG ..> OBS
+CFG ..> PIPE
+CFG ..> AUDIO
+CFG ..> ENGINE
+
+' === LEYENDA ===
+legend right
+    **Leyenda**
+    ----
+    Línea sólida: Flujo de datos principal
+    Línea punteada: Configuración/Creación
+
+    **Archivos complejos (>400 líneas):**
+    - NavigationPipeline: 898
+    - TelemetryLogger: 802
+    - WebDashboard: 942
+    - main.py: 667
+    - Coordinator: 464
+endlegend
+
+@enduml

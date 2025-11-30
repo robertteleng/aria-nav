@@ -1,0 +1,77 @@
+@startuml Arquitectura_Simple
+!theme plain
+title Aria Navigation - Arquitectura Simplificada
+
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment center
+skinparam padding 10
+
+' === FLUJO PRINCIPAL (VERTICAL) ===
+
+[Aria Glasses] as HW #LightGray
+note right of HW
+  RGB: 30fps
+  SLAM1/2: grayscale
+  IMU: accel/gyro
+end note
+
+[Observer] as OBS #LightBlue
+note right of OBS
+  Recibe datos SDK
+  Calcula motion_state
+end note
+
+[Coordinator] as COORD #LightYellow
+note right of COORD
+  Orquesta todo el flujo
+  464 líneas
+end note
+
+[NavigationPipeline] as PIPE #LightGreen
+note right of PIPE
+  enhance → YOLO → depth
+  **898 líneas (COMPLEJO)**
+end note
+
+[NavigationDecisionEngine] as ENGINE #LightYellow
+note right of ENGINE
+  Filtra objetos críticos
+  Calcula prioridad
+end note
+
+' === AUDIO (PROBLEMA) ===
+package "Audio (3 routers = DUPLICACIÓN)" as AUDIO_PKG #Pink {
+    [RgbAudioRouter] as RGB_R
+    [SlamAudioRouter] as SLAM_R
+    [NavigationAudioRouter] as NAR
+    [AudioSystem] as AUDIO
+}
+
+[Dashboards] as DASH #LightCyan
+
+' === CONEXIONES SIMPLES ===
+HW --> OBS : frame
+OBS --> COORD : frame + motion
+COORD --> PIPE : frame
+PIPE --> COORD : detections
+COORD --> ENGINE : detections
+ENGINE --> COORD : candidates
+
+COORD --> RGB_R : RGB candidate
+COORD --> SLAM_R : SLAM event
+RGB_R --> NAR
+SLAM_R --> NAR
+NAR --> AUDIO : speak
+
+COORD --> DASH : render
+
+' === LEYENDA ===
+legend bottom
+  **Problema identificado:**
+  RgbAudioRouter y SlamAudioRouter tienen código duplicado
+  (diccionarios, funciones de mensaje, lógica de prioridad)
+
+  **Solución:** Unificar en un solo MessageFormatter
+endlegend
+
+@enduml

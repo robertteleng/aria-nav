@@ -1,0 +1,186 @@
+@startuml Secuencia_Flujo_Principal
+!theme plain
+title Flujo de Procesamiento - Frame RGB a Audio
+
+actor "Aria Glasses" as ARIA
+participant "Observer" as OBS
+participant "Coordinator" as COORD
+participant "NavigationPipeline" as PIPE
+participant "ImageEnhancer" as ENH
+participant "YoloProcessor" as YOLO
+participant "DepthEstimator" as DEPTH
+participant "NavigationDecisionEngine" as ENGINE
+participant "NavigationAudioRouter" as ROUTER
+participant "AudioSystem" as AUDIO
+participant "TelemetryLogger" as TELEM
+participant "PresentationManager" as PRES
+
+== INICIALIZACIÓN ==
+
+note over OBS, COORD
+Builder crea todos los componentes
+y los inyecta en Coordinator
+end note
+
+== LOOP PRINCIPAL (cada frame ~33ms) ==
+
+ARIA -> OBS : on_image_received(image, record)
+note right of OBS
+image: numpy array RGB
+record: metadata (timestamp, camera_id)
+end note
+
+OBS -> OBS : _store_frame(camera_id, frame)
+OBS -> OBS : motion_state = get_motion_state()
+note right of OBS
+motion_state: "stationary" | "walking"
+(calculado desde IMU)
+end note
+
+OBS -> COORD : process_frame(frame, motion_state)
+
+== PIPELINE DE VISIÓN ==
+
+COORD -> PIPE : process(frame, profile=False)
+
+alt Modo Sequential (por defecto)
+    PIPE -> ENH : enhance_frame(frame)
+    ENH --> PIPE : enhanced_frame (numpy array)
+
+    PIPE -> YOLO : process_frame(enhanced_frame, depth_map=None)
+    note right of YOLO
+    Retorna: List[DetectedObject]
+    - name: str ("person", "car", etc)
+    - confidence: float (0.0-1.0)
+    - bbox: tuple (x1, y1, x2, y2)
+    - zone: str ("left", "center", "right")
+    - distance_bucket: str
+    end note
+    YOLO --> PIPE : detections: List[DetectedObject]
+
+    PIPE -> DEPTH : estimate_depth(enhanced_frame)
+    DEPTH --> PIPE : depth_map (numpy array HxW)
+
+    PIPE -> PIPE : _merge_depth_into_detections(detections, depth_map)
+    note right of PIPE
+    Añade depth_value a cada DetectedObject
+    end note
+
+else Modo Multiprocessing (PHASE2)
+    PIPE -> PIPE : _process_multiproc(frames_dict, profile)
+    note right of PIPE
+    Usa CentralWorker en proceso separado
+    Comunicación via Queue
+    end note
+end
+
+PIPE --> COORD : PipelineResult
+note right of COORD
+PipelineResult:
+- annotated_frame: numpy array
+- detections: List[DetectedObject]
+- depth_map: numpy array
+- fps: float
+- processing_time: float
+end note
+
+== DECISIÓN DE NAVEGACIÓN ==
+
+COORD -> ENGINE : evaluate(detections, motion_state)
+
+ENGINE -> ENGINE : _filter_critical_objects(detections)
+note right of ENGINE
+Filtra: person, car, truck, bicycle,
+motorcycle, dog, bus, train
+end note
+
+ENGINE -> ENGINE : _calculate_priority(detection)
+note right of ENGINE
+priority = zone_weight * distance_weight * confidence
+- center zone = 1.0, sides = 0.7
+- very_close = 1.0, close = 0.8, medium = 0.5
+end note
+
+ENGINE -> ENGINE : _sort_by_priority(candidates)
+
+ENGINE --> COORD : List[DecisionCandidate]
+note right of COORD
+DecisionCandidate:
+- detection: DetectedObject
+- priority: float
+- should_announce: bool
+- announcement_text: str
+end note
+
+== AUDIO ROUTING ==
+
+loop Para cada candidate con should_announce=True
+    COORD -> ROUTER : route_event(candidate, source="RGB")
+
+    ROUTER -> ROUTER : _check_cooldown(source)
+    note right of ROUTER
+    Cooldowns:
+    - RGB: 1.2s
+    - SLAM1: 3.0s
+    - SLAM2: 3.0s
+    - Global: 0.8s
+    end note
+
+    alt Cooldown OK
+        ROUTER -> ROUTER : _add_to_priority_queue(event)
+        ROUTER -> ROUTER : _process_queue()
+        ROUTER -> AUDIO : speak_async(text)
+        note right of AUDIO
+        text: "persona cerca centro"
+        end note
+        AUDIO -> AUDIO : _tts_worker(text)
+        AUDIO --> ARIA : Audio output
+
+        ROUTER -> TELEM : log_audio_event(event)
+    else Cooldown activo
+        ROUTER -> ROUTER : skip (no anuncia)
+    end
+end
+
+== TELEMETRÍA ==
+
+COORD -> TELEM : log_frame_processed(result)
+note right of TELEM
+Registra:
+- timestamp
+- fps
+- num_detections
+- processing_time_ms
+end note
+
+== PRESENTACIÓN ==
+
+COORD -> PRES : update(annotated_frame, detections, stats)
+
+alt OpenCV Dashboard
+    PRES -> PRES : _opencv_update(frame)
+    note right of PRES
+    cv2.imshow() con overlays
+    end note
+else Web Dashboard
+    PRES -> PRES : _web_update(frame)
+    note right of PRES
+    Streaming via Flask /video_feed
+    end note
+else Rerun Dashboard
+    PRES -> PRES : _rerun_update(frame, detections)
+    note right of PRES
+    Visualización 3D
+    end note
+end
+
+COORD --> OBS : ProcessingResult
+
+== FIN DEL FRAME ==
+
+note over ARIA, PRES
+El loop se repite ~30 veces por segundo
+Tiempo objetivo por frame: <33ms
+end note
+
+@enduml
