@@ -37,10 +37,12 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 try:
+    from core.audio.message_formatter import MessageFormatter
     from core.audio.navigation_audio_router import EventPriority, NavigationAudioRouter
     from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
     from utils.config import Config
 except Exception:  # pragma: no cover - fallback for import issues in docs
+    MessageFormatter = None  # type: ignore[assignment]
     NavigationAudioRouter = None  # type: ignore[assignment]
     CameraSource = None  # type: ignore[assignment]
     Config = None  # type: ignore[assignment]
@@ -65,9 +67,15 @@ class SlamRoutingState:
 class SlamAudioRouter:
     """Encapsulates SLAM submission and audio routing logic with critical-only filtering."""
 
-    def __init__(self, audio_router: Optional[NavigationAudioRouter], global_tracker=None) -> None:
+    def __init__(
+        self,
+        audio_router: Optional[NavigationAudioRouter],
+        global_tracker=None,
+        message_formatter: Optional[MessageFormatter] = None,
+    ) -> None:
         self.audio_router = audio_router
         self.global_tracker = global_tracker  # Reference to GlobalObjectTracker for cross-camera tracking
+        self.message_formatter = message_formatter or MessageFormatter()
         # Track RGB frontal announcements to avoid SLAM duplicates
         self._rgb_class_history: Dict[str, float] = {}
         self.duplicate_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
@@ -199,12 +207,12 @@ class SlamAudioRouter:
             return EventPriority.HIGH
         return EventPriority.MEDIUM
 
-    @staticmethod
-    def _build_slam_message(event: "SlamDetectionEvent") -> str:
+    def _build_slam_message(self, event: "SlamDetectionEvent") -> str:
+        """Build detailed SLAM message with zone and distance information."""
         from utils.config import Config
 
-        zone_text = Config.AUDIO_ZONE_LABELS.get(event.zone, event.zone)
-        name = Config.AUDIO_OBJECT_LABELS.get(event.object_name, event.object_name.capitalize())
+        zone_text = self.message_formatter.format_zone(event.zone)
+        name = self.message_formatter.format_object_name(event.object_name)
         distance = (event.distance or "").lower()
 
         # Warning messages for critical situations

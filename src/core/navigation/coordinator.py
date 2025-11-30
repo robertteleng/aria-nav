@@ -29,6 +29,7 @@ from typing import Optional, Dict, List, Any
 
 from utils.config import Config
 
+from core.audio.message_formatter import MessageFormatter
 from core.navigation.navigation_decision_engine import (
     NavigationDecisionEngine,
 )
@@ -153,13 +154,22 @@ class Coordinator:
             last_indices={},
             latest_events={},
         )
+        # Create shared MessageFormatter for both RGB and SLAM routers
+        message_formatter = MessageFormatter()
+
         # Symmetric layer to SlamAudioRouter: formats RGB events before queuing.
         # Pass global_tracker for cross-camera tracking
         self.slam_router = SlamAudioRouter(
             self.audio_router,
-            global_tracker=self.decision_engine.global_tracker
+            global_tracker=self.decision_engine.global_tracker,
+            message_formatter=message_formatter
         )
-        self.rgb_router = RgbAudioRouter(audio_system, self.audio_router, self.slam_router)
+        self.rgb_router = RgbAudioRouter(
+            audio_system,
+            self.audio_router,
+            self.slam_router,
+            message_formatter=message_formatter
+        )
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
