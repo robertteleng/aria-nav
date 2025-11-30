@@ -118,6 +118,39 @@ class AudioConfig:
     distance_labels: Dict[str, str] = field(default_factory=dict)
 
 
+@dataclass
+class PipelineConfig:
+    """Configuration for NavigationPipeline processing modes."""
+
+    # Multiprocessing mode
+    multiproc_enabled: bool = False  # Enable multiprocessing with workers
+
+    # CUDA streams (parallel Depth + YOLO)
+    cuda_streams: bool = False  # Enable CUDA streams for parallelization
+    phase6_hybrid_streams: bool = False  # Hybrid: streams in main + workers for SLAM
+
+    # Double buffering (Phase 7)
+    double_buffering: bool = False  # Use 2x workers per type
+    worker_health_check_interval: float = 5.0  # Seconds between health checks
+    graceful_degradation: bool = True  # Continue with remaining workers if one fails
+
+    # Queue sizes
+    result_queue_maxsize: int = 10  # Max results in result queue
+    central_queue_maxsize: int = 2  # Max frames in RGB worker queue
+    slam_queue_maxsize: int = 4  # Max frames in SLAM worker queue
+
+    # Shared memory (Phase 3)
+    use_shared_memory: bool = False  # Use shared memory for IPC
+
+    # Input resizing (optimization)
+    input_resize_enabled: bool = False  # Resize frames before IPC
+    input_resize_width: int = 1024  # Target width for resized frames
+    input_resize_height: int = 1024  # Target height for resized frames
+
+    # Stats reporting
+    stats_interval: float = 5.0  # Seconds between stats printing
+
+
 def load_slam_audio_config() -> SlamAudioConfig:
     """
     Load SLAM audio configuration from Config with fallback defaults.
@@ -233,4 +266,31 @@ def load_audio_config() -> AudioConfig:
         object_labels=getattr(Config, "AUDIO_OBJECT_LABELS", {}),
         zone_labels=getattr(Config, "AUDIO_ZONE_LABELS", {}),
         distance_labels=getattr(Config, "AUDIO_DISTANCE_LABELS", {}),
+    )
+
+
+def load_pipeline_config() -> PipelineConfig:
+    """
+    Load pipeline configuration from Config with fallback defaults.
+
+    Returns:
+        PipelineConfig with values from Config or defaults
+    """
+    from utils.config import Config
+
+    return PipelineConfig(
+        multiproc_enabled=getattr(Config, "PHASE2_MULTIPROC_ENABLED", False),
+        cuda_streams=getattr(Config, "CUDA_STREAMS", False),
+        phase6_hybrid_streams=getattr(Config, "PHASE6_HYBRID_STREAMS", False),
+        double_buffering=getattr(Config, "PHASE7_DOUBLE_BUFFERING", False),
+        worker_health_check_interval=getattr(Config, "PHASE7_WORKER_HEALTH_CHECK_INTERVAL", 5.0),
+        graceful_degradation=getattr(Config, "PHASE7_GRACEFUL_DEGRADATION", True),
+        result_queue_maxsize=getattr(Config, "PHASE2_RESULT_QUEUE_MAXSIZE", 10),
+        central_queue_maxsize=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2),
+        slam_queue_maxsize=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4),
+        use_shared_memory=getattr(Config, "USE_SHARED_MEMORY", False),
+        input_resize_enabled=getattr(Config, "INPUT_RESIZE_ENABLED", False),
+        input_resize_width=getattr(Config, "INPUT_RESIZE_WIDTH", 1024),
+        input_resize_height=getattr(Config, "INPUT_RESIZE_HEIGHT", 1024),
+        stats_interval=getattr(Config, "PHASE2_STATS_INTERVAL", 5.0),
     )
