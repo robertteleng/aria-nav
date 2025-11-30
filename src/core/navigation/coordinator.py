@@ -2,12 +2,26 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 """
-🎯 Coordinator Mejorado - TFM Navigation System
-Basado en la versión original, con mejoras para soporte de motion detection
-y compatibilidad con arquitectura híbrida
+Navigation Coordinator - TFM Navigation System
 
-Fecha: Septiembre 2025
-Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
+Orchestrates data flow between vision processing, navigation decisions, and audio output.
+This enhanced coordinator supports motion detection and hybrid architecture with both
+RGB and peripheral SLAM cameras for 360° awareness.
+
+Features:
+- Multi-camera processing (RGB + 2 SLAM peripheral cameras)
+- Motion-aware navigation decisions (stationary vs. walking)
+- Cross-camera object tracking with 3D geometric validation
+- Audio routing with priority-based queueing
+- Real-time performance profiling
+- Dashboard integration for telemetry
+
+Pipeline Flow:
+    Image → Enhancement → YOLO Detection → Depth Estimation →
+    Navigation Decision → Audio Routing → Frame Rendering
+
+Version: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
+Date: September 2025
 """
 
 import time
@@ -49,13 +63,25 @@ except Exception:
 
 class Coordinator:
     """
-    🎯 Coordinator que orquesta el flujo de datos entre módulos
-    
-    Este coordinator RECIBE dependencias ya creadas (no las crea él).
-    Se enfoca únicamente en coordinar el flujo de procesamiento.
-    
-    Pipeline:
-    Image → Enhancement → YOLO → Navigation → Audio → Rendering
+    Orchestrates data flow between vision, navigation, and audio modules.
+
+    This coordinator receives pre-configured dependencies via dependency injection
+    and focuses solely on coordinating the processing pipeline. It does not create
+    or initialize subsystems.
+
+    Processing Pipeline:
+        Image → Enhancement → YOLO → Navigation → Audio → Rendering
+
+    Attributes:
+        pipeline: NavigationPipeline for vision processing
+        decision_engine: NavigationDecisionEngine for navigation logic
+        audio_system: Audio output system for TTS and spatial beeps
+        frame_renderer: Optional frame visualization
+        dashboard: Optional telemetry dashboard
+        audio_router: Optional priority-based audio queue router
+        slam_router: SLAM camera event router
+        rgb_router: RGB camera event router
+        camera_geometry: Optional 3D geometric validation for cross-camera tracking
     """
     
     def __init__(
@@ -71,16 +97,20 @@ class Coordinator:
         telemetry=None,
     ):
         """
-        Inicializar coordinator con dependencias inyectadas
-        
+        Initialize coordinator with injected dependencies.
+
         Args:
-            yolo_processor: Instancia ya configurada de YoloProcessor
-            audio_system: Instancia ya configurada de AudioSystem
-            frame_renderer: Instancia opcional de FrameRenderer
-            image_enhancer: Instancia opcional de ImageEnhancer
-            dashboard: Instancia opcional de Dashboard
+            yolo_processor: Pre-configured YoloProcessor instance
+            audio_system: Pre-configured AudioSystem instance
+            frame_renderer: Optional FrameRenderer instance for visualization
+            image_enhancer: Optional ImageEnhancer instance for low-light enhancement
+            dashboard: Optional Dashboard instance for telemetry
+            audio_router: Optional NavigationAudioRouter for priority queuing
+            navigation_pipeline: Optional NavigationPipeline (created if not provided)
+            decision_engine: Optional NavigationDecisionEngine (created if not provided)
+            telemetry: Optional telemetry system for logging
         """
-        # Dependencias inyectadas
+        # Injected dependencies
         self.audio_system = audio_system
         self.frame_renderer = frame_renderer
         self.dashboard = dashboard
@@ -93,12 +123,12 @@ class Coordinator:
         )
         self.decision_engine = decision_engine or NavigationDecisionEngine()
 
-        # Compatibilidad hacia atrás
+        # Backward compatibility aliases
         self.yolo_processor = self.pipeline.yolo_processor
         self.image_enhancer = self.pipeline.image_enhancer
         self.depth_estimator = self.pipeline.depth_estimator
 
-        # Estado interno
+        # Internal state
         self.frames_processed = 0
         self.last_announcement_time = 0.0
         self.current_detections: List[Dict[str, Any]] = []
@@ -123,8 +153,8 @@ class Coordinator:
             last_indices={},
             latest_events={},
         )
-        # Capa simétrica a SlamAudioRouter: formatea eventos RGB antes de encolarlos.
-        # 🌍 Pass global_tracker for cross-camera tracking
+        # Symmetric layer to SlamAudioRouter: formats RGB events before queuing.
+        # Pass global_tracker for cross-camera tracking
         self.slam_router = SlamAudioRouter(
             self.audio_router,
             global_tracker=self.decision_engine.global_tracker
@@ -133,10 +163,10 @@ class Coordinator:
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
-        # 🌐 Camera geometry for 3D tracking (optional, set later with calibrations)
+        # Camera geometry for 3D tracking (optional, set later with calibrations)
         self.camera_geometry = None
 
-        print(f"✅ Coordinator inicializado")
+        print(f"[INFO] Coordinator initialized")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
         print(f"  - Audio: {type(self.audio_system).__name__}")
         print(f"  - Frame Renderer: {type(self.frame_renderer).__name__ if self.frame_renderer else 'None'}")
@@ -150,7 +180,12 @@ class Coordinator:
         slam2_calib: Optional[object] = None,
     ) -> None:
         """
-        🌐 Set camera calibrations for 3D geometric tracking (Phase 3).
+        Set camera calibrations for 3D geometric tracking (Phase 3).
+
+        Enables cross-camera object tracking with 3D geometric validation when
+        all three camera calibrations are available. This allows the system to
+        verify that objects detected in multiple cameras are the same physical
+        object based on their 3D positions.
 
         Args:
             rgb_calib: RGB camera calibration from Aria SDK
@@ -172,7 +207,7 @@ class Coordinator:
                 self.decision_engine.global_tracker.use_3d_validation = True
                 self.decision_engine.global_tracker.max_3d_distance = max_dist
 
-                print(f"🌐 [Coordinator] 3D geometric validation ENABLED "
+                print(f"[Coordinator] 3D geometric validation ENABLED "
                       f"(max_distance={max_dist}m)")
             else:
                 print(f"[Coordinator] 3D validation available but disabled in Config")
@@ -183,15 +218,15 @@ class Coordinator:
 
     def process_frame(self, frame: "np.ndarray", motion_state: str = "stationary", frames_dict: Optional[Dict[str, "np.ndarray"]] = None) -> "np.ndarray":
         """
-        🔄 Procesar frame completo a través del pipeline
-        
+        Process complete frame through the vision-navigation-audio pipeline.
+
         Args:
-            frame: Frame BGR de entrada
-            motion_state: Estado de movimiento ("stationary", "walking")
-            frames_dict: Opcional dict con frames de 3 cámaras para multiproceso
-            
+            frame: Input BGR frame from RGB camera
+            motion_state: User motion state ("stationary", "walking")
+            frames_dict: Optional dict with frames from 3 cameras for multiprocess mode
+
         Returns:
-            np.ndarray: Frame procesado con anotaciones
+            np.ndarray: Processed frame with navigation overlay annotations
         """
         self.frames_processed += 1
 
@@ -212,7 +247,7 @@ class Coordinator:
         nav_start = time.perf_counter() if self.profile_enabled else 0.0
         navigation_objects = self.decision_engine.analyze(detections, depth_map)
 
-        # 4. Audio Commands (con motion-aware cooldown)
+        # 4. Audio Commands (with motion-aware cooldown)
         decision_candidate = self.decision_engine.evaluate(navigation_objects, motion_state)
         if decision_candidate is not None:
             self.rgb_router.route(decision_candidate)
@@ -221,13 +256,13 @@ class Coordinator:
 
         self.last_announcement_time = self.decision_engine.last_announcement_time
 
-        # 5. Frame Rendering (si está disponible)
+        # 5. Frame Rendering (if available)
         render_start = time.perf_counter() if self.profile_enabled else 0.0
         annotated_frame = processed_frame
         if self.frame_renderer is not None:
             try:
-                # Dibujar solo navigation_objects (ya filtrados por el decision engine)
-                # Esto evita boxes fantasma de detecciones irrelevantes
+                # Draw only navigation_objects (already filtered by decision engine)
+                # This avoids phantom boxes from irrelevant detections
                 annotated_frame = self.frame_renderer.draw_navigation_overlay(
                     processed_frame, navigation_objects, self.audio_system, depth_map
                 )
@@ -237,7 +272,7 @@ class Coordinator:
         if self.profile_enabled:
             self._profile_acc['render'] += time.perf_counter() - render_start
 
-        # 6. Dashboard Update (si está disponible)
+        # 6. Dashboard Update (if available)
         if self.dashboard:
             try:
                 self.dashboard.update_detections(detections)
@@ -245,8 +280,8 @@ class Coordinator:
             except Exception as err:
                 print(f"[WARN] Dashboard update skipped: {err}")
 
-        # Guardar estado actual: usar navigation_objects (filtrados) en lugar de detections (raw)
-        # Esto evita mostrar en el dashboard objetos irrelevantes que no pasaron el filtro de navegación
+        # Save current state: use navigation_objects (filtered) instead of detections (raw)
+        # This avoids showing irrelevant objects that didn't pass navigation filter
         self.current_detections = navigation_objects
 
         if self.profile_enabled:
@@ -322,7 +357,7 @@ class Coordinator:
                         'zone': event.zone,
                         'distance': event.distance,
                         'message': self.slam_router.describe_event(event),
-                        'camera_source': 'slam',  # 🔧 FIX: Marcar como SLAM
+                        'camera_source': 'slam',  # Mark as SLAM for filtering
                     }
                 )
             event_dict[source.value] = simplified
@@ -357,15 +392,16 @@ class Coordinator:
         self._profile_frames = 0
 
     def get_latest_depth_map(self) -> Optional["np.ndarray"]:
-        """Obtener el último depth map estimado"""
+        """Get the latest estimated depth map."""
         return self.pipeline.get_latest_depth_map()
-    
+
     def get_status(self):
         """
-        📊 Obtener estado actual del coordinator
-        
+        Get current coordinator status with metrics and information.
+
         Returns:
-            dict: Estado con métricas y información
+            dict: Status dictionary containing frames processed, detection count,
+                  audio queue size, peripheral events, and subsystem availability
         """
         audio_queue_size = 0
         beep_stats = {}
@@ -403,16 +439,16 @@ class Coordinator:
     
     def get_current_detections(self):
         """
-        🎯 Obtener detecciones actuales (para compatibilidad con Observer)
-        
+        Get current detections (for compatibility with Observer).
+
         Returns:
-            list: Lista de detecciones actuales
+            list: Copy of current detections list
         """
         return self.current_detections.copy()
-    
+
     def scan_scene(self):
         """
-        🆕 MODO SCAN: Audible summary of current scene (NOA-inspired).
+        SCAN MODE: Audible summary of current scene (NOA-inspired).
 
         Announces 3-5 main objects grouped by zone.
         Example: "Scanning. Ahead: person, chair. Left: table."
@@ -425,7 +461,7 @@ class Coordinator:
 
     def test_audio(self):
         """
-        🔊 Test del sistema de audio
+        Test the audio system with a simple message.
         """
         try:
             if hasattr(self.audio_system, 'speak_force'):
@@ -438,52 +474,52 @@ class Coordinator:
     
     def print_stats(self):
         """
-        📈 Imprimir estadísticas del coordinator
+        Print coordinator statistics and current state.
         """
         status = self.get_status()
-        
+
         print(f"\n[COORDINATOR STATS]")
-        print(f"  Frames procesados: {status['frames_processed']}")
-        print(f"  Detecciones actuales: {status['current_detections_count']}")
+        print(f"  Frames processed: {status['frames_processed']}")
+        print(f"  Current detections: {status['current_detections_count']}")
         print(f"  Audio queue size: {status['audio_queue_size']}")
-        print(f"  Dashboard: {'✅' if status['has_dashboard'] else '❌'}")
-        print(f"  Frame Renderer: {'✅' if status['has_frame_renderer'] else '❌'}")
-        print(f"  Image Enhancer: {'✅' if status['has_image_enhancer'] else '❌'}")
-        
-        # Mostrar últimas detecciones
+        print(f"  Dashboard: {'Yes' if status['has_dashboard'] else 'No'}")
+        print(f"  Frame Renderer: {'Yes' if status['has_frame_renderer'] else 'No'}")
+        print(f"  Image Enhancer: {'Yes' if status['has_image_enhancer'] else 'No'}")
+
+        # Show latest detections
         if self.current_detections:
-            print(f"  Últimas detecciones:")
+            print(f"  Latest detections:")
             for det in self.current_detections[:3]:  # Top 3
                 name = det.get('name', 'unknown')
                 zone = det.get('zone', 'unknown')
                 conf = det.get('confidence', 0)
-                print(f"    - {name} en {zone} (conf: {conf:.2f})")
+                print(f"    - {name} in {zone} (conf: {conf:.2f})")
     
     def cleanup(self):
         """
-        🧹 Limpieza de recursos
+        Clean up resources and shutdown all subsystems.
         """
-        print("🧹 Limpiando Coordinator...")
-        
+        print("[INFO] Cleaning up Coordinator...")
+
         # Shutdown pipeline multiproc workers
         if hasattr(self.pipeline, 'shutdown'):
             try:
                 self.pipeline.shutdown()
             except Exception as err:
-                print(f"  ⚠️ Pipeline shutdown error: {err}")
+                print(f"  [WARN] Pipeline shutdown error: {err}")
 
         if self.peripheral_enabled:
             try:
                 if self.audio_router:
                     self.audio_router.stop()
             except Exception as err:
-                print(f"  ⚠️ Peripheral audio router cleanup error: {err}")
+                print(f"  [WARN] Peripheral audio router cleanup error: {err}")
 
             for source, worker in self.slam_state.workers.items():
                 try:
                     worker.stop()
                 except Exception as err:
-                    print(f"  ⚠️ SLAM worker {source.value} cleanup error: {err}")
+                    print(f"  [WARN] SLAM worker {source.value} cleanup error: {err}")
             self.slam_state = SlamRoutingState(
                 workers={},
                 frame_counters={},
@@ -497,23 +533,23 @@ class Coordinator:
                     self.audio_system.cleanup()
                 elif hasattr(self.audio_system, 'close'):
                     self.audio_system.close()
-                print("  ✅ Audio system cleanup")
+                print("  [INFO] Audio system cleanup complete")
         except Exception as e:
-            print(f"  ⚠️ Audio cleanup error: {e}")
-        
+            print(f"  [WARN] Audio cleanup error: {e}")
+
         try:
             if self.dashboard:
                 if hasattr(self.dashboard, 'cleanup'):
                     self.dashboard.cleanup()
                 elif hasattr(self.dashboard, 'shutdown'):
                     self.dashboard.shutdown()
-                print("  ✅ Dashboard cleanup")
+                print("  [INFO] Dashboard cleanup complete")
         except Exception as e:
-            print(f"  ⚠️ Dashboard cleanup error: {e}")
-        
-        # Frame renderer y image enhancer normalmente no necesitan cleanup
-        
-        # Reset estado
+            print(f"  [WARN] Dashboard cleanup error: {e}")
+
+        # Frame renderer and image enhancer typically don't need cleanup
+
+        # Reset state
         self.current_detections = []
-        
-        print("✅ Coordinator limpiado")
+
+        print("[INFO] Coordinator cleanup complete")
