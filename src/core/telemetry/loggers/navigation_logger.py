@@ -1,4 +1,29 @@
-"""Logger dedicado para debug de navegación y audio."""
+"""
+Dedicated logger for navigation and audio debugging.
+
+This module provides a singleton logger that separates navigation debugging logs
+into dedicated files for easier analysis and troubleshooting.
+
+Features:
+- Singleton pattern (one instance per session)
+- Separate log files for decision engine, audio, rendering, and routing
+- DEBUG level logging to files
+- WARNING level console output for critical messages
+- Thread-safe file handlers
+
+Log Files:
+- decision_engine.log: Navigation decision logic and obstacle prioritization
+- audio_system.log: TTS and beep generation events
+- frame_renderer.log: Visualization and rendering events
+- audio_routing.log: Multi-camera audio event coordination
+
+Usage:
+    from core.telemetry.loggers.navigation_logger import get_navigation_logger
+
+    nav_logger = get_navigation_logger(session_dir=Path("logs/session_2024-01-15_10-30-00"))
+    nav_logger.decision.debug("Processing detections...")
+    nav_logger.audio.info("Playing navigation message")
+"""
 
 import logging
 import os
