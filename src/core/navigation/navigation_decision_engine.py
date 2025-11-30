@@ -1,4 +1,48 @@
-"""Decision engine for navigation audio events."""
+"""
+Navigation decision engine for prioritized object announcements.
+
+This module analyzes detected objects and produces prioritized navigation candidates
+for audio feedback. It implements a two-tier priority system with per-instance tracking
+to prevent redundant announcements while ensuring critical safety warnings are timely.
+
+Features:
+- Two-tier priority system (CRITICAL for immediate risks, NORMAL for obstacles)
+- Per-instance tracking with GlobalObjectTracker (track_id based cooldowns)
+- Cross-camera tracking integration (RGB + SLAM1 + SLAM2)
+- Motion-aware cooldowns (different timings for walking vs. stationary)
+- Yellow zone filtering (center ±tolerance) for directional relevance
+- Persistence-based filtering for normal objects (must be seen N frames)
+- Distance-based priority adjustment
+- Configurable detection criteria per priority level
+
+Priority Levels:
+- CRITICAL: Immediate safety risks (person, vehicles) at close distances
+  - Motion-aware cooldowns (1.0s walking, 2.0s stationary for person)
+  - Optional yellow zone requirement (Config.CRITICAL_REQUIRE_YELLOW_ZONE)
+  - Distance thresholds: very_close/close for walking, very_close for stationary
+
+- NORMAL: Obstacles and furniture (chair, table, door, bottle)
+  - Persistence requirement (must appear N consecutive frames)
+  - Yellow zone requirement (Config.NORMAL_REQUIRE_YELLOW_ZONE)
+  - Distance thresholds: close/medium
+  - Longer cooldown (2.5s default)
+
+Architecture:
+    Detections → analyze() → Navigation Objects
+                               ↓
+                         evaluate() → Decision Candidate
+                               ↓
+                    GlobalObjectTracker (track_id enrichment + cooldown)
+                               ↓
+                         Audio Router
+
+Usage:
+    engine = NavigationDecisionEngine()
+    nav_objects = engine.analyze(detections, depth_map)
+    candidate = engine.evaluate(nav_objects, motion_state="walking")
+    if candidate:
+        audio_router.route(candidate)
+"""
 
 from __future__ import annotations
 
@@ -71,7 +115,7 @@ class NavigationDecisionEngine:
         # Persistence tracking for normal objects (frame count)
         self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
 
-        # 🌍 Global Object Tracker para cross-camera tracking (RGB + SLAM1 + SLAM2)
+        # Global Object Tracker for cross-camera tracking (RGB + SLAM1 + SLAM2)
         self.global_tracker = GlobalObjectTracker(
             iou_threshold=getattr(Config, "TRACKER_IOU_THRESHOLD", 0.5),
             max_age=getattr(Config, "TRACKER_MAX_AGE", 3.0),
@@ -131,7 +175,7 @@ class NavigationDecisionEngine:
         - CRITICAL: immediate risks (person, vehicles) at critical distances
         - NORMAL: obstacles (chair, table, bottle) with persistence and yellow zone
 
-        🆕 With per-instance tracking for granular cooldowns.
+        With per-instance tracking for granular cooldowns.
         """
         if not navigation_objects:
             # Decay detection history when no objects present
@@ -147,7 +191,7 @@ class NavigationDecisionEngine:
             for obj in navigation_objects[:3]:
                 logger.debug(f"  - {obj.get('class')}: zone={obj.get('zone')}, distance={obj.get('distance')}, priority={obj.get('priority'):.2f}")
 
-        # 🌍 Update global tracker with new detections (default camera: rgb)
+        # Update global tracker with new detections (default camera: rgb)
         cooldown_per_class = {
             "person": getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0),
             "car": 1.5,
@@ -241,7 +285,7 @@ class NavigationDecisionEngine:
             if require_yellow_zone and not obj.get("in_yellow_zone", False):
                 continue
 
-            # 🆕 Check per-instance tracker cooldown
+            # Check per-instance tracker cooldown
             if not obj.get("tracker_allows", True):
                 logger.debug(f"CRITICAL {class_name}: blocked by tracker (track_id={obj.get('track_id')})")
                 continue
@@ -310,7 +354,7 @@ class NavigationDecisionEngine:
                 logger.debug(f"NORMAL {class_name}: persistence {current_persistence}/{persistence_threshold}")
                 continue
 
-            # 🆕 Check per-instance tracker cooldown
+            # Check per-instance tracker cooldown
             if not obj.get("tracker_allows", True):
                 logger.debug(f"NORMAL {class_name}: blocked by tracker (track_id={obj.get('track_id')})")
                 continue
