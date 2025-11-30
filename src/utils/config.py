@@ -158,7 +158,12 @@ class Config:
     NORMAL_REQUIRE_YELLOW_ZONE = True  # Obstacles must be in yellow zone
     NORMAL_PERSISTENCE_FRAMES = 2  # Must be detected for 2+ consecutive frames
     NORMAL_COOLDOWN = 2.5  # Longer cooldown for normal objects
-    
+
+    # 🌍 Global Object Tracker (cross-camera tracking)
+    TRACKER_IOU_THRESHOLD = 0.5  # Minimum IoU for intra-camera matching
+    TRACKER_MAX_AGE = 3.0  # Maximum time (seconds) to keep track without seeing object
+    TRACKER_HANDOFF_TIMEOUT = 2.0  # Maximum time for cross-camera handoff (SLAM → RGB)
+
     # Audio routing
     AUDIO_GLOBAL_COOLDOWN = 0.3  # Minimum between any two announcements (reduced for faster response)
     AUDIO_INTERRUPT_GRACE = 0.25  # Grace period before interrupting (anti-entrecorte)
