@@ -41,11 +41,13 @@ try:
     from core.audio.navigation_audio_router import EventPriority, NavigationAudioRouter
     from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
     from utils.config import Config
+    from utils.config_sections import SlamAudioConfig, load_slam_audio_config
 except Exception:  # pragma: no cover - fallback for import issues in docs
     MessageFormatter = None  # type: ignore[assignment]
     NavigationAudioRouter = None  # type: ignore[assignment]
     CameraSource = None  # type: ignore[assignment]
     Config = None  # type: ignore[assignment]
+    SlamAudioConfig = None  # type: ignore[assignment]
 
     from enum import Enum
 
@@ -72,16 +74,20 @@ class SlamAudioRouter:
         audio_router: Optional[NavigationAudioRouter],
         global_tracker=None,
         message_formatter: Optional[MessageFormatter] = None,
+        config: Optional[SlamAudioConfig] = None,
     ) -> None:
         self.audio_router = audio_router
         self.global_tracker = global_tracker  # Reference to GlobalObjectTracker for cross-camera tracking
         self.message_formatter = message_formatter or MessageFormatter()
+        # Load typed configuration
+        self.config = config or load_slam_audio_config()
         # Track RGB frontal announcements to avoid SLAM duplicates
         self._rgb_class_history: Dict[str, float] = {}
-        self.duplicate_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
-        self.critical_only = getattr(Config, "SLAM_CRITICAL_ONLY", True)
-        self.critical_distances_walking = getattr(Config, "CRITICAL_DISTANCE_WALKING", {"very_close", "close"})
-        self.critical_distances_stationary = getattr(Config, "CRITICAL_DISTANCE_STATIONARY", {"very_close"})
+        # Use typed config instead of scattered getattr calls
+        self.duplicate_grace = self.config.duplicate_grace
+        self.critical_only = self.config.critical_only
+        self.critical_distances_walking = self.config.critical_distances_walking
+        self.critical_distances_stationary = self.config.critical_distances_stationary
     
     def register_rgb_announcement(self, class_name: str) -> None:
         """Register an RGB frontal announcement to avoid SLAM duplicates."""
