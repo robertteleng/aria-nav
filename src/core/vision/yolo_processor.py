@@ -1,3 +1,36 @@
+"""
+YOLO object detection processor with TensorRT optimization.
+
+This module provides the YoloProcessor class for real-time object detection using
+YOLO (You Only Look Once) models with support for:
+- TensorRT engine optimization for NVIDIA GPUs
+- Multiple runtime profiles (RGB, SLAM) with different image sizes
+- MPS (Apple Silicon) and CUDA acceleration
+- Configurable confidence thresholds and NMS parameters
+- Frame skipping for performance tuning
+- Depth map integration for distance estimation
+
+The processor supports two main profiles:
+- RGB: 640x640 resolution, 20 max detections, 0.50 confidence (main camera)
+- SLAM: 256x256 resolution, 8 max detections, 0.60 confidence (peripheral cameras)
+
+Usage:
+    # RGB profile (main camera)
+    rgb_processor = YoloProcessor(profile="rgb")
+    detections = rgb_processor.process(frame, depth_map=depth)
+
+    # SLAM profile (peripheral cameras)
+    slam_processor = YoloProcessor(profile="slam")
+    detections = slam_processor.process(frame, camera_source="slam1")
+
+    # Custom configuration
+    custom_processor = YoloProcessor(
+        model="custom.pt",
+        confidence=0.7,
+        image_size=416
+    )
+"""
+
 import numpy as np
 import torch
 import torchvision
