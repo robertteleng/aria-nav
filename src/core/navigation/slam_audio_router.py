@@ -116,39 +116,24 @@ class SlamAudioRouter:
 
     @staticmethod
     def _build_slam_message(event: "SlamDetectionEvent") -> str:
-        zone_map = {
-            "far_left": "far left side",
-            "left": "left side",
-            "right": "right side",
-            "far_right": "far right side",
-        }
-        object_map = {
-            "person": "person",
-            "car": "car",
-            "truck": "truck",
-            "bus": "bus",
-            "bicycle": "bicycle",
-            "motorcycle": "motorcycle",
-            "motorbike": "motorbike",
-        }
+        from utils.config import Config
 
-        zone_text = zone_map.get(event.zone, event.zone)
-        name = object_map.get(event.object_name, event.object_name)
+        zone_text = Config.AUDIO_ZONE_LABELS.get(event.zone, event.zone)
+        name = Config.AUDIO_OBJECT_LABELS.get(event.object_name, event.object_name.capitalize())
         distance = (event.distance or "").lower()
 
+        # Warning messages for critical situations
         if distance in {"close", "very_close"} and event.object_name in {"car", "truck", "bus"}:
-            return f"Warning, {name} approaching on the {zone_text}"
+            return f"Warning, {name.lower()} approaching on the {zone_text}"
         if event.object_name == "person" and distance in {"close", "very_close"}:
-            return f"Person close on the {zone_text}"
+            return f"{name} close on the {zone_text}"
+
+        # Standard distance announcements
         if distance and distance != "unknown":
-            if distance == "medium":
-                distance_text = "at medium distance"
-            elif distance == "far":
-                distance_text = "far"
-            else:
-                distance_text = distance.replace("_", " ")
-            return f"{name.capitalize()} {distance_text} on the {zone_text}"
-        return f"{name.capitalize()} on the {zone_text}"
+            distance_text = Config.AUDIO_DISTANCE_LABELS.get(distance, distance.replace("_", " "))
+            return f"{name} {distance_text} on the {zone_text}"
+
+        return f"{name} on the {zone_text}"
 
 
 __all__ = [
