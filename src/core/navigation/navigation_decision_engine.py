@@ -99,7 +99,9 @@ class NavigationDecisionEngine:
             final_priority = self._calculate_final_priority(base_priority, zone, distance_category)
 
             # Pre-compute yellow zone to avoid redundant calculations
-            in_yellow_zone = self._in_yellow_zone(bbox, 0.30)
+            # Use NORMAL_CENTER_TOLERANCE (0.45) which matches CRITICAL_CENTER_TOLERANCE
+            center_tolerance = getattr(Config, "NORMAL_CENTER_TOLERANCE", 0.45)
+            in_yellow_zone = self._in_yellow_zone(bbox, center_tolerance)
 
             navigation_obj = {
                 "class": class_name,
