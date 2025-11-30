@@ -133,13 +133,54 @@ class Coordinator:
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 
+        # 🌐 Camera geometry for 3D tracking (optional, set later with calibrations)
+        self.camera_geometry = None
+
         print(f"✅ Coordinator inicializado")
         print(f"  - YOLO: {type(self.yolo_processor).__name__}")
         print(f"  - Audio: {type(self.audio_system).__name__}")
         print(f"  - Frame Renderer: {type(self.frame_renderer).__name__ if self.frame_renderer else 'None'}")
         print(f"  - Image Enhancer: {type(self.image_enhancer).__name__ if self.image_enhancer else 'None'}")
         print(f"  - Dashboard: {type(self.dashboard).__name__ if self.dashboard else 'None'}")
-    
+
+    def set_camera_calibrations(
+        self,
+        rgb_calib: Optional[object] = None,
+        slam1_calib: Optional[object] = None,
+        slam2_calib: Optional[object] = None,
+    ) -> None:
+        """
+        🌐 Set camera calibrations for 3D geometric tracking (Phase 3).
+
+        Args:
+            rgb_calib: RGB camera calibration from Aria SDK
+            slam1_calib: SLAM1 camera calibration from Aria SDK
+            slam2_calib: SLAM2 camera calibration from Aria SDK
+        """
+        try:
+            from core.vision.camera_geometry import CameraGeometry
+
+            self.camera_geometry = CameraGeometry(rgb_calib, slam1_calib, slam2_calib)
+
+            # Enable 3D validation if configured
+            use_3d = getattr(Config, "TRACKER_USE_3D_VALIDATION", False)
+            max_dist = getattr(Config, "TRACKER_MAX_3D_DISTANCE", 0.5)
+
+            if use_3d and self.camera_geometry.is_available():
+                # Update global tracker with camera geometry
+                self.decision_engine.global_tracker.camera_geometry = self.camera_geometry
+                self.decision_engine.global_tracker.use_3d_validation = True
+                self.decision_engine.global_tracker.max_3d_distance = max_dist
+
+                print(f"🌐 [Coordinator] 3D geometric validation ENABLED "
+                      f"(max_distance={max_dist}m)")
+            else:
+                print(f"[Coordinator] 3D validation available but disabled in Config")
+
+        except Exception as e:
+            print(f"[Coordinator] Could not initialize CameraGeometry: {e}")
+            self.camera_geometry = None
+
     def process_frame(self, frame: "np.ndarray", motion_state: str = "stationary", frames_dict: Optional[Dict[str, "np.ndarray"]] = None) -> "np.ndarray":
         """
         🔄 Procesar frame completo a través del pipeline
