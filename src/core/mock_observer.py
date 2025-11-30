@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MockObserver: Simula el comportamiento del Observer de Aria sin hardware real
+Mock observer for Aria SDK testing without physical hardware.
 
-Permite desarrollo y testing sin las gafas Aria mediante:
-1. Generación de frames sintéticos
-2. Replay de videos grabados
-3. Imágenes estáticas con variaciones simuladas
+This module provides a drop-in replacement for the real Observer that enables
+development and testing without Aria glasses by providing:
+1. Synthetic frame generation with simulated objects
+2. Video file replay in loop
+3. Static images with small variations
 
-Compatible 100% con la API del Observer real para drop-in replacement.
+The MockObserver is 100% API-compatible with the real Observer for seamless
+switching between mock and real hardware modes.
 
-Author: Roberto Rojas Sahuquillo
-Date: Noviembre 2025
-Version: 1.0 - Mock para desarrollo sin hardware
+Operating modes:
+- 'synthetic': Generates synthetic frames with simulated objects (people, chairs, tables)
+- 'video': Replays a recorded video file in loop
+- 'static': Returns a static image with small random variations (noise, shift)
+
+Usage:
+    # Synthetic mode (default)
+    observer = MockObserver(mode='synthetic', fps=60)
+
+    # Video mode
+    observer = MockObserver(mode='video', video_path='data/session.mp4')
+
+    # Static mode
+    observer = MockObserver(mode='static', image_path='data/frame.jpg')
 """
 
 import numpy as np
@@ -29,24 +42,16 @@ log = logging.getLogger("MockObserver")
 
 class MockObserver:
     """
-    Mock del Observer de Aria para desarrollo sin hardware.
-    
-    Modos de operación:
-    - 'synthetic': Genera frames sintéticos con objetos simulados
-    - 'video': Reproduce un video en loop
-    - 'static': Imagen estática con pequeñas variaciones
-    
-    Uso:
-        # Modo sintético (default)
-        observer = MockObserver(mode='synthetic', fps=60)
-        
-        # Modo video
-        observer = MockObserver(mode='video', video_path='data/session.mp4')
-        
-        # Modo estático
-        observer = MockObserver(mode='static', image_path='data/frame.jpg')
+    Mock Observer for Aria development without physical hardware.
+
+    Operating modes:
+    - 'synthetic': Generates synthetic frames with simulated objects
+    - 'video': Replays a video in loop
+    - 'static': Static image with small random variations
+
+    See module docstring for usage examples.
     """
-    
+
     def __init__(
         self,
         mode: str = 'synthetic',
@@ -56,18 +61,18 @@ class MockObserver:
         image_path: Optional[str] = None,
         rgb_calib: Optional[Any] = None,
         buffer_size: int = 30,
-    ):
+    ) -> None:
         """
-        Inicializa el MockObserver.
-        
+        Initialize the MockObserver.
+
         Args:
-            mode: 'synthetic', 'video', o 'static'
-            fps: Frames por segundo a simular
-            resolution: (width, height) de los frames
-            video_path: Ruta al video para modo 'video'
-            image_path: Ruta a imagen para modo 'static'
-            rgb_calib: Calibración RGB (opcional, para compatibilidad)
-            buffer_size: Tamaño del buffer de frames
+            mode: 'synthetic', 'video', or 'static'
+            fps: Frames per second to simulate
+            resolution: (width, height) of generated frames
+            video_path: Path to video file for 'video' mode
+            image_path: Path to image file for 'static' mode
+            rgb_calib: RGB calibration (optional, for API compatibility)
+            buffer_size: Size of frame buffer
         """
         self.mode = mode
         self.fps = fps
@@ -76,24 +81,24 @@ class MockObserver:
         self.image_path = image_path
         self.rgb_calib = rgb_calib
         self.buffer_size = buffer_size
-        
-        # Buffer circular para frames (como Observer real)
+
+        # Circular buffer for frames (like real Observer)
         self.frame_buffer = deque(maxlen=buffer_size)
         self.frame_lock = threading.Lock()
-        
-        # Estado
+
+        # State
         self.running = False
         self.frame_count = 0
         self.start_time = None
         self._generator_thread = None
-        
-        # Inicializar según modo
+
+        # Initialize based on mode
         self._init_mode()
-        
+
         print(f"[MockObserver] Initialized in '{mode}' mode @ {fps} FPS, resolution {resolution}")
-    
-    def _init_mode(self):
-        """Inicializa recursos según el modo seleccionado."""
+
+    def _init_mode(self) -> None:
+        """Initialize resources based on selected mode."""
         if self.mode == 'video':
             if not self.video_path or not Path(self.video_path).exists():
                 raise ValueError(f"Video file not found: {self.video_path}")
@@ -113,13 +118,13 @@ class MockObserver:
             print(f"[MockObserver] Loaded image: {self.image_path}")
             
         elif self.mode == 'synthetic':
-            # Nada que inicializar para sintético
+            # Nothing to initialize for synthetic mode
             print(f"[MockObserver] Synthetic frame generation ready")
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
-    
-    def start(self):
-        """Inicia la generación de frames (compatible con Observer real)."""
+
+    def start(self) -> None:
+        """Start frame generation (compatible with real Observer API)."""
         if self.running:
             print("[MockObserver] Already running")
             return
@@ -127,15 +132,15 @@ class MockObserver:
         self.running = True
         self.start_time = time.time()
         self.frame_count = 0
-        
-        # Iniciar thread de generación de frames
+
+        # Start frame generation thread
         self._generator_thread = threading.Thread(target=self._generate_frames, daemon=True)
         self._generator_thread.start()
-        
+
         print(f"[MockObserver] Started frame generation")
-    
-    def stop(self):
-        """Detiene la generación de frames."""
+
+    def stop(self) -> None:
+        """Stop frame generation."""
         self.running = False
         if self._generator_thread:
             self._generator_thread.join(timeout=2.0)
@@ -144,15 +149,15 @@ class MockObserver:
             self.video_capture.release()
         
         print(f"[MockObserver] Stopped (generated {self.frame_count} frames)")
-    
-    def _generate_frames(self):
-        """Thread loop que genera frames según el modo."""
+
+    def _generate_frames(self) -> None:
+        """Thread loop that generates frames based on mode."""
         frame_interval = 1.0 / self.fps
-        
+
         while self.running:
             loop_start = time.time()
-            
-            # Generar frame según modo
+
+            # Generate frame based on mode
             if self.mode == 'synthetic':
                 frame = self._generate_synthetic_frame()
             elif self.mode == 'video':
@@ -161,19 +166,19 @@ class MockObserver:
                 frame = self._get_static_frame()
             else:
                 frame = None
-            
+
             if frame is not None:
-                # Agregar al buffer (thread-safe)
+                # Add to buffer (thread-safe)
                 with self.frame_lock:
                     self.frame_buffer.append({
                         'frame': frame,
                         'timestamp': time.time(),
                         'frame_id': self.frame_count
                     })
-                
+
                 self.frame_count += 1
-            
-            # Sleep para mantener FPS target
+
+            # Sleep to maintain target FPS
             elapsed = time.time() - loop_start
             sleep_time = max(0, frame_interval - elapsed)
             if sleep_time > 0:
@@ -181,148 +186,148 @@ class MockObserver:
     
     def _generate_synthetic_frame(self) -> np.ndarray:
         """
-        Genera un frame sintético con objetos simulados.
-        Simula una escena indoor con personas, sillas, mesas, etc.
+        Generate a synthetic frame with simulated objects.
+        Simulates an indoor scene with people, chairs, tables, etc.
         """
-        # Base: fondo gris con ruido
+        # Base: gray background with noise
         frame = np.random.randint(100, 150, (*self.resolution[::-1], 3), dtype=np.uint8)
-        
-        # Agregar algunos objetos simulados
+
+        # Add some simulated objects
         num_objects = np.random.randint(2, 6)
-        
+
         for _ in range(num_objects):
-            # Objeto aleatorio (simulando personas, sillas, etc)
+            # Random object (simulating people, chairs, etc)
             obj_type = np.random.choice(['person', 'chair', 'table', 'bottle'])
-            
-            # Posición y tamaño aleatorios
+
+            # Random position and size
             x = np.random.randint(100, self.resolution[0] - 200)
             y = np.random.randint(100, self.resolution[1] - 200)
             w = np.random.randint(80, 300)
             h = np.random.randint(100, 400)
-            
-            # Color según tipo
+
+            # Color based on type
             if obj_type == 'person':
-                color = (180, 150, 120)  # Tono piel
+                color = (180, 150, 120)  # Skin tone
             elif obj_type == 'chair':
-                color = (139, 69, 19)    # Marrón
+                color = (139, 69, 19)    # Brown
             elif obj_type == 'table':
-                color = (160, 82, 45)    # Marrón claro
+                color = (160, 82, 45)    # Light brown
             else:
-                color = (0, 150, 200)    # Azul (botella)
-            
-            # Dibujar rectángulo con gradiente simple
+                color = (0, 150, 200)    # Blue (bottle)
+
+            # Draw rectangle with simple gradient
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, -1)
-            
-            # Borde más oscuro
+
+            # Darker border
             darker = tuple(int(c * 0.7) for c in color)
             cv2.rectangle(frame, (x, y), (x + w, y + h), darker, 3)
-        
-        # Agregar timestamp como texto (útil para debugging)
+
+        # Add timestamp as text (useful for debugging)
         timestamp = f"Frame: {self.frame_count} | {time.time():.2f}s"
-        cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+        cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                    0.7, (255, 255, 255), 2)
-        
-        # Agregar indicador de modo
-        cv2.putText(frame, "MOCK MODE: SYNTHETIC", (10, self.resolution[1] - 20), 
+
+        # Add mode indicator
+        cv2.putText(frame, "MOCK MODE: SYNTHETIC", (10, self.resolution[1] - 20),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        
+
         return frame
-    
+
     def _get_video_frame(self) -> Optional[np.ndarray]:
-        """Lee el siguiente frame del video (loop infinito)."""
+        """Read next frame from video (infinite loop)."""
         ret, frame = self.video_capture.read()
-        
+
         if not ret:
-            # Reiniciar video al final
+            # Restart video at end
             self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.video_capture.read()
             print("[MockObserver] Video loop restarted")
-        
+
         if ret and frame is not None:
-            # Resize al tamaño esperado
+            # Resize to expected size
             frame = cv2.resize(frame, self.resolution)
-            
-            # Agregar indicador
-            cv2.putText(frame, f"MOCK MODE: VIDEO | Frame {self.frame_count}", 
+
+            # Add indicator
+            cv2.putText(frame, f"MOCK MODE: VIDEO | Frame {self.frame_count}",
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             return frame
-        
+
         return None
-    
+
     def _get_static_frame(self) -> np.ndarray:
         """
-        Retorna la imagen estática con pequeñas variaciones.
-        Útil para testing de estabilidad y consistency.
+        Return static image with small variations.
+        Useful for testing stability and consistency.
         """
         if self.static_image is None:
-            # Fallback a frame negro si no hay imagen
+            # Fallback to black frame if no image
             frame = np.zeros((*self.resolution[::-1], 3), dtype=np.uint8)
         else:
             frame = self.static_image.copy()
-        
-        # Agregar pequeño ruido aleatorio (simula vibración natural)
+
+        # Add small random noise (simulates natural vibration)
         noise = np.random.randint(-5, 5, frame.shape, dtype=np.int16)
         frame = np.clip(frame.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-        
-        # Pequeño desplazamiento aleatorio (simula movimiento mínimo)
+
+        # Small random shift (simulates minimal movement)
         shift_x = int(np.random.randint(-2, 3))
         shift_y = int(np.random.randint(-2, 3))
         M = np.array([[1.0, 0.0, float(shift_x)], [0.0, 1.0, float(shift_y)]], dtype=np.float32)
         frame = cv2.warpAffine(frame, M, self.resolution, flags=cv2.INTER_LINEAR)
-        
-        # Indicador
-        cv2.putText(frame, f"MOCK MODE: STATIC | Frame {self.frame_count}", 
+
+        # Indicator
+        cv2.putText(frame, f"MOCK MODE: STATIC | Frame {self.frame_count}",
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        
+
         return frame
     
     def get_latest_frame(self, camera: str = 'rgb') -> Optional[np.ndarray]:
         """
-        Obtiene el frame más reciente del buffer.
-        Compatible con API del Observer real.
-        
+        Get the most recent frame from buffer.
+        Compatible with real Observer API.
+
         Args:
-            camera: 'rgb', 'slam1', o 'slam2' (solo 'rgb' implementado en mock)
+            camera: 'rgb', 'slam1', or 'slam2' (only 'rgb' implemented in mock)
         """
-        # Mock solo soporta RGB, ignora slam1/slam2
+        # Mock only supports RGB, ignores slam1/slam2
         if camera not in ['rgb', 'slam1', 'slam2']:
             return None
-        
+
         with self.frame_lock:
             if not self.frame_buffer:
                 return None
             return self.frame_buffer[-1]['frame'].copy()
-    
+
     def get_frame_data(self) -> Optional[Dict[str, Any]]:
         """
-        Obtiene datos completos del frame más reciente.
-        Compatible con API del Observer real.
+        Get complete data for most recent frame.
+        Compatible with real Observer API.
         """
         with self.frame_lock:
             if not self.frame_buffer:
                 return None
             return self.frame_buffer[-1].copy()
-    
+
     def get_buffer_size(self) -> int:
-        """Retorna el número de frames en el buffer."""
+        """Return number of frames in buffer."""
         with self.frame_lock:
             return len(self.frame_buffer)
-    
+
     def get_motion_state(self) -> Dict[str, Any]:
         """
-        Retorna estado de movimiento simulado.
-        Compatible con API del Observer real.
+        Return simulated motion state.
+        Compatible with real Observer API.
         """
-        # Mock simula estado estacionario
+        # Mock simulates stationary state
         return {
             'state': 'stationary',
-            'magnitude': 9.8,  # Gravedad estándar
+            'magnitude': 9.8,  # Standard gravity
             'timestamp': time.time(),
             'history_length': 0
         }
-    
+
     def get_stats(self) -> Dict[str, Any]:
-        """Retorna estadísticas de operación."""
+        """Return operation statistics."""
         elapsed = time.time() - self.start_time if self.start_time else 0
         actual_fps = self.frame_count / elapsed if elapsed > 0 else 0
         
