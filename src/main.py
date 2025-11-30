@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🚀 Navigation System for Blind Users - Refactored Architecture
-Sistema de navegación para personas con discapacidad visual usando Meta Aria glasses
+Navigation System for Blind Users - Refactored Architecture.
 
-Arquitectura Separada:
-- AriaObserver: Solo manejo del SDK de Aria
-- Coordinator: Solo pipeline de navegación (YOLO + Audio)  
-- PresentationManager: Solo UI/Dashboard/Display
+Assisted navigation system for visually impaired users using Meta Aria glasses.
 
-MODO MOCK: Soporta desarrollo sin gafas usando MockObserver
+Separated Architecture:
+- AriaObserver: Handles Aria SDK only
+- Coordinator: Navigation pipeline (YOLO + Audio) only
+- PresentationManager: UI/Dashboard/Display only
+
+MOCK MODE: Supports development without glasses using MockObserver
 
 Author: Roberto Rojas Sahuquillo
-Date: Septiembre 2025  
+Date: September 2025
 Version: 2.0 - Clean Separated Architecture + Mock Support
+
+Usage:
+    python src/main.py           # Normal mode with Aria glasses
+    python src/main.py debug     # Debug mode with mock frames
+    python src/main.py hybrid    # Hybrid mode (Mac ImageZMQ sender)
 """
 
 # NOTE: Multiprocessing spawn is configured in run.py wrapper
@@ -27,14 +33,14 @@ from utils.config import Config
 from core.hardware.device_manager import DeviceManager
 
 
-# Componentes separados de la nueva arquitectura
-from core.observer import Observer  # Solo SDK
-from core.mock_observer import MockObserver  # Mock para desarrollo
-from core.navigation.coordinator import Coordinator  # Solo Pipeline
+# Separated components from new architecture
+from core.observer import Observer  # SDK only
+from core.mock_observer import MockObserver  # Mock for development
+from core.navigation.coordinator import Coordinator  # Pipeline only
 from core.navigation.builder import Builder  # Factory
-from presentation.presentation_manager import PresentationManager  # Solo UI
+from presentation.presentation_manager import PresentationManager  # UI only
 
-# Telemetría centralizada
+# Centralized telemetry
 from core.telemetry.loggers.telemetry_logger import AsyncTelemetryLogger
 
 # Depth logger
@@ -42,13 +48,13 @@ from core.telemetry.loggers.depth_logger import init_depth_logger
 
 def main():
     """
-    🎯 Punto de entrada principal con arquitectura limpia separada
-    
-    Flujo:
-    1. Inicialización de componentes separados
-    2. Setup de Aria SDK y streaming
-    3. Loop principal de procesamiento
-    4. Cleanup ordenado
+    Main entry point with clean separated architecture.
+
+    Flow:
+    1. Initialization of separated components
+    2. Aria SDK and streaming setup
+    3. Main processing loop
+    4. Ordered cleanup
     """
     print("=" * 60)
     print("🚀 ARIA Navigation System - Arquitectura Separada")
@@ -58,7 +64,7 @@ def main():
     # Setup clean exit handler
     ctrl_handler = CtrlCHandler()
 
-    # 🆕 MOCK MODE: Preguntar si usar gafas reales o mock
+    # MOCK MODE: Ask whether to use real glasses or mock
     print("\n📱 Modo de operación:")
     print("  1. Gafas Aria reales (requiere hardware)")
     print("  2. Mock sintético (desarrollo sin hardware)")
@@ -113,34 +119,34 @@ def main():
     try:
         print("\n🔧 Inicializando componentes...")
 
-        # 0. Inicializar telemetría PRIMERO
+        # 0. Initialize telemetry FIRST
         print("  📊 Inicializando AsyncTelemetryLogger...")
         telemetry = AsyncTelemetryLogger()
         
-        # 0a. Inicializar ResourceMonitor para telemetry
+        # 0a. Initialize ResourceMonitor for telemetry
         print("  💻 Inicializando ResourceMonitor...")
         from utils.resource_monitor import ResourceMonitor
         resource_monitor = ResourceMonitor(
-            interval=2.0,  # Sample cada 2 segundos
+            interval=2.0,  # Sample every 2 seconds
             callback=lambda data: telemetry.log_resources(data)
         )
         resource_monitor.start()
         print("  ✅ ResourceMonitor started (logging to telemetry)")
-        
-        # 0a2. Inicializar MemoryProfiler
+
+        # 0a2. Initialize MemoryProfiler
         print("  🧠 Inicializando MemoryProfiler...")
         from utils.memory_profiler import MemoryProfiler
         memory_profiler = MemoryProfiler(
             enabled=True,
-            snapshot_interval=30.0  # Snapshot cada 30s
+            snapshot_interval=30.0  # Snapshot every 30s
         )
         print("  ✅ MemoryProfiler started (snapshot every 30s)")
-        
-        # 0b. Inicializar depth logger con la misma sesión
+
+        # 0b. Initialize depth logger with same session
         print("  🔍 Inicializando DepthLogger...")
         init_depth_logger(session_dir=str(telemetry.output_dir))
         
-        # 1. Observer Setup - Real o Mock
+        # 1. Observer Setup - Real or Mock
         if use_mock:
             print(f"  🤖 Inicializando MockObserver (modo: {mock_mode})...")
             observer_kwargs = {
@@ -152,17 +158,17 @@ def main():
                 observer_kwargs['video_path'] = mock_source
             elif mock_mode == 'static':
                 observer_kwargs['image_path'] = mock_source
-            
+
             observer = MockObserver(**observer_kwargs)
             observer.start()
             print("  ✅ MockObserver iniciado - desarrollo sin hardware")
         else:
-            # Modo real con Aria glasses
+            # Real mode with Aria glasses
             print("  📱 Conectando con Aria glasses...")
             device_manager = DeviceManager()
             device_manager.connect()
             rgb_calib, slam1_calib, slam2_calib = device_manager.start_streaming()
-            
+
             print("  👁️ Inicializando AriaObserver (SDK only)...")
             observer = Observer(
                 rgb_calib=rgb_calib,
@@ -172,22 +178,22 @@ def main():
             device_manager.register_observer(observer)
             device_manager.subscribe()
             print("  ✅ AriaObserver conectado con calibraciones RGB + SLAM")
-        
-        # 0b. Inicializar NavigationLogger ANTES del coordinator (con mismo session_dir)
+
+        # 0b. Initialize NavigationLogger BEFORE coordinator (with same session_dir)
         print("  📝 Inicializando NavigationLogger...")
         from core.telemetry.loggers.navigation_logger import get_navigation_logger
         nav_logger = get_navigation_logger(session_dir=telemetry.get_session_dir())
         print(f"  ✅ NavigationLogger ready (logs → {nav_logger.log_dir})")
         
-        # 3. Navigation Coordinator Setup (Solo Pipeline)
+        # 3. Navigation Coordinator Setup (Pipeline only)
         print("  🧭 Inicializando Coordinator (Navigation Pipeline)...")
         builder = Builder()
         coordinator = builder.build_full_system(
             enable_dashboard=False,
             telemetry=telemetry,
-        )  # Sin dashboard propio
-        
-        # 4. Presentation Manager Setup (Solo UI)
+        )  # Without own dashboard
+
+        # 4. Presentation Manager Setup (UI only)
         print("  🎨 Inicializando PresentationManager (UI Layer)...")
         presentation = PresentationManager(
             enable_dashboard=enable_dashboard,
@@ -215,14 +221,14 @@ def main():
         
         while not ctrl_handler.should_stop:
             try:
-                # Timestamp inicio del frame
+                # Frame start timestamp
                 frame_start_time = time.time()
                 t0 = frame_start_time
 
-                # Obtener datos del Observer (Solo SDK)
+                # Get data from Observer (SDK only)
                 frame = observer.get_latest_frame('rgb')
                 t1 = time.time()
-                # Get SLAM frames y eventos
+                # Get SLAM frames and events
                 slam1_frame = observer.get_latest_frame('slam1')
                 slam2_frame = observer.get_latest_frame('slam2')
                 t2 = time.time()
@@ -242,16 +248,16 @@ def main():
             try:
                 if frame is not None:
                     frames_processed += 1
-                    
-                    # Construir frames_dict para Phase 2 multiproc
+
+                    # Build frames_dict for Phase 2 multiproc
                     frames_dict = {
                         'rgb': frame,
                         'slam1': slam1_frame,
                         'slam2': slam2_frame,
                     }
                     t4 = time.time()
-                    
-                    # Procesar con Coordinator (Solo Pipeline)
+
+                    # Process with Coordinator (Pipeline only)
                     processed_frame = coordinator.process_frame(frame, motion_state, frames_dict=frames_dict)
                     t5 = time.time()
                     # if hasattr(coordinator, 'handle_slam_frames'):
@@ -262,13 +268,13 @@ def main():
                         if hasattr(coordinator, 'handle_slam_frames'):
                             coordinator.handle_slam_frames(slam1_frame, slam2_frame)
                     t6 = time.time()
-                    
+
                     # Only get depth map if enabled
                     depth_map = coordinator.get_latest_depth_map() if Config.DEPTH_ENABLED else None
                     slam_events = coordinator.get_slam_events() if hasattr(coordinator, 'get_slam_events') else None
                     t7 = time.time()
-                    
-                    # ✅ NUEVO: Log detecciones RGB
+
+                    # Log RGB detections
                     current_detections = coordinator.get_current_detections()
                     if current_detections:
                         telemetry.log_detections_batch(
@@ -276,8 +282,8 @@ def main():
                             source="rgb",
                             detections=current_detections
                         )
-                    
-                    # 🎨 RENDER: Dibujar detecciones SLAM en sus frames
+
+                    # RENDER: Draw SLAM detections on their frames
                     slam1_rendered = slam1_frame
                     slam2_rendered = slam2_frame
                     if slam_events and coordinator.frame_renderer:
@@ -289,7 +295,7 @@ def main():
                                 slam2_frame, slam_events['slam2'], color=(255, 128, 0))  # Yellow
                     t8 = time.time()
 
-                    # Actualizar UI con PresentationManager (Solo UI)
+                    # Update UI with PresentationManager (UI only)
                     key = presentation.update_display(
                         frame=processed_frame,
                         detections=current_detections,
@@ -348,38 +354,38 @@ def main():
                         print(f"  Render: slam={timing_ms['render_slam']:.2f}ms display={timing_ms['update_display']:.2f}ms")
                         print(f"  TOTAL: {timing_ms['total']:.2f}ms ({1000/timing_ms['total']:.1f} FPS possible)")
                     
-                    # 🧠 MEMORY: Check if should take snapshot
+                    # MEMORY: Check if should take snapshot
                     if memory_profiler.maybe_take_snapshot():
                         print(f"[MEMORY] Snapshot taken at frame {frames_processed}")
-                    
-                    # 🧹 MEMORY: Liberar referencias a frames para ayudar al GC
+
+                    # MEMORY: Release frame references to help GC
                     del frame, processed_frame, depth_map, slam1_frame, slam2_frame
                     frame = processed_frame = depth_map = slam1_frame = slam2_frame = None
-                
-                # Estadísticas periódicas
+
+                # Periodic statistics
                 current_time = time.time()
-                if current_time - last_stats_print > 10.0:  # Cada 10 segundos
+                if current_time - last_stats_print > 10.0:  # Every 10 seconds
                     print(f"[STATUS] Frames: {frames_processed}, Motion: {motion_state}")
-                    # ✅ NUEVO: Stats de performance en consola
+                    # Performance stats in console
                     if telemetry:
                         perf = telemetry.get_performance_summary()
                         print(f"[PERF] FPS: {perf.get('avg_fps', 0):.1f}, Latencia: {perf.get('avg_latency_ms', 0):.0f}ms")
-                    
-                    # 🧹 MEMORY: Forzar garbage collection periódicamente
+
+                    # MEMORY: Force garbage collection periodically
                     gc.collect()
                     print(f"[MEMORY] GC executed (freed memory)")
-                    
+
                     last_stats_print = current_time
                 
             except KeyboardInterrupt:
                 print("\n[INFO] ⌨️ Ctrl+C detected in processing loop, stopping...")
                 break
             except Exception as e:
-                print(f"[WARN] Error en processing loop: {e}")
-                time.sleep(0.1)  # Evitar spam de errores
-        
+                print(f"[WARN] Error in processing loop: {e}")
+                time.sleep(0.1)  # Avoid error spam
+
         print(f"\n📊 Sesión completada: {frames_processed} frames procesados")
-        
+
         # Final statistics
         print("\n📈 Estadísticas finales:")
         if observer:
@@ -398,10 +404,10 @@ def main():
         traceback.print_exc()
         
     finally:
-        # Cleanup ordenado de todos los componentes
+        # Ordered cleanup of all components
         print("\n🧹 Iniciando limpieza de recursos...")
-        
-        # Detener ResourceMonitor
+
+        # Stop ResourceMonitor
         try:
             if 'resource_monitor' in locals() and resource_monitor:
                 print("  💻 Deteniendo ResourceMonitor...")
@@ -409,7 +415,7 @@ def main():
         except Exception as e:
             print(f"  ⚠️ Error deteniendo ResourceMonitor: {e}")
         
-        # Finalizar MemoryProfiler
+        # Finalize MemoryProfiler
         try:
             if 'memory_profiler' in locals() and memory_profiler:
                 print("  🧠 Finalizando MemoryProfiler...")
@@ -419,8 +425,8 @@ def main():
                 memory_profiler.stop()
         except Exception as e:
             print(f"  ⚠️ Error finalizando MemoryProfiler: {e}")
-        
-        # Finalizar telemetría PRIMERO
+
+        # Finalize telemetry FIRST
         try:
             if telemetry:
                 print("  📊 Finalizando telemetría...")
@@ -481,44 +487,45 @@ def main():
 
 def main_debug():
     """
-    🐛 Versión de debug con componentes mock para testing sin hardware
+    Debug version with mock components for testing without hardware.
     """
     print("🧪 DEBUG MODE - Testing sin hardware Aria")
-    
+
     import os
     import numpy as np
     from time import sleep
-    
-    # Mock observer para testing
+
+    # Mock observer for testing
     class MockObserver:
         def __init__(self):
             self.frame_count = 0
         
         def get_latest_frame(self, camera='rgb'):
-            # Generar frame sintético
+            # Generate synthetic frame
             self.frame_count += 1
             frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-            
-            # Añadir texto indicando que es mock
+
+            # Add text indicating it's mock
             cv2.putText(frame, f"MOCK FRAME {self.frame_count}", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             return frame
-        
+
         def get_motion_state(self):
-            # Alternar entre stationary y walking
+            # Alternate between stationary and walking
             state = "walking" if (self.frame_count // 30) % 2 else "stationary"
             return {'state': state, 'magnitude': 9.8}
-        
+
         def print_stats(self):
             print(f"  MockObserver: {self.frame_count} frames generados")
         
         def stop(self):
             pass
-    
+
+
     try:
         print("🔧 Inicializando componentes mock...")
-        
-        # Solo coordinator y presentation para testing
+
+        # Coordinator and presentation only for testing
         builder = Builder()
         coordinator = builder.build_full_system(
             enable_dashboard=False,
@@ -588,10 +595,11 @@ def main_debug():
                         current_fps = frames_processed / elapsed if elapsed > 0 else 0
                         avg_latency = sum(frame_times) / len(frame_times) * 1000 if frame_times else 0
                         print(f"📊 Frame {frames_processed}/{max_frames} | FPS: {current_fps:.1f} | Latency: {avg_latency:.1f}ms")
-                
+
+
                 frames_processed += 1
-                
-                # Simular 30fps
+
+                # Simulate 30fps
                 sleep(1/30)
         
         # Final metrics
@@ -633,25 +641,25 @@ def main_debug():
 
 def main_hybrid_mac():
     """
-    🌉 Versión híbrida para Mac - Solo ImageZMQ Sender
-    Para usar con Jetson processing remoto
+    Hybrid version for Mac - ImageZMQ Sender only.
+    For use with remote Jetson processing.
     """
     print("🌉 HYBRID MODE - Mac ImageZMQ Sender")
     print("Enviando frames al Jetson para procesamiento...")
-    
-    # Esta función se implementará cuando creemos el ImageZMQ sender
-    # Por ahora, placeholder para la arquitectura híbrida
+
+    # This function will be implemented when we create the ImageZMQ sender
+    # For now, placeholder for hybrid architecture
     print("⚠️ Función híbrida aún no implementada")
     print("💡 Usar main() normal para sistema local completo")
 
 
 if __name__ == "__main__":
     import sys
-    
-    # Permitir diferentes modos de ejecución
+
+    # Allow different execution modes
     if len(sys.argv) > 1:
         mode = sys.argv[1].lower()
-        
+
         if mode == "debug":
             main_debug()
         elif mode == "hybrid":
@@ -662,5 +670,5 @@ if __name__ == "__main__":
             print("💡 Sin argumentos = modo normal")
             sys.exit(1)
     else:
-        # Modo normal
+        # Normal mode
         main()
