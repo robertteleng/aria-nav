@@ -9,6 +9,7 @@ from collections import defaultdict
 
 from utils.config import Config
 from core.telemetry.loggers.navigation_logger import get_navigation_logger
+from core.navigation.object_tracker import ObjectTracker
 
 try:
     from core.audio.navigation_audio_router import EventPriority
@@ -66,10 +67,16 @@ class NavigationDecisionEngine:
         self.last_announcement_time = 0.0
         self.last_critical_time = 0.0
         self.last_critical_class = None
-        
+
         # Tracking de persistencia para objetos normales
         self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
         self.last_normal_announcement: Dict[str, float] = {}  # class -> timestamp
+
+        # 🆕 Object Tracker para cooldowns por instancia
+        self.object_tracker = ObjectTracker(
+            iou_threshold=getattr(Config, "TRACKER_IOU_THRESHOLD", 0.5),
+            max_age=getattr(Config, "TRACKER_MAX_AGE", 3.0),
+        )
 
     # ------------------------------------------------------------------
     # analysis
@@ -113,10 +120,12 @@ class NavigationDecisionEngine:
         motion_state: str = "stationary",
     ) -> Optional[DecisionCandidate]:
         """Evaluate detections and return candidate if announcement criteria are met.
-        
+
         Now supports two priority levels:
         - CRITICAL: immediate risks (person, vehicles) at critical distances
         - NORMAL: obstacles (chair, table, bottle) with persistence and yellow zone
+
+        🆕 With per-instance tracking for granular cooldowns.
         """
         if not navigation_objects:
             # Decay detection history when no objects present
@@ -124,30 +133,60 @@ class NavigationDecisionEngine:
             return None
 
         now = time.time()
-        
+
         # DEBUG: Log what objects we're evaluating
         logger = get_navigation_logger().decision
         if navigation_objects:
             logger.info(f"Evaluating {len(navigation_objects)} objects")
             for obj in navigation_objects[:3]:
                 logger.debug(f"  - {obj.get('class')}: zone={obj.get('zone')}, distance={obj.get('distance')}, priority={obj.get('priority'):.2f}")
-        
+
+        # 🆕 Update object tracker with new detections
+        cooldown_per_class = {
+            "person": getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0),
+            "car": 1.5,
+            "truck": 1.5,
+            "bus": 1.5,
+            "bicycle": 1.5,
+            "motorcycle": 1.5,
+            "chair": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+            "table": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+            "bottle": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+            "door": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+            "laptop": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+        }
+        tracking_results = self.object_tracker.update_and_check(navigation_objects, cooldown_per_class)
+
+        # Enrich navigation_objects with track_id and should_announce
+        for i, (detection, track_id, should_announce) in enumerate(tracking_results):
+            if i < len(navigation_objects):
+                navigation_objects[i]["track_id"] = track_id
+                navigation_objects[i]["tracker_allows"] = should_announce
+
         # Update detection history for persistence tracking
         current_classes = {obj.get("class") for obj in navigation_objects}
         for class_name in list(self.detection_history.keys()):
             if class_name not in current_classes:
                 self.detection_history[class_name] = 0
-        
+
         # Evaluate CRITICAL candidates first
         critical_candidate = self._evaluate_critical(navigation_objects, motion_state, now)
         if critical_candidate is not None:
-            logger.info(f"✓ CRITICAL candidate: {critical_candidate.nav_object.get('class')}")
+            logger.info(f"✓ CRITICAL candidate: {critical_candidate.nav_object.get('class')} (track_id={critical_candidate.nav_object.get('track_id')})")
+            # Mark as announced in tracker
+            track_id = critical_candidate.nav_object.get("track_id")
+            if track_id is not None:
+                self.object_tracker.mark_announced(track_id)
             return critical_candidate
-        
+
         # Then evaluate NORMAL candidates (if critical didn't trigger)
         normal_candidate = self._evaluate_normal(navigation_objects, motion_state, now)
         if normal_candidate is not None:
-            logger.info(f"✓ NORMAL candidate: {normal_candidate.nav_object.get('class')}")
+            logger.info(f"✓ NORMAL candidate: {normal_candidate.nav_object.get('class')} (track_id={normal_candidate.nav_object.get('track_id')})")
+            # Mark as announced in tracker
+            track_id = normal_candidate.nav_object.get("track_id")
+            if track_id is not None:
+                self.object_tracker.mark_announced(track_id)
         else:
             logger.debug(f"✗ No candidate selected")
         return normal_candidate
@@ -193,9 +232,13 @@ class NavigationDecisionEngine:
             # Check if in yellow zone (center ±tolerance) - OPTIONAL
             if require_yellow_zone and not self._in_yellow_zone(bbox, center_tolerance):
                 continue
-            
-            # Check repeat grace for same class
-            if (self.last_critical_class == class_name and 
+
+            # 🆕 Check per-instance tracker cooldown
+            if not obj.get("tracker_allows", True):
+                continue
+
+            # Check repeat grace for same class (legacy fallback)
+            if (self.last_critical_class == class_name and
                 now - self.last_critical_time < repeat_grace):
                 continue
             
@@ -259,13 +302,18 @@ class NavigationDecisionEngine:
             # Update persistence counter
             self.detection_history[class_name] += 1
             current_persistence = self.detection_history[class_name]
-            
+
             # Check persistence threshold
             if current_persistence < persistence_threshold:
                 logger.debug(f"NORMAL {class_name}: persistence {current_persistence}/{persistence_threshold}")
                 continue
-            
-            # Check cooldown for this specific class
+
+            # 🆕 Check per-instance tracker cooldown
+            if not obj.get("tracker_allows", True):
+                logger.debug(f"NORMAL {class_name}: blocked by tracker (instance cooldown)")
+                continue
+
+            # Legacy fallback: Check cooldown for this specific class
             last_time = self.last_normal_announcement.get(class_name, 0.0)
             time_since = now - last_time
             if time_since < normal_cooldown:

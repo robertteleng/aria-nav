@@ -175,14 +175,14 @@ class AudioSystem:
             return True
         return False
     
-    def play_spatial_beep(self, zone: str, is_critical: bool = False) -> None:
+    def play_spatial_beep(self, zone: str, is_critical: bool = False, distance: Optional[str] = None) -> None:
         if not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True) if Config else True:
             return
-        
+
         if is_critical:
             freq = getattr(Config, "BEEP_CRITICAL_FREQUENCY", 1000)
             duration = getattr(Config, "BEEP_CRITICAL_DURATION", 0.3)
-            self._play_tone(freq, duration, zone)
+            self._play_tone(freq, duration, zone, distance)
             self.beep_stats['critical_beeps'] += 1
             self.beep_stats['critical_frequency'] = freq
         else:
@@ -190,27 +190,37 @@ class AudioSystem:
             duration = getattr(Config, "BEEP_NORMAL_DURATION", 0.1)
             gap = getattr(Config, "BEEP_NORMAL_GAP", 0.05)
             count = getattr(Config, "BEEP_NORMAL_COUNT", 2)
-            
+
             for i in range(count):
-                self._play_tone(freq, duration, zone)
+                self._play_tone(freq, duration, zone, distance)
                 if i < count - 1:
                     time.sleep(gap)
             self.beep_stats['normal_beeps'] += count
             self.beep_stats['normal_frequency'] = freq
     
-    def _play_tone(self, frequency: float, duration: float, zone: str) -> None:
+    def _play_tone(self, frequency: float, duration: float, zone: str, distance: Optional[str] = None) -> None:
         if not np or not sd:
             if time.time() - getattr(self, '_last_beep_warn_ts', 0) > 5.0:
                 print("[WARN] Cannot play beep. Numpy or Sounddevice not installed.")
                 self._last_beep_warn_ts = time.time()
             return
-        
+
         sample_rate = 44100
-        volume = getattr(Config, "BEEP_VOLUME", 0.7) if Config else 0.7
-        
+        base_volume = getattr(Config, "BEEP_VOLUME", 0.7) if Config else 0.7
+
+        # 🆕 VOLUMEN DINÁMICO por distancia (mantiene panning intacto)
+        distance_multipliers = {
+            "very_close": 1.0,   # 100% - máximo volumen
+            "close": 0.7,        # 70% - volumen medio-alto
+            "medium": 0.45,      # 45% - volumen medio-bajo
+            "far": 0.25          # 25% - volumen suave
+        }
+        distance_multiplier = distance_multipliers.get(distance, 0.7) if distance else 0.7
+        volume = base_volume * distance_multiplier
+
         t = np.linspace(0, duration, int(sample_rate * duration), False)
         tone = np.sin(2 * np.pi * frequency * t)
-        
+
         fade_samples = int(sample_rate * 0.01)
         fade_in = np.linspace(0, 1, fade_samples)
         fade_out = np.linspace(1, 0, fade_samples)
@@ -218,7 +228,8 @@ class AudioSystem:
             tone[:fade_samples] *= fade_in
             tone[-fade_samples:] *= fade_out
         tone *= volume
-        
+
+        # Panning espacial (ratio entre canales, NO volumen absoluto)
         if zone == "left":
             left = tone
             right = tone * 0.2
@@ -237,9 +248,56 @@ class AudioSystem:
         except Exception as e:
             print(f"[WARN] Failed to play spatial beep with sounddevice: {e}")
     
+    def scan_scene(self, navigation_objects: list) -> None:
+        """🆕 MODO SCAN: Resume audible de 3-5 objetos principales en la escena.
+
+        Inspirado en NOA - genera frase breve con objetos agrupados por zona.
+        Ejemplo: "Scanning. Ahead: person, chair. Left: table."
+        """
+        if not navigation_objects:
+            self.speak_async("Scanning. No objects detected.", force=True)
+            return
+
+        # Agrupar top 5 objetos por zona
+        zone_objects = {"center": [], "left": [], "right": []}
+        for obj in navigation_objects[:5]:
+            zone = obj.get("zone", "center")
+            class_name = obj.get("class", "object")
+
+            # Traducir nombres a speech-friendly
+            speech_labels = {
+                "person": "person",
+                "car": "car",
+                "truck": "truck",
+                "bus": "bus",
+                "bicycle": "bike",
+                "motorcycle": "motorcycle",
+                "chair": "chair",
+                "table": "table",
+                "bottle": "bottle",
+                "door": "door",
+                "laptop": "laptop",
+                "couch": "couch",
+                "bed": "bed",
+            }
+            label = speech_labels.get(class_name, class_name)
+            zone_objects[zone].append(label)
+
+        # Construir frase
+        parts = ["Scanning."]
+        zone_names = {"center": "Ahead", "left": "Left", "right": "Right"}
+
+        for zone in ["center", "left", "right"]:
+            if zone_objects[zone]:
+                objects_str = ", ".join(zone_objects[zone][:3])  # Max 3 por zona
+                parts.append(f"{zone_names[zone]}: {objects_str}.")
+
+        message = " ".join(parts)
+        self.speak_async(message, force=True)  # Force=True para override cooldowns
+
     def get_beep_stats(self) -> dict:
         return dict(self.beep_stats)
-    
+
     def get_queue_size(self) -> int:
         return len(self.audio_queue)
     

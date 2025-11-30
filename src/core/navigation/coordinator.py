@@ -367,6 +367,19 @@ class Coordinator:
         """
         return self.current_detections.copy()
     
+    def scan_scene(self):
+        """
+        🆕 MODO SCAN: Audible summary of current scene (NOA-inspired).
+
+        Announces 3-5 main objects grouped by zone.
+        Example: "Scanning. Ahead: person, chair. Left: table."
+        """
+        if hasattr(self.audio_system, 'scan_scene'):
+            self.audio_system.scan_scene(self.current_detections)
+            print("[COORDINATOR] Scene scan triggered")
+        else:
+            print("[COORDINATOR] scan_scene() not available in audio_system")
+
     def test_audio(self):
         """
         🔊 Test del sistema de audio
