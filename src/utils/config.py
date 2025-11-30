@@ -164,6 +164,10 @@ class Config:
     TRACKER_MAX_AGE = 3.0  # Maximum time (seconds) to keep track without seeing object
     TRACKER_HANDOFF_TIMEOUT = 2.0  # Maximum time for cross-camera handoff (SLAM → RGB)
 
+    # 🌐 3D Geometric Validation (Phase 3 - optional)
+    TRACKER_USE_3D_VALIDATION = False  # Enable 3D geometry for cross-camera matching
+    TRACKER_MAX_3D_DISTANCE = 0.5  # Maximum 3D distance (meters) for valid handoff
+
     # Audio routing
     AUDIO_GLOBAL_COOLDOWN = 0.3  # Minimum between any two announcements (reduced for faster response)
     AUDIO_INTERRUPT_GRACE = 0.25  # Grace period before interrupting (anti-entrecorte)

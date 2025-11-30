@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import time
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from utils.config import Config
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,6 +22,7 @@ class GlobalTrack:
     last_zone: str  # "far_left", "left", "center", "right", "far_right"
     last_seen: float
     last_announced: float
+    last_depth: Optional[float] = None  # 🌐 Last depth estimate (meters) for 3D validation
     history: List[Dict] = field(default_factory=list)  # Last 5 detections
 
     def add_detection(self, detection: Dict, camera: str, zone: str, now: float):
@@ -57,6 +61,9 @@ class GlobalObjectTracker:
         iou_threshold: float = 0.5,
         max_age: float = 3.0,
         handoff_timeout: float = 2.0,
+        camera_geometry: Optional[object] = None,
+        use_3d_validation: bool = False,
+        max_3d_distance: float = 0.5,
     ):
         """
         Initialize global tracker.
@@ -65,10 +72,16 @@ class GlobalObjectTracker:
             iou_threshold: Minimum IoU for intra-camera matching (default 0.5)
             max_age: Maximum time to keep track without seeing object (default 3.0s)
             handoff_timeout: Maximum time for cross-camera handoff (default 2.0s)
+            camera_geometry: Optional CameraGeometry instance for 3D validation
+            use_3d_validation: Enable 3D geometric validation for handoffs (default False)
+            max_3d_distance: Maximum 3D distance (meters) for valid handoff (default 0.5m)
         """
         self.iou_threshold = iou_threshold
         self.max_age = max_age
         self.handoff_timeout = handoff_timeout
+        self.camera_geometry = camera_geometry
+        self.use_3d_validation = use_3d_validation and camera_geometry is not None
+        self.max_3d_distance = max_3d_distance
 
         self.tracks: Dict[int, GlobalTrack] = {}  # track_id -> GlobalTrack
         self.next_id = 0
@@ -76,6 +89,9 @@ class GlobalObjectTracker:
         # Zone transition rules for cross-camera handoff
         # Maps (src_camera, src_zone) → valid (dst_camera, dst_zone) transitions
         self.valid_transitions = self._build_transition_rules()
+
+        if self.use_3d_validation:
+            log.info("[GlobalTracker] 🌐 3D geometric validation ENABLED")
 
     def _build_transition_rules(self) -> Dict[Tuple[str, str], List[Tuple[str, str]]]:
         """
@@ -119,7 +135,7 @@ class GlobalObjectTracker:
         Update tracker with new detections and check if each should be announced.
 
         Args:
-            detections: List of detection dicts with 'class', 'bbox', 'zone', etc.
+            detections: List of detection dicts with 'class', 'bbox', 'zone', 'depth', etc.
             cooldown_per_class: Dict mapping class_name → cooldown_seconds
             camera_source: Camera identifier ("rgb", "slam1", "slam2")
 
@@ -139,6 +155,7 @@ class GlobalObjectTracker:
             class_name = detection.get("class", "").lower()
             bbox = detection.get("bbox")
             zone = detection.get("zone", "center")
+            depth = detection.get("depth")  # 🌐 Optional depth for 3D validation
 
             if not bbox or not class_name:
                 continue
@@ -148,6 +165,7 @@ class GlobalObjectTracker:
                 class_name=class_name,
                 bbox=bbox,
                 zone=zone,
+                depth=depth,
                 camera_source=camera_source,
                 now=now,
             )
@@ -178,6 +196,7 @@ class GlobalObjectTracker:
         class_name: str,
         bbox: Tuple[float, float, float, float],
         zone: str,
+        depth: Optional[float],
         camera_source: str,
         now: float,
     ) -> int:
@@ -186,7 +205,7 @@ class GlobalObjectTracker:
 
         Strategy:
         1. Try intra-camera matching (same camera, IoU-based)
-        2. Try cross-camera handoff (different camera, temporal + zone)
+        2. Try cross-camera handoff (different camera, temporal + zone + 3D geometry)
         3. Create new track if no match
 
         Returns:
@@ -198,14 +217,18 @@ class GlobalObjectTracker:
             # Update existing track
             track = self.tracks[intra_match]
             track.add_detection({"bbox": bbox, "class": class_name}, camera_source, zone, now)
+            track.last_depth = depth  # Update depth
             return intra_match
 
-        # 2. Try cross-camera handoff (different camera, temporal + zone)
-        handoff_match = self._find_handoff_candidate(class_name, zone, camera_source, now)
+        # 2. Try cross-camera handoff (different camera, temporal + zone + 3D)
+        handoff_match = self._find_handoff_candidate(
+            class_name, bbox, zone, depth, camera_source, now
+        )
         if handoff_match is not None:
             # Handoff existing track to new camera
             track = self.tracks[handoff_match]
             track.add_detection({"bbox": bbox, "class": class_name}, camera_source, zone, now)
+            track.last_depth = depth  # Update depth
             return handoff_match
 
         # 3. Create new track
@@ -219,6 +242,7 @@ class GlobalObjectTracker:
             last_zone=zone,
             last_seen=now,
             last_announced=0.0,  # Allow immediate announcement for new objects
+            last_depth=depth,  # 🌐 Store depth
             history=[],
         )
         self.tracks[new_track_id].add_detection(
@@ -256,18 +280,21 @@ class GlobalObjectTracker:
     def _find_handoff_candidate(
         self,
         class_name: str,
+        bbox: Tuple[float, float, float, float],
         zone: str,
+        depth: Optional[float],
         camera_source: str,
         now: float,
     ) -> Optional[int]:
         """
-        Find cross-camera handoff candidate using temporal + zone matching.
+        Find cross-camera handoff candidate using temporal + zone + 3D geometry.
 
         Rules:
         - Same class
         - Different camera
         - Last seen within handoff_timeout
         - Zone transition is valid (e.g., SLAM1 far_left → RGB left)
+        - 🌐 Optional: 3D geometric consistency (if enabled)
 
         Returns:
             track_id if handoff candidate found, None otherwise
@@ -289,13 +316,22 @@ class GlobalObjectTracker:
                 continue
 
             # Check if zone transition is valid
-            if self._is_valid_transition(
+            if not self._is_valid_transition(
                 src_camera=track.last_camera,
                 src_zone=track.last_zone,
                 dst_camera=camera_source,
                 dst_zone=zone,
             ):
-                candidates.append((track_id, time_since_seen))
+                continue
+
+            # 🌐 Optional: Validate with 3D geometry
+            if self.use_3d_validation and self.camera_geometry is not None:
+                if not self._validate_handoff_3d(track, bbox, depth, camera_source):
+                    log.debug(f"[GlobalTracker] Handoff candidate track_id={track_id} "
+                             f"failed 3D validation")
+                    continue
+
+            candidates.append((track_id, time_since_seen))
 
         # Return most recent candidate
         if candidates:
@@ -303,6 +339,58 @@ class GlobalObjectTracker:
             return candidates[0][0]
 
         return None
+
+    def _validate_handoff_3d(
+        self,
+        track: GlobalTrack,
+        bbox: Tuple[float, float, float, float],
+        depth: Optional[float],
+        camera_source: str,
+    ) -> bool:
+        """
+        Validate handoff using 3D geometric consistency.
+
+        Args:
+            track: Existing track from different camera
+            bbox: New detection bbox
+            depth: New detection depth
+            camera_source: New camera source
+
+        Returns:
+            True if geometrically consistent, False otherwise
+        """
+        if not self.camera_geometry or not self.use_3d_validation:
+            return True  # Skip validation if not enabled
+
+        # Need both depths for 3D validation
+        if depth is None or track.last_depth is None:
+            log.debug(f"[GlobalTracker] Skip 3D validation: missing depth "
+                     f"(new={depth}, track={track.last_depth})")
+            return True  # Fallback to zone-based matching
+
+        try:
+            is_valid = self.camera_geometry.validate_handoff_geometry(
+                bbox1=track.last_bbox,
+                depth1=track.last_depth,
+                camera1=track.last_camera,
+                bbox2=bbox,
+                depth2=depth,
+                camera2=camera_source,
+                max_distance=self.max_3d_distance,
+            )
+
+            if is_valid:
+                log.debug(f"[GlobalTracker] ✓ 3D validation passed: "
+                         f"track_id={track.track_id} {track.last_camera}→{camera_source}")
+            else:
+                log.debug(f"[GlobalTracker] ✗ 3D validation failed: "
+                         f"track_id={track.track_id} {track.last_camera}→{camera_source}")
+
+            return is_valid
+
+        except Exception as e:
+            log.warning(f"[GlobalTracker] 3D validation error: {e}")
+            return True  # Fallback to zone-based on error
 
     def _is_valid_transition(
         self,
