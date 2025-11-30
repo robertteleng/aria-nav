@@ -1,0 +1,134 @@
+@startuml Arquitectura_Con_Mensajes
+!theme plain
+title Aria Navigation - Componentes y Mensajes
+
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+' === HARDWARE ===
+package "Hardware" <<External>> #LightGray {
+    [RGB Camera] as RGB
+    [SLAM1] as SLAM1
+    [SLAM2] as SLAM2
+    [IMU] as IMU
+}
+
+' === SDK LAYER ===
+package "SDK Layer" #LightBlue {
+    [Observer] as OBS
+}
+
+' === PROCESSING ===
+package "Processing" #LightGreen {
+    [NavigationPipeline] as PIPE
+    [ImageEnhancer] as ENH
+    [YoloProcessor] as YOLO
+    [DepthEstimator] as DEPTH
+}
+
+' === DECISION ===
+package "Decision" #LightYellow {
+    [Coordinator] as COORD
+    [NavigationDecisionEngine] as ENGINE
+}
+
+' === AUDIO (AQUÍ ESTÁ LA DUPLICACIÓN) ===
+package "Audio Layer" #Pink {
+    [AudioSystem] as AUDIO
+
+    package "Routers (DUPLICACIÓN)" #Salmon {
+        [NavigationAudioRouter] as NAR
+        [RgbAudioRouter] as RGB_R
+        [SlamAudioRouter] as SLAM_R
+    }
+}
+
+' === PRESENTATION ===
+package "Presentation" #LightCyan {
+    [PresentationManager] as PRES
+    [Dashboards] as DASH
+}
+
+' === MENSAJES DE HARDWARE A OBSERVER ===
+RGB --> OBS : "numpy.ndarray\n(H, W, 3) BGR\n~30fps"
+SLAM1 --> OBS : "numpy.ndarray\n(480, 640) gray"
+SLAM2 --> OBS : "numpy.ndarray\n(480, 640) gray"
+IMU --> OBS : "accel: (x,y,z)\ngyro: (x,y,z)"
+
+' === OBSERVER A COORDINATOR ===
+OBS --> COORD : "frame: ndarray\nmotion_state: str\nframes_dict: Dict[str, ndarray]"
+
+' === COORDINATOR A PIPELINE ===
+COORD --> PIPE : "frame: ndarray\nprofile: bool"
+
+' === PIPELINE INTERNO ===
+PIPE --> ENH : "frame: ndarray"
+ENH --> PIPE : "enhanced_frame: ndarray"
+PIPE --> YOLO : "frame: ndarray\ndepth_map: ndarray|None"
+YOLO --> PIPE : "List[DetectedObject]\n- name: str\n- confidence: float\n- bbox: (x1,y1,x2,y2)\n- zone: str\n- distance_bucket: str"
+PIPE --> DEPTH : "frame: ndarray"
+DEPTH --> PIPE : "depth_map: ndarray (H,W)"
+
+' === PIPELINE RESULTADO ===
+PIPE --> COORD : "PipelineResult:\n- frame: ndarray\n- detections: List\n- depth_map: ndarray\n- fps: float"
+
+' === COORDINATOR A DECISION ENGINE ===
+COORD --> ENGINE : "detections: List[DetectedObject]\nmotion_state: str"
+ENGINE --> COORD : "List[DecisionCandidate]:\n- nav_object: Dict\n- priority: EventPriority\n- should_announce: bool"
+
+' === AUDIO ROUTING (DUPLICACIÓN VISIBLE) ===
+COORD --> RGB_R : "DecisionCandidate"
+RGB_R --> NAR : "enqueue_from_rgb(\n  message: str,\n  priority: EventPriority,\n  metadata: Dict)"
+RGB_R --> AUDIO : "play_spatial_beep(\n  zone: str,\n  is_critical: bool)"
+
+COORD --> SLAM_R : "SlamDetectionEvent"
+SLAM_R --> NAR : "enqueue_from_slam(\n  event: SlamDetectionEvent,\n  message: str,\n  priority: EventPriority)"
+
+NAR --> AUDIO : "speak_async(text: str)"
+AUDIO --> RGB : "Audio output"
+
+' === PRESENTACIÓN ===
+COORD --> PRES : "annotated_frame: ndarray\ndetections: List\nstats: Dict"
+PRES --> DASH : "render()"
+
+' === NOTAS DE DUPLICACIÓN ===
+note bottom of RGB_R #Salmon
+**CÓDIGO DUPLICADO:**
+- speech_labels dict
+- _build_rgb_message()
+- zone_english dict
+- distance_english dict
+end note
+
+note bottom of SLAM_R #Salmon
+**CÓDIGO DUPLICADO:**
+- object_map dict
+- zone_map dict
+- _build_slam_message()
+- priority calculation
+end note
+
+note right of NAR #Yellow
+**Este debería ser el ÚNICO
+router de audio**
+
+Los otros dos (RgbAudioRouter,
+SlamAudioRouter) solo deberían
+formatear mensajes, no tener
+lógica de audio.
+end note
+
+' === LEYENDA ===
+legend right
+**Tipos de datos principales:**
+- ndarray: numpy array (imagen)
+- DetectedObject: dataclass con bbox, zone, etc
+- DecisionCandidate: objeto priorizado para audio
+- PipelineResult: resultado completo del pipeline
+
+**Colores:**
+- Rosa/Salmon: Código duplicado
+- Amarillo: Punto de simplificación
+endlegend
+
+@enduml
