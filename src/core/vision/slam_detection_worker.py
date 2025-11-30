@@ -36,6 +36,7 @@ class SlamDetectionEvent:
     frame_index: int
     processing_ms: float
     metadata: dict = field(default_factory=dict)
+    track_id: Optional[int] = None  # 🆕 Global track ID (set by GlobalObjectTracker)
 
 
 class SlamDetectionWorker:
