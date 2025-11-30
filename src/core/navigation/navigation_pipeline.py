@@ -1,4 +1,41 @@
-"""Modular pipeline for RGB frame processing."""
+"""
+Modular vision processing pipeline for navigation.
+
+This module provides the NavigationPipeline class which orchestrates the complete
+vision processing workflow from raw camera frames to YOLO detections with depth estimation.
+
+Features:
+- Image enhancement for low-light conditions (CLAHE on LAB color space)
+- Depth estimation (MiDaS or Depth-Anything V2 backends)
+- YOLO object detection with TensorRT optimization
+- Multi-camera support (RGB, SLAM1, SLAM2)
+- Dual execution modes:
+  * Sequential mode: Single process, optional CUDA streams for parallelism
+  * Multiprocessing mode: Dedicated workers for YOLO and depth estimation
+- Double buffering strategy for high-throughput processing
+- Shared memory ring buffers for zero-copy inter-process communication
+- Automatic worker recovery and health monitoring
+- Performance profiling and resource monitoring
+
+Processing Workflow (Sequential Mode):
+    Frame → Enhancement → Depth Estimation → YOLO Detection → Result
+                            ↓ (parallel with CUDA streams)
+
+Processing Workflow (Multiprocessing Mode):
+    Frame → Submit to Workers → Poll Results → Merge → Result
+              ↓                     ↓
+         YOLO Workers          Depth Workers
+         (2x buffered)         (2x buffered)
+
+Usage:
+    # Sequential mode (single process)
+    pipeline = NavigationPipeline(yolo_processor, image_enhancer=enhancer)
+    result = pipeline.process(frame)
+
+    # Multiprocessing mode (dedicated workers)
+    pipeline.initialize_multiprocessing_workers(use_double_buffering=True)
+    result = pipeline.process_multiproc(frames_dict, motion_state)
+"""
 
 from __future__ import annotations
 
@@ -113,12 +150,12 @@ class NavigationPipeline:
             if self.use_cuda_streams:
                 self.yolo_stream = torch.cuda.Stream()
                 self.depth_stream = torch.cuda.Stream()
-                print("[INFO] ✓ CUDA streams habilitados (YOLO + Depth en paralelo)")
+                print("[INFO] ✓ CUDA streams enabled (YOLO + Depth in parallel)")
             else:
                 self.yolo_stream = None
                 self.depth_stream = None
                 if torch.cuda.is_available():
-                    print("[INFO] ⚠️ CUDA streams deshabilitados (ejecución secuencial)")
+                    print("[INFO] ⚠️ CUDA streams disabled (sequential execution)")
         else:
             # Legacy behavior: Multiprocessing without Phase 6
             self.use_cuda_streams = False
