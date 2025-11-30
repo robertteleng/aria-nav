@@ -118,6 +118,10 @@ class Coordinator:
         self.audio_router: Optional[Any] = audio_router
         self.telemetry = telemetry
 
+        # Initialize pipeline and decision engine
+        # NOTE: Fallback construction violates Dependency Inversion Principle
+        # TODO: Require all dependencies in constructor, remove fallback construction
+        # Builder should ensure all dependencies are created before Coordinator
         self.pipeline = navigation_pipeline or NavigationPipeline(
             yolo_processor=yolo_processor,
             image_enhancer=image_enhancer,
@@ -134,8 +138,10 @@ class Coordinator:
         self.last_announcement_time = 0.0
         self.current_detections: List[Dict[str, Any]] = []
 
+        # Load profiling configuration
         self.profile_enabled = getattr(Config, 'PROFILE_PIPELINE', False)
         self.profile_window = max(1, getattr(Config, 'PROFILE_WINDOW_FRAMES', 30))
+        # TODO: Replace with typed ProfilingConfig section in future refactoring
         self._profile_acc = {
             'enhance': 0.0,
             'depth': 0.0,
