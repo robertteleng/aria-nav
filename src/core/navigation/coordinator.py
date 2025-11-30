@@ -29,6 +29,7 @@ from typing import Optional, Dict, List, Any
 
 from utils.config import Config
 
+from core.audio.message_formatter import MessageFormatter
 from core.navigation.navigation_decision_engine import (
     NavigationDecisionEngine,
 )
@@ -117,6 +118,10 @@ class Coordinator:
         self.audio_router: Optional[Any] = audio_router
         self.telemetry = telemetry
 
+        # Initialize pipeline and decision engine
+        # NOTE: Fallback construction violates Dependency Inversion Principle
+        # TODO: Require all dependencies in constructor, remove fallback construction
+        # Builder should ensure all dependencies are created before Coordinator
         self.pipeline = navigation_pipeline or NavigationPipeline(
             yolo_processor=yolo_processor,
             image_enhancer=image_enhancer,
@@ -133,8 +138,10 @@ class Coordinator:
         self.last_announcement_time = 0.0
         self.current_detections: List[Dict[str, Any]] = []
 
+        # Load profiling configuration
         self.profile_enabled = getattr(Config, 'PROFILE_PIPELINE', False)
         self.profile_window = max(1, getattr(Config, 'PROFILE_WINDOW_FRAMES', 30))
+        # TODO: Replace with typed ProfilingConfig section in future refactoring
         self._profile_acc = {
             'enhance': 0.0,
             'depth': 0.0,
@@ -153,13 +160,22 @@ class Coordinator:
             last_indices={},
             latest_events={},
         )
+        # Create shared MessageFormatter for both RGB and SLAM routers
+        message_formatter = MessageFormatter()
+
         # Symmetric layer to SlamAudioRouter: formats RGB events before queuing.
         # Pass global_tracker for cross-camera tracking
         self.slam_router = SlamAudioRouter(
             self.audio_router,
-            global_tracker=self.decision_engine.global_tracker
+            global_tracker=self.decision_engine.global_tracker,
+            message_formatter=message_formatter
         )
-        self.rgb_router = RgbAudioRouter(audio_system, self.audio_router, self.slam_router)
+        self.rgb_router = RgbAudioRouter(
+            audio_system,
+            self.audio_router,
+            self.slam_router,
+            message_formatter=message_formatter
+        )
         if self.audio_router and not getattr(self.audio_router, "_running", False):
             self.audio_router.start()
 

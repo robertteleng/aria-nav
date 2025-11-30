@@ -112,6 +112,14 @@ class Config:
     TEST_FRAME_WIDTH = 640              # Test frame width
     TEST_FRAME_HEIGHT = 480             # Test frame height
 
+    # ==========================================================================
+    # CAMERA SOURCES: Identifiers for RGB and SLAM cameras
+    # ==========================================================================
+
+    CAMERA_SOURCE_RGB = "rgb"           # RGB frontal camera identifier
+    CAMERA_SOURCE_SLAM1 = "slam1"       # SLAM left camera identifier
+    CAMERA_SOURCE_SLAM2 = "slam2"       # SLAM right camera identifier
+
     # Legacy compatibility (defaults to RGB settings)
     YOLO_IMAGE_SIZE = YOLO_RGB_IMAGE_SIZE
     YOLO_CONFIDENCE = YOLO_RGB_CONFIDENCE

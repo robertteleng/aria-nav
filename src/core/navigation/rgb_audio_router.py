@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, Optional
 
 from core.audio.audio_system import AudioSystem
+from core.audio.message_formatter import MessageFormatter
 from core.audio.navigation_audio_router import NavigationAudioRouter
 from core.navigation.navigation_decision_engine import DecisionCandidate
 from core.telemetry.loggers.navigation_logger import get_navigation_logger
@@ -45,10 +46,12 @@ class RgbAudioRouter:
         audio_system: AudioSystem,
         audio_router: Optional[NavigationAudioRouter] = None,
         slam_router: Optional["SlamAudioRouter"] = None,
+        message_formatter: Optional[MessageFormatter] = None,
     ) -> None:
         self.audio_system = audio_system
         self.audio_router = audio_router
         self.slam_router = slam_router
+        self.message_formatter = message_formatter or MessageFormatter()
 
     def set_audio_router(self, audio_router: Optional[NavigationAudioRouter]) -> None:
         """Allow the coordinator to swap the shared audio router at runtime."""
@@ -75,7 +78,7 @@ class RgbAudioRouter:
         self.audio_system.play_spatial_beep(zone, is_critical=is_critical, distance=distance)
         
         # Build simplified TTS message (just object name)
-        message = self._build_simple_message(candidate.nav_object)
+        message = self.message_formatter.build_simple_message(candidate.nav_object)
         cooldown = self._parse_cooldown(metadata)
         
         # DEBUG: Log audio routing
@@ -118,14 +121,6 @@ class RgbAudioRouter:
         # Notify SLAM router even in fallback path
         if self.slam_router and class_name:
             self.slam_router.register_rgb_announcement(class_name)
-    
-    @staticmethod
-    def _build_simple_message(nav_object: Dict[str, object]) -> str:
-        """Build simple TTS message with just the object name."""
-        from utils.config import Config
-
-        class_name = str((nav_object.get("class") or "")).strip()
-        return Config.AUDIO_OBJECT_LABELS.get(class_name, class_name.capitalize() if class_name else "Object")
 
     @staticmethod
     def _parse_cooldown(metadata: Dict[str, object]) -> float:

@@ -272,7 +272,7 @@ class NavigationDecisionEngine:
             if distance not in critical_distances:
                 # Exception: allow "close" if bbox coverage is high (large object blocking)
                 if distance == "close" and bbox:
-                    frame_width = 640  # TODO: get from config or frame
+                    frame_width = Config.ARIA_RGB_WIDTH
                     center_x = bbox[0] + bbox[2] / 2
                     zone_width = frame_width * center_tolerance * 2
                     bbox_coverage = bbox[2] / zone_width
@@ -386,11 +386,11 @@ class NavigationDecisionEngine:
         """Check if bbox center is within yellow zone (center ±tolerance)."""
         if not bbox:
             return False
-        
-        frame_width = 640  # TODO: get from config or frame dimensions
+
+        frame_width = Config.ARIA_RGB_WIDTH
         center_x = bbox[0] + bbox[2] / 2
         frame_center = frame_width / 2
-        
+
         zone_half_width = frame_width * center_tolerance
         return abs(center_x - frame_center) <= zone_half_width
 
