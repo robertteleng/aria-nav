@@ -32,6 +32,13 @@ except ImportError:
     Config = None
     print("[WARN] Config not found. Using default audio settings.")
 
+# Import logger at module level
+try:
+    from core.telemetry.loggers.navigation_logger import get_navigation_logger
+except ImportError:
+    get_navigation_logger = None
+    print("[WARN] Navigation logger not found. Debug logging will be disabled.")
+
 
 class AudioSystem:
     """Directional audio command system optimized to avoid spam, now multi-platform."""
@@ -121,15 +128,22 @@ class AudioSystem:
         return self.speak_async(message, force=force)
     
     def _should_announce(self, phrase: str) -> bool:
+        """Check if a TTS announcement should be made.
+
+        Beeps and TTS are completely independent - beeps never block TTS.
+        Only TTS cooldowns affect TTS announcements.
+        """
         if not self.tts_backend:
             return False
-        # Allow overlapping announcements if announcement_cooldown is very low
-        if self.tts_speaking and self.announcement_cooldown > 0.1:
-            return False
+
         now = time.time()
-        if phrase != self.last_phrase:
-            return (now - self.last_announcement_time) >= self.announcement_cooldown
-        return (now - self.last_announcement_time) >= self.repeat_cooldown
+
+        # Check if it's a repeated phrase
+        if phrase == self.last_phrase:
+            return (now - self.last_phrase_time) >= self.repeat_cooldown
+
+        # Different phrase - check announcement cooldown
+        return (now - self.last_announcement_time) >= self.announcement_cooldown
     
     def speak_async(self, message: str, *, force: bool = False) -> bool:
         def _speak():
@@ -164,8 +178,9 @@ class AudioSystem:
                 self.tts_speaking = False
 
         should_speak = force or self._should_announce(message)
-        logger = get_navigation_logger().audio
-        logger.debug(f"speak_async('{message}', force={force}) -> should={should_speak}, backend={self.tts_backend}")
+        if get_navigation_logger:
+            logger = get_navigation_logger().audio
+            logger.debug(f"speak_async('{message}', force={force}) -> should={should_speak}, backend={self.tts_backend}")
         
         if self.tts_backend and should_speak:
             self.last_phrase = message
@@ -176,27 +191,39 @@ class AudioSystem:
         return False
     
     def play_spatial_beep(self, zone: str, is_critical: bool = False, distance: Optional[str] = None) -> None:
+        """Play spatial audio beep in a separate thread to avoid blocking TTS.
+
+        Beeps run asynchronously and never interfere with TTS announcements.
+        """
         if not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True) if Config else True:
             return
 
-        if is_critical:
-            freq = getattr(Config, "BEEP_CRITICAL_FREQUENCY", 1000)
-            duration = getattr(Config, "BEEP_CRITICAL_DURATION", 0.3)
-            self._play_tone(freq, duration, zone, distance)
-            self.beep_stats['critical_beeps'] += 1
-            self.beep_stats['critical_frequency'] = freq
-        else:
-            freq = getattr(Config, "BEEP_NORMAL_FREQUENCY", 500)
-            duration = getattr(Config, "BEEP_NORMAL_DURATION", 0.1)
-            gap = getattr(Config, "BEEP_NORMAL_GAP", 0.05)
-            count = getattr(Config, "BEEP_NORMAL_COUNT", 2)
+        def _play_beeps():
+            """Play beeps in background thread."""
+            try:
+                if is_critical:
+                    freq = getattr(Config, "BEEP_CRITICAL_FREQUENCY", 1000)
+                    duration = getattr(Config, "BEEP_CRITICAL_DURATION", 0.3)
+                    self._play_tone(freq, duration, zone, distance)
+                    self.beep_stats['critical_beeps'] += 1
+                    self.beep_stats['critical_frequency'] = freq
+                else:
+                    freq = getattr(Config, "BEEP_NORMAL_FREQUENCY", 500)
+                    duration = getattr(Config, "BEEP_NORMAL_DURATION", 0.1)
+                    gap = getattr(Config, "BEEP_NORMAL_GAP", 0.05)
+                    count = getattr(Config, "BEEP_NORMAL_COUNT", 2)
 
-            for i in range(count):
-                self._play_tone(freq, duration, zone, distance)
-                if i < count - 1:
-                    time.sleep(gap)
-            self.beep_stats['normal_beeps'] += count
-            self.beep_stats['normal_frequency'] = freq
+                    for i in range(count):
+                        self._play_tone(freq, duration, zone, distance)
+                        if i < count - 1:
+                            time.sleep(gap)  # Sleep is OK here - we're in a separate thread
+                    self.beep_stats['normal_beeps'] += count
+                    self.beep_stats['normal_frequency'] = freq
+            except Exception as e:
+                print(f"[WARN] Beep error: {e}")
+
+        # Run beeps in daemon thread - completely independent from TTS
+        threading.Thread(target=_play_beeps, daemon=True).start()
     
     def _play_tone(self, frequency: float, duration: float, zone: str, distance: Optional[str] = None) -> None:
         if not np or not sd:
