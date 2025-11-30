@@ -151,6 +151,40 @@ class PipelineConfig:
     stats_interval: float = 5.0  # Seconds between stats printing
 
 
+@dataclass
+class CoordinatorConfig:
+    """Configuration for NavigationCoordinator profiling and monitoring."""
+
+    # Performance profiling
+    profile_enabled: bool = False  # Enable pipeline profiling
+    profile_window_frames: int = 30  # Number of frames to average for profiling stats
+
+
+@dataclass
+class TrackerConfig:
+    """Configuration for object tracking across cameras."""
+
+    # Tracker parameters
+    iou_threshold: float = 0.5  # IoU threshold for matching detections
+    max_age: float = 3.0  # Maximum age before track expires (seconds)
+    handoff_timeout: float = 2.0  # Timeout for RGB-to-SLAM handoff (seconds)
+
+    # 3D geometric validation
+    use_3d_validation: bool = False  # Enable 3D geometric validation
+    max_3d_distance: float = 0.5  # Maximum 3D distance for same object (meters)
+
+
+@dataclass
+class PeripheralVisionConfig:
+    """Configuration for peripheral vision (SLAM cameras) system."""
+
+    # Peripheral vision control
+    enabled: bool = False  # Enable peripheral SLAM cameras
+
+    # SLAM camera settings
+    slam_target_fps: int = 8  # Target FPS for SLAM camera processing
+
+
 def load_slam_audio_config() -> SlamAudioConfig:
     """
     Load SLAM audio configuration from Config with fallback defaults.
@@ -293,4 +327,52 @@ def load_pipeline_config() -> PipelineConfig:
         input_resize_width=getattr(Config, "INPUT_RESIZE_WIDTH", 1024),
         input_resize_height=getattr(Config, "INPUT_RESIZE_HEIGHT", 1024),
         stats_interval=getattr(Config, "PHASE2_STATS_INTERVAL", 5.0),
+    )
+
+
+def load_coordinator_config() -> CoordinatorConfig:
+    """
+    Load coordinator configuration from Config with fallback defaults.
+
+    Returns:
+        CoordinatorConfig with values from Config or defaults
+    """
+    from utils.config import Config
+
+    return CoordinatorConfig(
+        profile_enabled=getattr(Config, "PROFILE_PIPELINE", False),
+        profile_window_frames=getattr(Config, "PROFILE_WINDOW_FRAMES", 30),
+    )
+
+
+def load_tracker_config() -> TrackerConfig:
+    """
+    Load tracker configuration from Config with fallback defaults.
+
+    Returns:
+        TrackerConfig with values from Config or defaults
+    """
+    from utils.config import Config
+
+    return TrackerConfig(
+        iou_threshold=getattr(Config, "TRACKER_IOU_THRESHOLD", 0.5),
+        max_age=getattr(Config, "TRACKER_MAX_AGE", 3.0),
+        handoff_timeout=getattr(Config, "TRACKER_HANDOFF_TIMEOUT", 2.0),
+        use_3d_validation=getattr(Config, "TRACKER_USE_3D_VALIDATION", False),
+        max_3d_distance=getattr(Config, "TRACKER_MAX_3D_DISTANCE", 0.5),
+    )
+
+
+def load_peripheral_vision_config() -> PeripheralVisionConfig:
+    """
+    Load peripheral vision configuration from Config with fallback defaults.
+
+    Returns:
+        PeripheralVisionConfig with values from Config or defaults
+    """
+    from utils.config import Config
+
+    return PeripheralVisionConfig(
+        enabled=getattr(Config, "PERIPHERAL_VISION_ENABLED", False),
+        slam_target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
     )
