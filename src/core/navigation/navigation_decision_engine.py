@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import numpy as np
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from collections import defaultdict
@@ -64,13 +65,11 @@ class NavigationDecisionEngine:
             "stairs": {"priority": 5, "spanish": "escaleras"},
         }
 
+        # Global announcement tracking
         self.last_announcement_time = 0.0
-        self.last_critical_time = 0.0
-        self.last_critical_class = None
 
-        # Tracking de persistencia para objetos normales
+        # Persistence tracking for normal objects (frame count)
         self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
-        self.last_normal_announcement: Dict[str, float] = {}  # class -> timestamp
 
         # 🆕 Object Tracker para cooldowns por instancia
         self.object_tracker = ObjectTracker(
@@ -99,6 +98,9 @@ class NavigationDecisionEngine:
             base_priority = self.object_priorities[class_name]["priority"]
             final_priority = self._calculate_final_priority(base_priority, zone, distance_category)
 
+            # Pre-compute yellow zone to avoid redundant calculations
+            in_yellow_zone = self._in_yellow_zone(bbox, 0.30)
+
             navigation_obj = {
                 "class": class_name,
                 "spanish_name": self.object_priorities[class_name]["spanish"],
@@ -108,6 +110,7 @@ class NavigationDecisionEngine:
                 "distance": distance_category,
                 "priority": final_priority,
                 "original_priority": base_priority,
+                "in_yellow_zone": in_yellow_zone,  # Pre-computed
             }
             navigation_objects.append(navigation_obj)
 
@@ -229,22 +232,18 @@ class NavigationDecisionEngine:
                 else:
                     continue
             
-            # Check if in yellow zone (center ±tolerance) - OPTIONAL
-            if require_yellow_zone and not self._in_yellow_zone(bbox, center_tolerance):
+            # Check if in yellow zone (center ±tolerance) - OPTIONAL (use pre-computed value)
+            if require_yellow_zone and not obj.get("in_yellow_zone", False):
                 continue
 
             # 🆕 Check per-instance tracker cooldown
             if not obj.get("tracker_allows", True):
+                logger.debug(f"CRITICAL {class_name}: blocked by tracker (track_id={obj.get('track_id')})")
                 continue
 
-            # Check repeat grace for same class (legacy fallback)
-            if (self.last_critical_class == class_name and
-                now - self.last_critical_time < repeat_grace):
-                continue
-            
             # Critical candidate found - SUCCESS!
             cooldown = getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0)
-            
+
             metadata: Dict[str, Any] = {
                 "class": class_name,
                 "spanish_name": self.object_priorities.get(class_name, {}).get("spanish", class_name),
@@ -255,10 +254,8 @@ class NavigationDecisionEngine:
                 "cooldown": cooldown,
                 "level": "critical",
             }
-            
+
             self.last_announcement_time = now
-            self.last_critical_time = now
-            self.last_critical_class = class_name
             
             return DecisionCandidate(
                 nav_object=obj,
@@ -293,8 +290,8 @@ class NavigationDecisionEngine:
                 logger.debug(f"NORMAL {class_name}: distance {distance} not in {normal_distances}")
                 continue
             
-            bbox = obj.get("bbox")
-            in_yellow = self._in_yellow_zone(bbox, center_tolerance)
+            # Use pre-computed yellow zone value
+            in_yellow = obj.get("in_yellow_zone", False)
             if require_yellow_zone and not in_yellow:
                 logger.debug(f"NORMAL {class_name}: not in yellow zone (require_yellow_zone={require_yellow_zone})")
                 continue
@@ -310,16 +307,9 @@ class NavigationDecisionEngine:
 
             # 🆕 Check per-instance tracker cooldown
             if not obj.get("tracker_allows", True):
-                logger.debug(f"NORMAL {class_name}: blocked by tracker (instance cooldown)")
+                logger.debug(f"NORMAL {class_name}: blocked by tracker (track_id={obj.get('track_id')})")
                 continue
 
-            # Legacy fallback: Check cooldown for this specific class
-            last_time = self.last_normal_announcement.get(class_name, 0.0)
-            time_since = now - last_time
-            if time_since < normal_cooldown:
-                logger.debug(f"NORMAL {class_name}: cooldown {time_since:.1f}s < {normal_cooldown}s")
-                continue
-            
             # Normal candidate found
             logger.info(f"NORMAL ✓ {class_name}: PASSED all checks (persistence={current_persistence}, yellow={in_yellow})")
             metadata: Dict[str, Any] = {
@@ -332,9 +322,8 @@ class NavigationDecisionEngine:
                 "cooldown": normal_cooldown,
                 "level": "normal",
             }
-            
+
             self.last_announcement_time = now
-            self.last_normal_announcement[class_name] = now
             
             return DecisionCandidate(
                 nav_object=obj,
