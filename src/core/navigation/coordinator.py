@@ -10,9 +10,7 @@ Fecha: Septiembre 2025
 Versión: 1.1 - Enhanced with Motion Support + Hybrid Architecture Ready
 """
 
-import numpy as np
 import time
-from enum import Enum
 from typing import Optional, Dict, List, Any
 
 from utils.config import Config
@@ -27,7 +25,6 @@ from core.navigation.slam_audio_router import SlamAudioRouter, SlamRoutingState
 try:
     from core.vision.slam_detection_worker import (
         CameraSource,
-        SlamDetectionEvent,
         SlamDetectionWorker,
     )
     from core.audio.navigation_audio_router import (
@@ -35,8 +32,9 @@ try:
         EventPriority,
     )
 except Exception:
+    from enum import Enum
+
     CameraSource = Any  # type: ignore[assignment]
-    SlamDetectionEvent = Any  # type: ignore[assignment]
     SlamDetectionWorker = Any  # type: ignore[assignment]
     NavigationAudioRouter = Any  # type: ignore[assignment]
 
@@ -138,7 +136,7 @@ class Coordinator:
         print(f"  - Image Enhancer: {type(self.image_enhancer).__name__ if self.image_enhancer else 'None'}")
         print(f"  - Dashboard: {type(self.dashboard).__name__ if self.dashboard else 'None'}")
     
-    def process_frame(self, frame: np.ndarray, motion_state: str = "stationary", frames_dict: Optional[Dict[str, np.ndarray]] = None) -> np.ndarray:
+    def process_frame(self, frame: "np.ndarray", motion_state: str = "stationary", frames_dict: Optional[Dict[str, "np.ndarray"]] = None) -> "np.ndarray":
         """
         🔄 Procesar frame completo a través del pipeline
         
@@ -167,7 +165,7 @@ class Coordinator:
 
         # 3. Navigation Analysis
         nav_start = time.perf_counter() if self.profile_enabled else 0.0
-        navigation_objects = self.decision_engine.analyze(detections)
+        navigation_objects = self.decision_engine.analyze(detections, depth_map)
 
         # 4. Audio Commands (con motion-aware cooldown)
         decision_candidate = self.decision_engine.evaluate(navigation_objects, motion_state)
@@ -248,8 +246,8 @@ class Coordinator:
 
     def handle_slam_frames(
         self,
-        slam1_frame: Optional[np.ndarray] = None,
-        slam2_frame: Optional[np.ndarray] = None,
+        slam1_frame: Optional["np.ndarray"] = None,
+        slam2_frame: Optional["np.ndarray"] = None,
     ) -> None:
         if not self.peripheral_enabled or CameraSource is None:
             return
@@ -313,7 +311,7 @@ class Coordinator:
             self._profile_acc[key] = 0.0
         self._profile_frames = 0
 
-    def get_latest_depth_map(self) -> Optional[np.ndarray]:
+    def get_latest_depth_map(self) -> Optional["np.ndarray"]:
         """Obtener el último depth map estimado"""
         return self.pipeline.get_latest_depth_map()
     

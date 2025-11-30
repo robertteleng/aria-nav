@@ -98,25 +98,10 @@ class RgbAudioRouter:
     @staticmethod
     def _build_simple_message(nav_object: Dict[str, object]) -> str:
         """Build simple TTS message with just the object name."""
+        from utils.config import Config
+
         class_name = str((nav_object.get("class") or "")).strip()
-        
-        speech_labels = {
-            "person": "Person",
-            "car": "Car",
-            "truck": "Truck",
-            "bus": "Bus",
-            "bicycle": "Bicycle",
-            "motorcycle": "Motorcycle",
-            "chair": "Chair",
-            "table": "Table",
-            "bottle": "Bottle",
-            "door": "Door",
-            "laptop": "Laptop",
-            "couch": "Couch",
-            "bed": "Bed",
-        }
-        
-        return speech_labels.get(class_name, class_name.capitalize() if class_name else "Object")
+        return Config.AUDIO_OBJECT_LABELS.get(class_name, class_name.capitalize() if class_name else "Object")
 
     @staticmethod
     def _parse_cooldown(metadata: Dict[str, object]) -> float:
@@ -125,55 +110,6 @@ class RgbAudioRouter:
             return float(raw_value or 0.0)
         except (TypeError, ValueError):
             return 0.0
-
-    @staticmethod
-    def _build_rgb_message(nav_object: Dict[str, object]) -> str:
-        """Mirror the previous phrasing logic in a reusable static helper."""
-        zone = str(nav_object.get("zone", "")).strip() or "center"
-        distance = str(nav_object.get("distance", "")).strip().lower()
-        class_name = (nav_object.get("class") or "").strip()
-
-        speech_labels = {
-            "person": "person",
-            "car": "car",
-            "truck": "truck",
-            "bus": "bus",
-            "bicycle": "bicycle",
-            "motorcycle": "motorcycle",
-            "motorbike": "motorbike",
-            "stop sign": "stop sign",
-            "traffic light": "traffic light",
-            "chair": "chair",
-            "table": "table",
-            "bottle": "bottle",
-            "door": "door",
-            "laptop": "laptop",
-            "couch": "couch",
-            "bed": "bed",
-            "stairs": "stairs",
-        }
-        name = speech_labels.get(class_name, class_name if class_name else "object")
-
-        zone_english = {
-            "left": "left side",
-            "center": "straight ahead",
-            "right": "right side",
-        }
-        zone_text = zone_english.get(zone, zone or "straight ahead")
-
-        distance_english = {
-            "very_close": "very close",
-            "close": "close",
-            "medium": "at medium distance",
-            "far": "far",
-        }
-        distance_text = distance_english.get(distance, distance or "at medium distance")
-
-        priority = float(nav_object.get("priority", 0.0) or 0.0)
-        # Only add "Warning" prefix for critical objects at very close distance
-        if distance == "very_close" and priority >= 9:
-            return f"Warning, {name} {distance_text} on the {zone_text}"
-        return f"{name.capitalize()} on the {zone_text}, {distance_text}"
 
 
 __all__ = ["RgbAudioRouter"]
