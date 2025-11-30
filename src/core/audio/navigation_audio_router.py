@@ -55,9 +55,12 @@ class EventPriority(Enum):
     LOW = 4
 
 
-RGB_SOURCE = "rgb"
-SLAM1_SOURCE = CameraSource.SLAM1.value if CameraSource is not None else "slam1"
-SLAM2_SOURCE = CameraSource.SLAM2.value if CameraSource is not None else "slam2"
+# Camera source constants (imported from Config for consistency)
+from utils.config import Config
+
+RGB_SOURCE = Config.CAMERA_SOURCE_RGB
+SLAM1_SOURCE = Config.CAMERA_SOURCE_SLAM1
+SLAM2_SOURCE = Config.CAMERA_SOURCE_SLAM2
 
 
 @dataclass
