@@ -10,7 +10,7 @@ from collections import defaultdict
 
 from utils.config import Config
 from core.telemetry.loggers.navigation_logger import get_navigation_logger
-from core.navigation.object_tracker import ObjectTracker
+from core.vision.global_object_tracker import GlobalObjectTracker
 
 try:
     from core.audio.navigation_audio_router import EventPriority
@@ -71,10 +71,11 @@ class NavigationDecisionEngine:
         # Persistence tracking for normal objects (frame count)
         self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
 
-        # 🆕 Object Tracker para cooldowns por instancia
-        self.object_tracker = ObjectTracker(
+        # 🌍 Global Object Tracker para cross-camera tracking (RGB + SLAM1 + SLAM2)
+        self.global_tracker = GlobalObjectTracker(
             iou_threshold=getattr(Config, "TRACKER_IOU_THRESHOLD", 0.5),
             max_age=getattr(Config, "TRACKER_MAX_AGE", 3.0),
+            handoff_timeout=getattr(Config, "TRACKER_HANDOFF_TIMEOUT", 2.0),
         )
 
     # ------------------------------------------------------------------
@@ -146,7 +147,7 @@ class NavigationDecisionEngine:
             for obj in navigation_objects[:3]:
                 logger.debug(f"  - {obj.get('class')}: zone={obj.get('zone')}, distance={obj.get('distance')}, priority={obj.get('priority'):.2f}")
 
-        # 🆕 Update object tracker with new detections
+        # 🌍 Update global tracker with new detections (default camera: rgb)
         cooldown_per_class = {
             "person": getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0),
             "car": 1.5,
@@ -160,7 +161,9 @@ class NavigationDecisionEngine:
             "door": getattr(Config, "NORMAL_COOLDOWN", 2.5),
             "laptop": getattr(Config, "NORMAL_COOLDOWN", 2.5),
         }
-        tracking_results = self.object_tracker.update_and_check(navigation_objects, cooldown_per_class)
+        tracking_results = self.global_tracker.update_and_check(
+            navigation_objects, cooldown_per_class, camera_source="rgb"
+        )
 
         # Enrich navigation_objects with track_id and should_announce
         for i, (detection, track_id, should_announce) in enumerate(tracking_results):
@@ -181,7 +184,7 @@ class NavigationDecisionEngine:
             # Mark as announced in tracker
             track_id = critical_candidate.nav_object.get("track_id")
             if track_id is not None:
-                self.object_tracker.mark_announced(track_id)
+                self.global_tracker.mark_announced(track_id)
             return critical_candidate
 
         # Then evaluate NORMAL candidates (if critical didn't trigger)
@@ -191,7 +194,7 @@ class NavigationDecisionEngine:
             # Mark as announced in tracker
             track_id = normal_candidate.nav_object.get("track_id")
             if track_id is not None:
-                self.object_tracker.mark_announced(track_id)
+                self.global_tracker.mark_announced(track_id)
         else:
             logger.debug(f"✗ No candidate selected")
         return normal_candidate
