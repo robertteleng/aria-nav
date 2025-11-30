@@ -163,6 +163,42 @@ class Config:
     AUDIO_GLOBAL_COOLDOWN = 0.3  # Minimum between any two announcements (reduced for faster response)
     AUDIO_INTERRUPT_GRACE = 0.25  # Grace period before interrupting (anti-entrecorte)
     AUDIO_QUEUE_SIZE = 12  # Increased from 3
+
+    # Audio TTS labels (centralized to avoid duplication)
+    AUDIO_ZONE_LABELS = {
+        "far_left": "far left side",
+        "left": "left side",
+        "center": "straight ahead",
+        "right": "right side",
+        "far_right": "far right side",
+    }
+
+    AUDIO_OBJECT_LABELS = {
+        "person": "Person",
+        "car": "Car",
+        "truck": "Truck",
+        "bus": "Bus",
+        "bicycle": "Bicycle",
+        "motorcycle": "Motorcycle",
+        "motorbike": "Motorbike",
+        "chair": "Chair",
+        "table": "Table",
+        "bottle": "Bottle",
+        "door": "Door",
+        "laptop": "Laptop",
+        "couch": "Couch",
+        "bed": "Bed",
+        "stairs": "Stairs",
+        "stop sign": "Stop sign",
+        "traffic light": "Traffic light",
+    }
+
+    AUDIO_DISTANCE_LABELS = {
+        "very_close": "very close",
+        "close": "close",
+        "medium": "at medium distance",
+        "far": "far",
+    }
     
     # Spatial audio beeps
     AUDIO_SPATIAL_BEEPS_ENABLED = True  # Enable spatial beeps before TTS
