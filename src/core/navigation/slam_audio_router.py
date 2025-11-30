@@ -1,4 +1,34 @@
-"""Helper utilities for SLAM audio routing logic."""
+"""
+SLAM camera audio routing and cross-camera deduplication.
+
+This module provides audio routing for peripheral SLAM cameras (SLAM1, SLAM2) with
+intelligent deduplication to prevent announcing the same object multiple times when
+it appears in multiple cameras.
+
+Features:
+- Critical-only filtering (only announce close/very_close objects from SLAM)
+- Cross-camera deduplication using GlobalObjectTracker track IDs
+- RGB-SLAM deduplication (avoid re-announcing objects seen in RGB frontal camera)
+- Priority-based message generation (CRITICAL for vehicles, HIGH for people)
+- Distance-aware warning messages for critical situations
+- Configurable duplicate grace period
+
+Architecture:
+    SLAM Frame → Worker → Events → SlamAudioRouter → NavigationAudioRouter
+                                       ↓
+                                  GlobalObjectTracker (track ID enrichment)
+                                       ↓
+                                  RgbAudioRouter (notify about RGB announcements)
+
+Deduplication Strategy:
+1. Track-based: Use GlobalObjectTracker track_id to detect same object across cameras
+2. Class-based fallback: Use class name + timestamp when track_id unavailable
+3. RGB coordination: RgbAudioRouter notifies SLAM router to avoid duplicates
+
+Usage:
+    slam_router = SlamAudioRouter(audio_router, global_tracker)
+    slam_router.submit_and_route(state, CameraSource.SLAM1, frame)
+"""
 
 from __future__ import annotations
 
@@ -37,7 +67,7 @@ class SlamAudioRouter:
 
     def __init__(self, audio_router: Optional[NavigationAudioRouter], global_tracker=None) -> None:
         self.audio_router = audio_router
-        self.global_tracker = global_tracker  # 🌍 Reference to GlobalObjectTracker
+        self.global_tracker = global_tracker  # Reference to GlobalObjectTracker for cross-camera tracking
         # Track RGB frontal announcements to avoid SLAM duplicates
         self._rgb_class_history: Dict[str, float] = {}
         self.duplicate_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
@@ -128,7 +158,7 @@ class SlamAudioRouter:
         state.last_indices[source] = latest_index
         state.latest_events[source] = events
 
-        # 🌍 Enrich events with global track_ids for cross-camera tracking
+        # Enrich events with global track_ids for cross-camera tracking
         if self.global_tracker:
             self._enrich_with_track_ids(events, source)
 
