@@ -455,7 +455,7 @@ class NavigationPipeline:
         if self.use_shared_memory:
             # Aria RGB camera delivers 1408x1408 frames
             # SLAM cameras also deliver similar resolution
-            self.shm_shape = (1408, 1408, 3)
+            self.shm_shape = (Config.ARIA_RGB_HEIGHT, Config.ARIA_RGB_WIDTH, 3)
             self.shm_dtype = np.uint8
             
             try:
@@ -497,7 +497,10 @@ class NavigationPipeline:
         rgb_frame = frames_dict.get("rgb")
         if rgb_frame is None:
             log.warning("No rgb frame in frames_dict, falling back")
-            return self._process_sequential(frames_dict.get("rgb", np.zeros((480, 640, 3), dtype=np.uint8)), profile)
+            return self._process_sequential(
+                frames_dict.get("rgb", np.zeros((Config.TEST_FRAME_HEIGHT, Config.TEST_FRAME_WIDTH, 3), dtype=np.uint8)),
+                profile
+            )
         
         # OPTIMIZATION: Resize input frames to reduce IPC overhead
         if getattr(Config, "INPUT_RESIZE_ENABLED", False):
@@ -772,7 +775,7 @@ class NavigationPipeline:
             result.depth_raw = None
         
         return PipelineResult(
-            frame=frames_dict.get("rgb", np.zeros((480, 640, 3), dtype=np.uint8)),
+            frame=frames_dict.get("rgb", np.zeros((Config.TEST_FRAME_HEIGHT, Config.TEST_FRAME_WIDTH, 3), dtype=np.uint8)),
             detections=all_detections,
             depth_map=self.latest_depth_map,
             depth_raw=self.latest_depth_raw,

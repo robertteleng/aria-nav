@@ -167,7 +167,7 @@ def _initialize_components(use_mock, mock_mode, mock_source, enable_dashboard, d
         observer_kwargs = {
             'mode': mock_mode,
             'fps': 60,
-            'resolution': (1408, 1408),
+            'resolution': (Config.ARIA_RGB_WIDTH, Config.ARIA_RGB_HEIGHT),
         }
         if mock_mode == 'video':
             observer_kwargs['video_path'] = mock_source
@@ -610,7 +610,7 @@ def main_debug():
         def get_latest_frame(self, camera='rgb'):
             # Generate synthetic frame
             self.frame_count += 1
-            frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            frame = np.random.randint(0, 255, (Config.TEST_FRAME_HEIGHT, Config.TEST_FRAME_WIDTH, 3), dtype=np.uint8)
 
             # Add text indicating it's mock
             cv2.putText(frame, f"MOCK FRAME {self.frame_count}", (10, 30),

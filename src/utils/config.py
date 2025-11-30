@@ -98,6 +98,20 @@ class Config:
     # Depth Processing
     DEPTH_INPUT_SIZE = 384              # DepthAnything: 384x384
 
+    # ==========================================================================
+    # FRAME DIMENSIONS: Native resolutions from cameras
+    # ==========================================================================
+
+    # Aria glasses native resolutions
+    ARIA_RGB_WIDTH = 1408               # RGB camera native width
+    ARIA_RGB_HEIGHT = 1408              # RGB camera native height
+    ARIA_SLAM_WIDTH = 640               # SLAM cameras native width
+    ARIA_SLAM_HEIGHT = 480              # SLAM cameras native height
+
+    # Common test/fallback dimensions
+    TEST_FRAME_WIDTH = 640              # Test frame width
+    TEST_FRAME_HEIGHT = 480             # Test frame height
+
     # Legacy compatibility (defaults to RGB settings)
     YOLO_IMAGE_SIZE = YOLO_RGB_IMAGE_SIZE
     YOLO_CONFIDENCE = YOLO_RGB_CONFIDENCE
