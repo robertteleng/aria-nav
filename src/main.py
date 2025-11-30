@@ -251,12 +251,7 @@ def _run_processing_loop(ctrl_handler, observer, coordinator, presentation, tele
     frames_processed = 0
     last_stats_print = time.time()
     fps_start_time = time.time()
-
-    # Timing tracking and spike detection
-    timing_log = []
     latency_history = []
-    spike_threshold_ms = 100  # Alert if frame takes >100ms
-    spike_count = 0
 
     while not ctrl_handler.should_stop:
         try:
@@ -384,7 +379,7 @@ def _run_processing_loop(ctrl_handler, observer, coordinator, presentation, tele
                 # Log every 30 frames
                 if frames_processed % 30 == 0:
                     avg_latency = sum(latency_history) / len(latency_history) if latency_history else 0
-                    print(f"[TIMING] Frame {frames_processed} | Avg latency: {avg_latency:.1f}ms | Spikes: {spike_count}")
+                    print(f"[TIMING] Frame {frames_processed} | Avg latency: {avg_latency:.1f}ms")
                     print(f"  Observer: RGB={timing_ms['get_rgb']:.2f}ms SLAM={timing_ms['get_slam']:.2f}ms Motion={timing_ms['get_motion']:.2f}ms")
                     print(f"  Pipeline: process={timing_ms['process_frame']:.2f}ms")
                     print(f"  Post: slam_handle={timing_ms['slam_handling']:.2f}ms results={timing_ms['get_results']:.2f}ms")
