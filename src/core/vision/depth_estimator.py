@@ -1,4 +1,24 @@
-"""Depth estimation helpers tuned for MPS on Apple Silicon."""
+"""
+Depth estimation for navigation using MiDaS or Depth-Anything V2.
+
+This module provides depth map estimation for 3D scene understanding with support for:
+- Multiple backends (MiDaS, Depth-Anything V2)
+- TensorRT/ONNX optimization for NVIDIA GPUs
+- MPS (Apple Silicon) and CUDA acceleration
+- Pinned memory and non-blocking transfers for performance
+- Configurable input resolution (default 384x384)
+- Frame skipping for performance tuning
+
+Backends:
+- MiDaS: Classic depth estimation model
+- Depth-Anything V2: State-of-the-art monocular depth estimation
+
+Usage:
+    estimator = DepthEstimator()  # Auto-configures from Config
+    depth_prediction = estimator.predict(rgb_frame)
+    depth_map_8bit = depth_prediction.map_8bit  # Normalized to 0-255
+    depth_raw = depth_prediction.raw  # Raw model output
+"""
 
 from __future__ import annotations
 
@@ -37,7 +57,7 @@ class DepthEstimator:
             self.transform = None
             self.processor = None
             self.last_inference_ms = 0.0
-            self.ort_session = None  # FASE 4: TensorRT session
+            self.ort_session = None  # TensorRT/ONNX Runtime session
             print("[INFO] ⚠️ Depth estimator disabled via configuration")
             return
 
@@ -48,7 +68,7 @@ class DepthEstimator:
         self.backend = getattr(Config, "DEPTH_BACKEND", "midas").lower()
         logger.log(f"Backend selected: {self.backend}")
         
-        # Usar el device correcto: DEPTH_ANYTHING_DEVICE para depth_anything, MIDAS_DEVICE para midas
+        # Use correct device config: DEPTH_ANYTHING_DEVICE for depth_anything, MIDAS_DEVICE for midas
         if self.backend == "depth_anything_v2":
             device_config = getattr(Config, "DEPTH_ANYTHING_DEVICE", "cuda")
         else:
@@ -64,7 +84,7 @@ class DepthEstimator:
         self.input_size = getattr(Config, "DEPTH_INPUT_SIZE", 384)
         self._last_map_8bit: Optional[np.ndarray] = None
         
-        # FASE 1 / Tarea 3: Habilitar pinned memory y non-blocking transfers
+        # Enable pinned memory and non-blocking transfers for performance
         self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()
         self.non_blocking = getattr(Config, 'NON_BLOCKING_TRANSFER', False)
         if self.use_pinned_memory:
@@ -118,7 +138,7 @@ class DepthEstimator:
         
         logger = get_depth_logger()
         
-        # FASE 4: Check for TensorRT-optimized ONNX first
+        # Check for TensorRT-optimized ONNX first
         use_tensorrt = getattr(Config, 'USE_TENSORRT', False)
         onnx_path = Path("checkpoints/depth_anything_v2_vits.onnx")
         
@@ -236,7 +256,7 @@ class DepthEstimator:
         else:
             rgb_resized = rgb_input
 
-        # FASE 1 / Tarea 3: Transferencia optimizada con non-blocking
+        # Optimized transfer with non-blocking
         input_tensor = self.transform(rgb_resized)
         if self.non_blocking and self.device.type == 'cuda':
             input_tensor = input_tensor.to(self.device, non_blocking=True)
@@ -246,7 +266,7 @@ class DepthEstimator:
         with torch.inference_mode():
             prediction = self.model(input_tensor)
 
-            # FASE 1 / Tarea 3: Usar bicubic en CUDA (mejor calidad), bilinear en MPS
+            # Use bicubic on CUDA (better quality), bilinear on MPS
             if self.device.type == "cuda":
                 # CUDA soporta bicubic perfectamente
                 prediction = torch.nn.functional.interpolate(
@@ -285,7 +305,7 @@ class DepthEstimator:
         return prediction.cpu().numpy()
 
     def _run_depth_anything(self, rgb_input: np.ndarray) -> np.ndarray:
-        # FASE 4: Use TensorRT/ONNX Runtime if available
+        # Use TensorRT/ONNX Runtime if available
         if hasattr(self, 'ort_session') and self.ort_session is not None:
             return self._run_depth_anything_tensorrt(rgb_input)
         
@@ -301,7 +321,7 @@ class DepthEstimator:
         else:
             rgb_resized = rgb_input
 
-        # FASE 1 / Tarea 3: Transferencia optimizada con non-blocking
+        # Optimized transfer with non-blocking
         inputs = self.processor(images=rgb_resized, return_tensors="pt")
         if self.non_blocking and self.device.type == 'cuda':
             # Transferir cada tensor del dict con non_blocking
@@ -312,7 +332,7 @@ class DepthEstimator:
         with torch.inference_mode():
             depth = self.model(**inputs).predicted_depth
 
-            # FASE 1 / Tarea 3: Usar bicubic en CUDA (mejor calidad), bilinear en MPS
+            # Use bicubic on CUDA (better quality), bilinear on MPS
             if self.device.type == "cuda":
                 # CUDA soporta bicubic perfectamente
                 depth = interpolate(
