@@ -1,3 +1,41 @@
+"""
+Multi-platform audio system for navigation with spatial beeps and TTS.
+
+This module provides the AudioSystem class which handles all audio output for the
+navigation system, including Text-to-Speech (TTS) announcements and spatial audio beeps
+for directional feedback.
+
+Features:
+- Multi-platform TTS support (macOS 'say' command, pyttsx3 for other platforms)
+- Spatial audio beeps with left/right panning
+- Distance-based volume adjustment (very_close=100%, close=70%, medium=45%, far=25%)
+- Critical vs normal beep frequencies (1200 Hz vs 800 Hz)
+- Anti-spam with configurable cooldowns
+- Scene scanning mode (NOA-inspired summary of detected objects)
+- Thread-safe queue management
+- Beep statistics tracking
+
+TTS Backends:
+- macOS: Native 'say' command (preferred, ~5x faster than pyttsx3)
+- Other platforms: pyttsx3 library with espeak/sapi5 support
+
+Audio Architecture:
+    Navigation Decision → AudioSystem.queue_message() → TTS Output
+                              ↓
+                       play_spatial_beep() → Stereo Beep (sounddevice)
+
+Usage:
+    audio = AudioSystem()
+    audio.set_repeat_cooldown(2.0)
+
+    # Play spatial beep + TTS message
+    audio.play_spatial_beep("left", is_critical=True, distance="close")
+    audio.queue_message("Person ahead")
+
+    # Scene scan mode
+    audio.scan_scene(navigation_objects)
+"""
+
 import platform
 import shutil
 import subprocess
@@ -235,12 +273,12 @@ class AudioSystem:
         sample_rate = 44100
         base_volume = getattr(Config, "BEEP_VOLUME", 0.7) if Config else 0.7
 
-        # 🆕 VOLUMEN DINÁMICO por distancia (mantiene panning intacto)
+        # Dynamic volume based on distance (preserves panning intact)
         distance_multipliers = {
-            "very_close": 1.0,   # 100% - máximo volumen
-            "close": 0.7,        # 70% - volumen medio-alto
-            "medium": 0.45,      # 45% - volumen medio-bajo
-            "far": 0.25          # 25% - volumen suave
+            "very_close": 1.0,   # 100% - maximum volume
+            "close": 0.7,        # 70% - medium-high volume
+            "medium": 0.45,      # 45% - medium-low volume
+            "far": 0.25          # 25% - soft volume
         }
         distance_multiplier = distance_multipliers.get(distance, 0.7) if distance else 0.7
         volume = base_volume * distance_multiplier
@@ -256,7 +294,7 @@ class AudioSystem:
             tone[-fade_samples:] *= fade_out
         tone *= volume
 
-        # Panning espacial (ratio entre canales, NO volumen absoluto)
+        # Spatial panning (ratio between channels, NOT absolute volume)
         if zone == "left":
             left = tone
             right = tone * 0.2
@@ -276,16 +314,17 @@ class AudioSystem:
             print(f"[WARN] Failed to play spatial beep with sounddevice: {e}")
     
     def scan_scene(self, navigation_objects: list) -> None:
-        """🆕 MODO SCAN: Resume audible de 3-5 objetos principales en la escena.
+        """
+        SCAN MODE: Audible summary of 3-5 main objects in the scene.
 
-        Inspirado en NOA - genera frase breve con objetos agrupados por zona.
-        Ejemplo: "Scanning. Ahead: person, chair. Left: table."
+        Inspired by NOA - generates brief phrase with objects grouped by zone.
+        Example: "Scanning. Ahead: person, chair. Left: table."
         """
         if not navigation_objects:
             self.speak_async("Scanning. No objects detected.", force=True)
             return
 
-        # Agrupar top 5 objetos por zona
+        # Group top 5 objects by zone
         zone_objects = {"center": [], "left": [], "right": []}
         for obj in navigation_objects[:5]:
             zone = obj.get("zone", "center")
