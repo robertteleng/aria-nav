@@ -1,4 +1,25 @@
-"""Utility helpers for configuring PyTorch GPU runtime (CUDA, MPS, CPU)"""
+"""
+GPU runtime configuration utilities for PyTorch.
+
+This module provides helper functions for configuring and managing PyTorch
+GPU backends across different hardware platforms:
+- CUDA (NVIDIA GPUs)
+- MPS (Apple Silicon)
+- CPU (fallback)
+
+Functions handle device selection with automatic fallback, MPS memory management,
+and cross-device tensor operations.
+
+Usage:
+    # Get best available device
+    device = get_preferred_device("cuda")  # Falls back to MPS or CPU
+
+    # Configure MPS environment
+    configure_mps_environment(force_disable_cpu_fallback=False)
+
+    # Clear MPS cache
+    empty_mps_cache()
+"""
 
 from __future__ import annotations
 
@@ -26,14 +47,14 @@ def get_preferred_device(preferred: str = "mps") -> torch.device:
     else:
         preferred_lower = str(preferred).lower()
     
-    # Prioridad: CUDA > MPS > CPU
+    # Priority: CUDA > MPS > CPU
     if preferred_lower == "cuda" and torch.cuda.is_available():
         return torch.device("cuda")
     elif preferred_lower == "mps" and torch.backends.mps.is_available():
         return torch.device("mps")
-    elif torch.cuda.is_available():  # Fallback a CUDA si está disponible
+    elif torch.cuda.is_available():  # Fallback to CUDA if available
         return torch.device("cuda")
-    elif torch.backends.mps.is_available():  # Fallback a MPS si está disponible
+    elif torch.backends.mps.is_available():  # Fallback to MPS if available
         return torch.device("mps")
     
     return torch.device("cpu")
