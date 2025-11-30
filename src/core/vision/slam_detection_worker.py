@@ -36,7 +36,7 @@ class SlamDetectionEvent:
     frame_index: int
     processing_ms: float
     metadata: dict = field(default_factory=dict)
-    track_id: Optional[int] = None  # 🆕 Global track ID (set by GlobalObjectTracker)
+    track_id: Optional[int] = None  # Global track ID (set by GlobalObjectTracker)
 
 
 class SlamDetectionWorker:
@@ -146,7 +146,7 @@ class SlamDetectionWorker:
             detections = self.processor.process_frame(frame)
             processing_ms = (time.perf_counter() - start) * 1000.0
 
-            # 🔧 FIX: Marcar detecciones como SLAM para filtrado correcto
+            # Mark detections as SLAM for correct filtering
             for det in detections:
                 det["camera_source"] = "slam"
 
