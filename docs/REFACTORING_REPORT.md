@@ -440,15 +440,74 @@ This report tracks the comprehensive refactoring effort to clean up the Aria Nav
 
 ---
 
+## Layer 8: Telemetry ✅ COMPLETE
+
+### File 1: `src/core/telemetry/loggers/navigation_logger.py` (89 lines) ✅
+
+- **Commit:** `193dc7d` - "refactor(telemetry): add comprehensive module docstring to navigation_logger"
+- **Changes:**
+  - ✅ Added comprehensive module docstring with log file structure
+  - ✅ Documented singleton pattern and separate log files
+  - ✅ Documented DEBUG level file logging + WARNING console output
+  - ✅ Added usage example with session_dir parameter
+  - ✅ Already clean (no emojis or Spanish found)
+- **Stats:** 26 insertions, 1 deletion
+- **Time:** ~5 minutes
+
+### File 2: `src/core/telemetry/loggers/depth_logger.py` (100 lines) ✅
+
+- **Commit:** `9e95bc3` - "refactor(telemetry): add comprehensive module docstring to depth_logger"
+- **Changes:**
+  - ✅ Added comprehensive module docstring with dual output system
+  - ✅ Documented singleton pattern and JSON metrics logging
+  - ✅ Documented [DEPTH] console marker for easy filtering
+  - ✅ Added usage example with log() and log_metric() methods
+  - ✅ Already clean (no emojis or Spanish found)
+- **Stats:** 25 insertions, 1 deletion
+- **Time:** ~5 minutes
+
+### File 3: `src/core/telemetry/loggers/telemetry_logger.py` (801 lines) ✅
+
+- **Commit:** `3a9d256` - "refactor(telemetry): translate Spanish, add comprehensive docs to telemetry_logger"
+- **Changes:**
+  - ✅ Added comprehensive module docstring with both sync and async logger usage
+  - ✅ Documented TelemetryLogger (synchronous I/O) vs AsyncTelemetryLogger (async I/O)
+  - ✅ Translated all Spanish docstrings and comments (~40+ strings):
+    - "Métrica de rendimiento por frame" → "Performance metric per frame"
+    - "Registrar métricas de rendimiento" → "Record performance metrics for a frame"
+    - "Inicializar nueva sesión de telemetría" → "Initialize new telemetry session"
+    - "Carpeta base para logs" → "Base directory for logs"
+    - "Contar detecciones por clase" → "Count detections by class"
+    - "Finalizar sesión y generar resumen" → "Finalize session and generate summary"
+    - "Modo asíncrono activado" → "Async mode enabled"
+    - "MLflow habilitado" → "MLflow enabled"
+    - "Sesión finalizada" → "Session finalized"
+    - "Resumen guardado" → "Summary saved"
+  - ✅ Documented MLflow integration for experiment tracking
+  - ✅ Documented async I/O benefits (eliminates 250-300ms spikes)
+  - ✅ Documented thread-safe metric collection with locks
+  - ✅ Already clean (no emojis found)
+- **Stats:** 223 insertions, 184 deletions
+- **Time:** ~30 minutes
+
+**Layer 8 Summary:**
+- **Files Refactored:** 3/3 (100%)
+- **Total Time:** ~40 minutes
+- **Commits:** 3
+- **Spanish Content Translated:** ~40+ docstrings/comments
+- **Emojis Removed:** 0 (already clean)
+
+---
+
 ## Final Summary Statistics
 
-**Total Commits:** 25
-**Total Files Refactored:** 24
+**Total Commits:** 28
+**Total Files Refactored:** 27
 **Total Files Deleted:** 1 (object_tracker.py - 62 lines dead code)
 **Dead Code Removed:** 62 lines
-**Spanish Comments Translated:** ~80+
+**Spanish Comments Translated:** ~120+
 **Emojis Removed from Code:** ~58+
-**Module Docstrings Added/Enhanced:** 21
+**Module Docstrings Added/Enhanced:** 24
 
 **Layers Complete:**
 - ✅ Layer 1: Config & Utils (1/1 files) - 100%
@@ -458,34 +517,34 @@ This report tracks the comprehensive refactoring effort to clean up the Aria Nav
 - ✅ Layer 5: Audio (2/2 files) - 100%
 - ✅ Layer 6: IMU & Motion (1/1 files) - 100%
 - ✅ Layer 7: Multiprocessing (4/4 files) - 100%
+- ✅ Layer 8: Telemetry (3/3 files) - 100%
 
-**Time Invested:** ~3.8 hours
-**Completion:** 7/10 layers (70%)
+**Time Invested:** ~4.5 hours
+**Completion:** 8/10 layers (80%)
 
 ---
 
 ## Remaining Work
 
-**Layers Pending (3 of 10):**
-- ⏸️ Layer 8: Telemetry (3 files) - Large telemetry_logger.py (801 lines)
-- ⏸️ Layer 9: External (1 file) - Minimal changes expected
+**Layers Pending (2 of 10):**
+- ⏸️ Layer 9: External (13 files) - Review-only, minimal changes to external code
 - ⏸️ Layer 10: Main (1 file) - Entry point cleanup
 
-**Estimated Remaining Time:** ~1.2 hours
+**Estimated Remaining Time:** ~30 minutes
 
 ---
 
 ## Achievements
 
-✅ **70% Complete** - 7 of 10 architectural layers refactored
-✅ **24 Files Cleaned** - Systematic surface-level cleanup
-✅ **100% English** - All Spanish comments translated
+✅ **80% Complete** - 8 of 10 architectural layers refactored
+✅ **27 Files Cleaned** - Systematic surface-level cleanup
+✅ **100% English** - All Spanish comments translated (~120+ strings)
 ✅ **Emoji-Free Code** - Removed ~58 emojis from code (kept in user-facing messages)
-✅ **Comprehensive Docs** - 21 enhanced module docstrings with usage examples
+✅ **Comprehensive Docs** - 24 enhanced module docstrings with usage examples
 ✅ **Dead Code Removed** - Eliminated deprecated ObjectTracker (62 lines)
 
 **Branch Ready for Review:** `refactor/master-cleanup-layer-by-layer`
 
 ---
 
-**Last Updated:** 2025-01-30 - End of Session
+**Last Updated:** 2025-01-30 - Layer 8 Complete
