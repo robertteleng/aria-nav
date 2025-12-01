@@ -53,6 +53,16 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 
 from utils.config import Config
+from utils.config_sections import (
+    TrackerConfig,
+    load_tracker_config,
+    CriticalDetectionConfig,
+    load_critical_detection_config,
+    NormalDetectionConfig,
+    load_normal_detection_config,
+    SlamAudioConfig,
+    load_slam_audio_config,
+)
 from core.telemetry.loggers.navigation_logger import get_navigation_logger
 from core.vision.global_object_tracker import GlobalObjectTracker
 
@@ -115,11 +125,17 @@ class NavigationDecisionEngine:
         # Persistence tracking for normal objects (frame count)
         self.detection_history: Dict[str, int] = defaultdict(int)  # class -> frame_count
 
+        # Load typed configs
+        tracker_config = load_tracker_config()
+        self._critical_config = load_critical_detection_config()
+        self._normal_config = load_normal_detection_config()
+        self._slam_audio_config = load_slam_audio_config()
+
         # Global Object Tracker for cross-camera tracking (RGB + SLAM1 + SLAM2)
         self.global_tracker = GlobalObjectTracker(
-            iou_threshold=getattr(Config, "TRACKER_IOU_THRESHOLD", 0.5),
-            max_age=getattr(Config, "TRACKER_MAX_AGE", 3.0),
-            handoff_timeout=getattr(Config, "TRACKER_HANDOFF_TIMEOUT", 2.0),
+            iou_threshold=tracker_config.iou_threshold,
+            max_age=tracker_config.max_age,
+            handoff_timeout=tracker_config.handoff_timeout,
         )
 
     # ------------------------------------------------------------------
@@ -144,9 +160,7 @@ class NavigationDecisionEngine:
             final_priority = self._calculate_final_priority(base_priority, zone, distance_category)
 
             # Pre-compute yellow zone to avoid redundant calculations
-            # Use NORMAL_CENTER_TOLERANCE (0.45) which matches CRITICAL_CENTER_TOLERANCE
-            center_tolerance = getattr(Config, "NORMAL_CENTER_TOLERANCE", 0.45)
-            in_yellow_zone = self._in_yellow_zone(bbox, center_tolerance)
+            in_yellow_zone = self._in_yellow_zone(bbox, self._critical_config.center_tolerance)
 
             navigation_obj = {
                 "class": class_name,
@@ -192,18 +206,24 @@ class NavigationDecisionEngine:
                 logger.debug(f"  - {obj.get('class')}: zone={obj.get('zone')}, distance={obj.get('distance')}, priority={obj.get('priority'):.2f}")
 
         # Update global tracker with new detections (default camera: rgb)
+        person_cooldown = (
+            self._critical_config.critical_cooldown_walking
+            if motion_state == "walking"
+            else self._critical_config.critical_cooldown_stationary
+        )
+        normal_cooldown = self._normal_config.normal_cooldown
         cooldown_per_class = {
-            "person": getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0),
+            "person": person_cooldown,
             "car": 1.5,
             "truck": 1.5,
             "bus": 1.5,
             "bicycle": 1.5,
             "motorcycle": 1.5,
-            "chair": getattr(Config, "NORMAL_COOLDOWN", 2.5),
-            "table": getattr(Config, "NORMAL_COOLDOWN", 2.5),
-            "bottle": getattr(Config, "NORMAL_COOLDOWN", 2.5),
-            "door": getattr(Config, "NORMAL_COOLDOWN", 2.5),
-            "laptop": getattr(Config, "NORMAL_COOLDOWN", 2.5),
+            "chair": normal_cooldown,
+            "table": normal_cooldown,
+            "bottle": normal_cooldown,
+            "door": normal_cooldown,
+            "laptop": normal_cooldown,
         }
         tracking_results = self.global_tracker.update_and_check(
             navigation_objects, cooldown_per_class, camera_source="rgb"
@@ -250,14 +270,14 @@ class NavigationDecisionEngine:
         now: float,
     ) -> Optional[DecisionCandidate]:
         """Evaluate critical-priority objects (immediate risks)."""
-        critical_classes = getattr(Config, "CRITICAL_ALLOWED_CLASSES", {"person", "car", "truck", "bus", "bicycle", "motorcycle"})
-        critical_distances_walking = getattr(Config, "CRITICAL_DISTANCE_WALKING", {"very_close", "close"})
-        critical_distances_stationary = getattr(Config, "CRITICAL_DISTANCE_STATIONARY", {"very_close"})
-        center_tolerance = getattr(Config, "CRITICAL_CENTER_TOLERANCE", 0.30)
+        cfg = self._critical_config
+        critical_classes = cfg.critical_allowed_classes
+        critical_distances_walking = self._slam_audio_config.critical_distances_walking
+        critical_distances_stationary = self._slam_audio_config.critical_distances_stationary
+        center_tolerance = cfg.center_tolerance
         bbox_coverage_threshold = getattr(Config, "CRITICAL_BBOX_COVERAGE_THRESHOLD", 0.35)
-        repeat_grace = getattr(Config, "CRITICAL_REPEAT_GRACE", 1.5)
-        require_yellow_zone = getattr(Config, "CRITICAL_REQUIRE_YELLOW_ZONE", False)  # NEW: optional filter
-        
+        require_yellow_zone = cfg.critical_require_yellow_zone
+
         critical_distances = critical_distances_walking if motion_state == "walking" else critical_distances_stationary
         
         for obj in navigation_objects:
@@ -291,7 +311,7 @@ class NavigationDecisionEngine:
                 continue
 
             # Critical candidate found - SUCCESS!
-            cooldown = getattr(Config, "CRITICAL_COOLDOWN_WALKING", 1.0) if motion_state == "walking" else getattr(Config, "CRITICAL_COOLDOWN_STATIONARY", 2.0)
+            cooldown = cfg.critical_cooldown_walking if motion_state == "walking" else cfg.critical_cooldown_stationary
 
             metadata: Dict[str, Any] = {
                 "class": class_name,
@@ -321,12 +341,12 @@ class NavigationDecisionEngine:
         now: float,
     ) -> Optional[DecisionCandidate]:
         """Evaluate normal-priority objects (obstacles, furniture)."""
-        normal_classes = getattr(Config, "NORMAL_ALLOWED_CLASSES", {"chair", "table", "bottle", "door", "laptop"})
+        cfg = self._normal_config
+        normal_classes = cfg.normal_allowed_classes
         normal_distances = getattr(Config, "NORMAL_DISTANCE", {"close", "medium"})
-        center_tolerance = getattr(Config, "NORMAL_CENTER_TOLERANCE", 0.30)
-        require_yellow_zone = getattr(Config, "NORMAL_REQUIRE_YELLOW_ZONE", True)
-        persistence_threshold = getattr(Config, "NORMAL_PERSISTENCE_FRAMES", 2)
-        normal_cooldown = getattr(Config, "NORMAL_COOLDOWN", 2.5)
+        require_yellow_zone = cfg.normal_require_yellow_zone
+        persistence_threshold = cfg.normal_min_frames
+        normal_cooldown = cfg.normal_cooldown
         
         logger = get_navigation_logger().decision
         for obj in navigation_objects:

@@ -40,6 +40,14 @@ from typing import List, Optional, Tuple
 from ultralytics import YOLO
 
 from utils.config import Config
+from utils.config_sections import (
+    NavigationFilterConfig,
+    load_navigation_filter_config,
+    ProfilingConfig,
+    load_profiling_config,
+    YoloConfig,
+    load_yolo_config,
+)
 from .detected_object import DetectedObject
 from .gpu_utils import (
     configure_mps_environment,
@@ -67,34 +75,36 @@ class YoloRuntimeConfig:
 
     @classmethod
     def from_defaults(cls) -> "YoloRuntimeConfig":
+        yolo_cfg = load_yolo_config()
         return cls(
             model=Config.YOLO_MODEL,
             device=Config.YOLO_DEVICE,
             confidence=Config.YOLO_CONFIDENCE,
-            image_size=getattr(Config, "YOLO_IMAGE_SIZE", 416),
-            max_detections=getattr(Config, "YOLO_MAX_DETECTIONS", 20),
-            iou_threshold=getattr(Config, "YOLO_IOU_THRESHOLD", 0.5),
-            frame_skip=max(1, getattr(Config, "YOLO_FRAME_SKIP", 1)),
-            force_mps=getattr(Config, "YOLO_FORCE_MPS", False),
+            image_size=yolo_cfg.image_size,
+            max_detections=yolo_cfg.max_detections,
+            iou_threshold=yolo_cfg.iou_threshold,
+            frame_skip=max(1, yolo_cfg.frame_skip),
+            force_mps=yolo_cfg.force_mps,
             profile_name="rgb-default",
         )
 
     @classmethod
     def for_profile(cls, profile: str) -> "YoloRuntimeConfig":
+        yolo_cfg = load_yolo_config()
         profile = profile.lower()
         if profile in {"rgb", "default"}:
             return cls.from_defaults().with_overrides(
                 profile_name="rgb",
-                image_size=getattr(Config, "YOLO_RGB_IMAGE_SIZE", 640),
-                confidence=getattr(Config, "YOLO_RGB_CONFIDENCE", 0.50),
-                max_detections=getattr(Config, "YOLO_RGB_MAX_DETECTIONS", 20),
+                image_size=yolo_cfg.rgb_image_size,
+                confidence=yolo_cfg.rgb_confidence,
+                max_detections=yolo_cfg.rgb_max_detections,
             )
         if profile == "slam":
             return cls.from_defaults().with_overrides(
                 profile_name="slam",
-                image_size=getattr(Config, "YOLO_SLAM_IMAGE_SIZE", 256),
-                confidence=getattr(Config, "YOLO_SLAM_CONFIDENCE", 0.60),
-                max_detections=getattr(Config, "YOLO_SLAM_MAX_DETECTIONS", 8),
+                image_size=yolo_cfg.slam_image_size,
+                confidence=yolo_cfg.slam_confidence,
+                max_detections=yolo_cfg.slam_max_detections,
                 frame_skip=3,
             )
         raise ValueError(f"Unknown YOLO profile '{profile}'")
@@ -192,7 +202,8 @@ class YoloProcessor:
             pass
 
         # FASE 4: Load TensorRT engine if available and enabled
-        use_tensorrt = getattr(Config, 'USE_TENSORRT', False)
+        yolo_cfg = load_yolo_config()
+        use_tensorrt = yolo_cfg.use_tensorrt
         model_path = self.runtime_config.model
         
         # Convert to absolute path (important for multiprocessing)
@@ -233,8 +244,8 @@ class YoloProcessor:
             log.info("  ✓ TensorRT engine loaded (pre-optimized)")
         
         # FASE 1 / Tarea 2: Habilitar pinned memory y non-blocking transfers
-        self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()
-        self.non_blocking = getattr(Config, 'NON_BLOCKING_TRANSFER', False)
+        self.use_pinned_memory = yolo_cfg.pinned_memory and torch.cuda.is_available()
+        self.non_blocking = yolo_cfg.non_blocking_transfer
         if self.use_pinned_memory:
             log.info("  ✓ YOLO: Pinned memory enabled")
         if self.non_blocking:
@@ -260,7 +271,11 @@ class YoloProcessor:
         self.latest_detections: List[dict] = []
         self._cached_results = None
         self._frame_index = 0
-        self._profile = getattr(Config, "PROFILE_PIPELINE", False)
+
+        # Load profiling configuration (typed section)
+        profiling_config = load_profiling_config()
+        self._profile = profiling_config.enabled
+        self._profile_window = profiling_config.window_frames
         self._inference_acc = 0.0
         self._post_acc = 0.0
         self._profile_frames = 0
@@ -300,18 +315,13 @@ class YoloProcessor:
         }
 
         self.detection_count = 0
-        self.min_confidence = max(
-            0.0, float(getattr(Config, "NAVIGATION_MIN_CONFIDENCE", 0.4))
-        )
-        self.min_relevance = max(
-            0.0, float(getattr(Config, "NAVIGATION_MIN_RELEVANCE", 0.18))
-        )
-        self.max_navigation_objects = max(
-            1, int(getattr(Config, "NAVIGATION_MAX_OBJECTS", 3))
-        )
-        self.size_ratio_reference = max(
-            1e-6, float(getattr(Config, "NAVIGATION_SIZE_RATIO", 0.08))
-        )
+
+        # Load navigation filter config (typed section)
+        nav_filter_config = load_navigation_filter_config()
+        self.min_confidence = max(0.0, nav_filter_config.min_confidence)
+        self.min_relevance = max(0.0, nav_filter_config.min_relevance)
+        self.max_navigation_objects = max(1, nav_filter_config.max_objects)
+        self.size_ratio_reference = max(1e-6, nav_filter_config.size_ratio)
 
             # print(
             #     f"[INFO] ✓ YOLOv11 processor initialized ({self.runtime_config.profile_name}) on {self.device_str} "
@@ -373,7 +383,7 @@ class YoloProcessor:
             if self._profile:
                 self._post_acc += time.perf_counter() - post_start
                 self._profile_frames += 1
-                if self._profile_frames >= getattr(Config, "PROFILE_WINDOW_FRAMES", 30):
+                if self._profile_frames >= self._profile_window:
                     self._log_local_profile()
 
             detections: List[dict] = []

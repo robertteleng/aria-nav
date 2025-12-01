@@ -51,6 +51,7 @@ import torch  # FASE 1 / Tarea 4: Para CUDA streams
 from core.processing.shared_memory_manager import SharedMemoryRingBuffer
 
 from utils.config import Config
+from utils.config_sections import PipelineConfig, load_pipeline_config, DepthConfig, load_depth_config
 from core.telemetry.loggers.depth_logger import get_depth_logger
 from utils.profiler import get_profiler
 from utils.system_monitor import get_monitor
@@ -87,9 +88,13 @@ class NavigationPipeline:
     ) -> None:
         # PHASE 6: Store camera ID
         self.camera_id = camera_id
-        
+
+        # Load typed configs
+        self._pipeline_config = load_pipeline_config()
+        self._depth_config = load_depth_config()
+
         # FASE 2: Check multiprocessing mode FIRST
-        self.multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        self.multiproc_enabled = self._pipeline_config.multiproc_enabled
         
         # CRITICAL: Main process must NOT initialize CUDA when multiprocessing
         # Only workers should touch GPU to avoid spawn conflicts
@@ -102,7 +107,7 @@ class NavigationPipeline:
             self.depth_estimator = depth_estimator or self._build_depth_estimator()
         
         self.image_enhancer = image_enhancer
-        self.depth_frame_skip = max(1, getattr(Config, "DEPTH_FRAME_SKIP", 1))
+        self.depth_frame_skip = max(1, self._depth_config.frame_skip)
         self.latest_depth_map: Optional[np.ndarray] = None
         self.latest_depth_raw: Optional[np.ndarray] = None
         self.frames_processed = 0
@@ -121,8 +126,8 @@ class NavigationPipeline:
         
         # PHASE 6: Hybrid mode - CUDA Streams configuration
         # Allows streams in main process even with multiprocessing enabled
-        enable_streams = getattr(Config, 'CUDA_STREAMS', False) and torch.cuda.is_available()
-        phase6_hybrid = getattr(Config, 'PHASE6_HYBRID_STREAMS', False)
+        enable_streams = self._pipeline_config.cuda_streams and torch.cuda.is_available()
+        phase6_hybrid = self._pipeline_config.phase6_hybrid_streams
         
         if self.multiproc_enabled and phase6_hybrid:
             # PHASE 6: Hybrid mode active
@@ -313,9 +318,9 @@ class NavigationPipeline:
         from core.processing.slam_worker import slam_gpu_worker
         
         # Phase 7: Double Buffering Configuration
-        self.double_buffering = getattr(Config, "PHASE7_DOUBLE_BUFFERING", False)
-        self.worker_health_interval = getattr(Config, "PHASE7_WORKER_HEALTH_CHECK_INTERVAL", 5.0)
-        self.graceful_degradation = getattr(Config, "PHASE7_GRACEFUL_DEGRADATION", True)
+        self.double_buffering = self._pipeline_config.double_buffering
+        self.worker_health_interval = self._pipeline_config.worker_health_check_interval
+        self.graceful_degradation = self._pipeline_config.graceful_degradation
         self.last_health_check = time.time()
         
         # Worker instance tracking
@@ -326,7 +331,7 @@ class NavigationPipeline:
         self.worker_health = {}  # {name: is_alive}
         self.submit_counter = 0
         
-        self.result_queue = mp.Queue(maxsize=getattr(Config, "PHASE2_RESULT_QUEUE_MAXSIZE", 10))
+        self.result_queue = mp.Queue(maxsize=self._pipeline_config.result_queue_maxsize)
         self.stop_event = mp.Event()
         
         # Events for readiness
@@ -447,7 +452,7 @@ class NavigationPipeline:
         self.first_result_received = False
 
         # PHASE 3: Shared Memory Initialization (optional)
-        self.use_shared_memory = getattr(Config, "USE_SHARED_MEMORY", False)
+        self.use_shared_memory = self._pipeline_config.use_shared_memory
         self.shm_rgb = None
         self.shm_slam1 = None
         self.shm_slam2 = None
@@ -461,23 +466,23 @@ class NavigationPipeline:
             try:
                 self.shm_rgb = SharedMemoryRingBuffer(
                     name_prefix="aria_rgb",
-                    count=getattr(Config, "PHASE2_QUEUE_MAXSIZE", 2) + 2, # +2 for safety buffer
+                    count=self._pipeline_config.central_queue_maxsize + 2,  # +2 for safety buffer
                     shape=self.shm_shape,
                     dtype=self.shm_dtype,
                     create=True
                 )
-                
+
                 self.shm_slam1 = SharedMemoryRingBuffer(
                     name_prefix="aria_slam1",
-                    count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
+                    count=self._pipeline_config.slam_queue_maxsize + 2,
                     shape=self.shm_shape,
                     dtype=self.shm_dtype,
                     create=True
                 )
-                
+
                 self.shm_slam2 = SharedMemoryRingBuffer(
                     name_prefix="aria_slam2",
-                    count=getattr(Config, "PHASE2_SLAM_QUEUE_MAXSIZE", 4) + 2,
+                    count=self._pipeline_config.slam_queue_maxsize + 2,
                     shape=self.shm_shape,
                     dtype=self.shm_dtype,
                     create=True
@@ -503,10 +508,10 @@ class NavigationPipeline:
             )
         
         # OPTIMIZATION: Resize input frames to reduce IPC overhead
-        if getattr(Config, "INPUT_RESIZE_ENABLED", False):
+        if self._pipeline_config.input_resize_enabled:
             import cv2
-            target_w = getattr(Config, "INPUT_RESIZE_WIDTH", 1024)
-            target_h = getattr(Config, "INPUT_RESIZE_HEIGHT", 1024)
+            target_w = self._pipeline_config.input_resize_width
+            target_h = self._pipeline_config.input_resize_height
             if rgb_frame.shape[1] != target_w or rgb_frame.shape[0] != target_h:
                 rgb_frame = cv2.resize(rgb_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
                 # Also resize SLAM frames
@@ -529,7 +534,7 @@ class NavigationPipeline:
         
         # Update stats
         self.stats["frames_processed"] += 1
-        if time.time() - self.stats["last_stats_time"] > getattr(Config, "PHASE2_STATS_INTERVAL", 5.0):
+        if time.time() - self.stats["last_stats_time"] > self._pipeline_config.stats_interval:
             self._print_stats()
         
         # Merge results
@@ -870,7 +875,7 @@ class NavigationPipeline:
         logger = get_depth_logger()
         logger.section("NavigationPipeline: Building Depth Estimator")
         
-        depth_enabled = getattr(Config, "DEPTH_ENABLED", False)
+        depth_enabled = self._depth_config.enabled
         logger.log(f"DEPTH_ENABLED={depth_enabled}")
         logger.log(f"DepthEstimator class={'Available' if DepthEstimator else 'None'}")
         print(f"[DEBUG] _build_depth_estimator: DEPTH_ENABLED={depth_enabled}, DepthEstimator={'Available' if DepthEstimator else 'None'}")

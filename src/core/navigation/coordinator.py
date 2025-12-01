@@ -28,6 +28,7 @@ import time
 from typing import Optional, Dict, List, Any
 
 from utils.config import Config
+from utils.config_sections import ProfilingConfig, load_profiling_config, TrackerConfig, load_tracker_config
 
 from core.audio.message_formatter import MessageFormatter
 from core.navigation.navigation_decision_engine import (
@@ -138,10 +139,10 @@ class Coordinator:
         self.last_announcement_time = 0.0
         self.current_detections: List[Dict[str, Any]] = []
 
-        # Load profiling configuration
-        self.profile_enabled = getattr(Config, 'PROFILE_PIPELINE', False)
-        self.profile_window = max(1, getattr(Config, 'PROFILE_WINDOW_FRAMES', 30))
-        # TODO: Replace with typed ProfilingConfig section in future refactoring
+        # Load profiling configuration (typed section)
+        profiling_config = load_profiling_config()
+        self.profile_enabled = profiling_config.enabled
+        self.profile_window = max(1, profiling_config.window_frames)
         self._profile_acc = {
             'enhance': 0.0,
             'depth': 0.0,
@@ -213,20 +214,19 @@ class Coordinator:
 
             self.camera_geometry = CameraGeometry(rgb_calib, slam1_calib, slam2_calib)
 
-            # Enable 3D validation if configured
-            use_3d = getattr(Config, "TRACKER_USE_3D_VALIDATION", False)
-            max_dist = getattr(Config, "TRACKER_MAX_3D_DISTANCE", 0.5)
+            # Enable 3D validation if configured (typed section)
+            tracker_config = load_tracker_config()
 
-            if use_3d and self.camera_geometry.is_available():
+            if tracker_config.use_3d_validation and self.camera_geometry.is_available():
                 # Update global tracker with camera geometry
                 self.decision_engine.global_tracker.camera_geometry = self.camera_geometry
                 self.decision_engine.global_tracker.use_3d_validation = True
-                self.decision_engine.global_tracker.max_3d_distance = max_dist
+                self.decision_engine.global_tracker.max_3d_distance = tracker_config.max_3d_distance
 
                 print(f"[Coordinator] 3D geometric validation ENABLED "
-                      f"(max_distance={max_dist}m)")
+                      f"(max_distance={tracker_config.max_3d_distance}m)")
             else:
-                print(f"[Coordinator] 3D validation available but disabled in Config")
+                print("[Coordinator] 3D validation available but disabled in Config")
 
         except Exception as e:
             print(f"[Coordinator] Could not initialize CameraGeometry: {e}")

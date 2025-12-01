@@ -30,6 +30,12 @@ import time
 import gc
 from utils.ctrl_handler import CtrlCHandler
 from utils.config import Config
+from utils.config_sections import (
+    PipelineConfig,
+    load_pipeline_config,
+    PeripheralVisionConfig,
+    load_peripheral_vision_config,
+)
 from core.hardware.device_manager import DeviceManager
 
 
@@ -295,8 +301,8 @@ def _run_processing_loop(ctrl_handler, observer, coordinator, presentation, tele
                 processed_frame = coordinator.process_frame(frame, motion_state, frames_dict=frames_dict)
                 t5 = time.time()
 
-                slam_skip = getattr(Config, 'SLAM_FRAME_SKIP', 3)
-                if frames_processed % slam_skip == 0:
+                peripheral_config = load_peripheral_vision_config()
+                if frames_processed % peripheral_config.frame_skip == 0:
                     if hasattr(coordinator, 'handle_slam_frames'):
                         coordinator.handle_slam_frames(slam1_frame, slam2_frame)
                 t6 = time.time()
@@ -640,9 +646,8 @@ def main_debug():
         )
         
         # Skip UI in multiprocessing mode to avoid Qt/OpenCV conflicts
-        from utils.config import Config
-        multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
-        if multiproc_enabled:
+        pipeline_config = load_pipeline_config()
+        if pipeline_config.multiproc_enabled:
             print("🔄 Multiprocessing mode - UI disabled")
             presentation = None
         else:

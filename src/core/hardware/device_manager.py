@@ -21,7 +21,7 @@ from typing import Optional, Tuple
 import aria.sdk as aria
 from projectaria_tools.core.calibration import device_calibration_from_json_string
 
-from utils.config import Config
+from utils.config_sections import StreamingConfig, load_streaming_config
 
 
 class DeviceManager:
@@ -33,6 +33,7 @@ class DeviceManager:
         self.device = None
         self.streaming_manager = None
         self.streaming_client = None
+        self._streaming_config = load_streaming_config()
 
     def connect(self, ip_address: Optional[str] = None) -> None:
         """
@@ -48,12 +49,11 @@ class DeviceManager:
 
         self.device_client = aria.DeviceClient()
 
-        desired_interface = getattr(Config, "STREAMING_INTERFACE", "usb").lower()
-        use_wifi = desired_interface == "wifi"
+        use_wifi = self._streaming_config.interface.lower() == "wifi"
 
         target_ip = ip_address
         if use_wifi and not target_ip:
-            target_ip = getattr(Config, "STREAMING_WIFI_DEVICE_IP", None)
+            target_ip = self._streaming_config.wifi_device_ip
 
         if target_ip:
             client_config = aria.DeviceClientConfig()
@@ -82,27 +82,19 @@ class DeviceManager:
             Any calibration may be None if retrieval fails.
         """
         print("[INFO] Configuring RGB streaming...")
-        
+
         self.streaming_manager = self.device.streaming_manager
-        
+
         # Streaming configuration
         streaming_config = aria.StreamingConfig()
-        desired_interface = getattr(Config, "STREAMING_INTERFACE", "usb").lower()
         if use_wifi is None:
-            use_wifi = desired_interface == "wifi"
+            use_wifi = self._streaming_config.interface.lower() == "wifi"
 
-        if use_wifi:
-            profile = getattr(
-                Config,
-                "STREAMING_PROFILE_WIFI",
-                getattr(Config, "STREAMING_PROFILE", "profile18"),
-            )
-        else:
-            profile = getattr(
-                Config,
-                "STREAMING_PROFILE_USB",
-                getattr(Config, "STREAMING_PROFILE", "profile28"),
-            )
+        profile = (
+            self._streaming_config.profile_wifi
+            if use_wifi
+            else self._streaming_config.profile_usb
+        )
 
         streaming_config.profile_name = profile
         streaming_config.security_options.use_ephemeral_certs = True

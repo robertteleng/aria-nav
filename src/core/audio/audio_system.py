@@ -66,8 +66,11 @@ except ImportError:
 # Import config at module level to avoid import errors
 try:
     from utils.config import Config
+    from utils.config_sections import AudioBeepConfig, load_audio_beep_config
 except ImportError:
     Config = None
+    AudioBeepConfig = None
+    load_audio_beep_config = None
     print("[WARN] Config not found. Using default audio settings.")
 
 # Import logger at module level
@@ -80,13 +83,19 @@ except ImportError:
 
 class AudioSystem:
     """Directional audio command system optimized to avoid spam, now multi-platform."""
-    
+
     def __init__(self):
         self.tts_rate = 190
         self.tts_engine = None
         self.tts_backend: Optional[str] = None
         self._setup_tts()
-        
+
+        # Load audio beep configuration (typed section)
+        if load_audio_beep_config:
+            self._beep_config = load_audio_beep_config()
+        else:
+            self._beep_config = None
+
         # Audio control
         self.audio_queue = deque(maxlen=3)
         self.last_announcement_time = time.time()
@@ -94,11 +103,11 @@ class AudioSystem:
         self.repeat_cooldown = 2.0
         self.last_phrase: Optional[str] = None
         self.last_phrase_time: float = 0.0
-        
+
         # TTS state
         self.tts_speaking = False
         self.tts_rate = 130  # Default rate, will be adjusted per platform
-        
+
         # Beep statistics
         self.beep_stats = {
             'critical_beeps': 0,
@@ -233,23 +242,29 @@ class AudioSystem:
 
         Beeps run asynchronously and never interfere with TTS announcements.
         """
-        if not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True) if Config else True:
+        # Check if spatial beeps are enabled (use typed config or fallback)
+        if self._beep_config:
+            if not self._beep_config.spatial_beeps_enabled:
+                return
+        elif Config and not getattr(Config, "AUDIO_SPATIAL_BEEPS_ENABLED", True):
             return
 
         def _play_beeps():
             """Play beeps in background thread."""
             try:
                 if is_critical:
-                    freq = getattr(Config, "BEEP_CRITICAL_FREQUENCY", 1000)
-                    duration = getattr(Config, "BEEP_CRITICAL_DURATION", 0.3)
+                    # Use typed config or fallback to defaults
+                    freq = self._beep_config.critical_frequency if self._beep_config else 1000
+                    duration = self._beep_config.critical_duration if self._beep_config else 0.3
                     self._play_tone(freq, duration, zone, distance)
                     self.beep_stats['critical_beeps'] += 1
                     self.beep_stats['critical_frequency'] = freq
                 else:
-                    freq = getattr(Config, "BEEP_NORMAL_FREQUENCY", 500)
-                    duration = getattr(Config, "BEEP_NORMAL_DURATION", 0.1)
-                    gap = getattr(Config, "BEEP_NORMAL_GAP", 0.05)
-                    count = getattr(Config, "BEEP_NORMAL_COUNT", 2)
+                    # Use typed config or fallback to defaults
+                    freq = self._beep_config.normal_frequency if self._beep_config else 500
+                    duration = self._beep_config.normal_duration if self._beep_config else 0.1
+                    gap = self._beep_config.normal_gap if self._beep_config else 0.05
+                    count = self._beep_config.normal_count if self._beep_config else 2
 
                     for i in range(count):
                         self._play_tone(freq, duration, zone, distance)
@@ -271,7 +286,7 @@ class AudioSystem:
             return
 
         sample_rate = 44100
-        base_volume = getattr(Config, "BEEP_VOLUME", 0.7) if Config else 0.7
+        base_volume = self._beep_config.volume if self._beep_config else 0.7
 
         # Dynamic volume based on distance (preserves panning intact)
         distance_multipliers = {

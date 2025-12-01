@@ -31,6 +31,7 @@ from typing import Sequence, Optional, Dict, Any
 from collections import deque
 
 from utils.config import Config
+from utils.config_sections import ObserverConfig, load_observer_config
 
 
 class Observer:
@@ -79,6 +80,9 @@ class Observer:
 
         # Threading control
         self._stop = False
+
+        # Load typed config
+        self._observer_config = load_observer_config()
 
         print("[OBSERVER] AriaObserver initialized (SDK-only)")
         print("[OBSERVER] Monitoring: RGB + SLAM1 + SLAM2 + IMU0/1")
@@ -179,7 +183,7 @@ class Observer:
         rotated = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
 
         # Convert to color space expected by the pipeline
-        if getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'BGR').upper() == 'RGB':
+        if self._observer_config.rgb_color_space.upper() == 'RGB':
             return cv2.cvtColor(rotated, cv2.COLOR_RGB2BGR)
 
         return rotated
@@ -197,7 +201,7 @@ class Observer:
         # Convert grayscale to BGR if necessary
         if len(image.shape) == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        elif getattr(Config, 'RGB_CAMERA_COLOR_SPACE', 'BGR').upper() == 'RGB':
+        elif self._observer_config.rgb_color_space.upper() == 'RGB':
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         # Rotation consistent with RGB

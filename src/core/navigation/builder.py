@@ -15,6 +15,12 @@ from core.navigation.coordinator import Coordinator
 from core.navigation.navigation_pipeline import NavigationPipeline
 from core.navigation.navigation_decision_engine import NavigationDecisionEngine
 from utils.config import Config
+from utils.config_sections import (
+    PeripheralVisionConfig,
+    load_peripheral_vision_config,
+    PipelineConfig,
+    load_pipeline_config,
+)
 
 class Builder:
     """Builder que crea todas las dependencias del sistema"""
@@ -102,9 +108,12 @@ class Builder:
         from utils.config import Config
         
         print("🏗️ Construyendo sistema completo...")
-        
+
+        # Load typed config
+        pipeline_config = load_pipeline_config()
+
         # FASE 2: Skip YOLO/Depth in main process if multiprocessing enabled
-        multiproc_enabled = getattr(Config, "PHASE2_MULTIPROC_ENABLED", False)
+        multiproc_enabled = pipeline_config.multiproc_enabled
         
         if multiproc_enabled:
             print("  🔄 Multiprocessing mode - workers will load models")
@@ -131,16 +140,18 @@ class Builder:
             telemetry=telemetry,
         )
 
-        if getattr(Config, "PERIPHERAL_VISION_ENABLED", False) and CameraSource is not None:
+        # Load peripheral vision config (typed section)
+        peripheral_config = load_peripheral_vision_config()
+        if peripheral_config.enabled and CameraSource is not None:
             print("  🔁 Configurando visión periférica (SLAM)...")
             slam_workers = {
                 CameraSource.SLAM1: SlamDetectionWorker(
                     CameraSource.SLAM1,
-                    target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
+                    target_fps=peripheral_config.target_fps,
                 ),
                 CameraSource.SLAM2: SlamDetectionWorker(
                     CameraSource.SLAM2,
-                    target_fps=getattr(Config, "SLAM_TARGET_FPS", 8),
+                    target_fps=peripheral_config.target_fps,
                 ),
             }
             coordinator.attach_peripheral_system(slam_workers, audio_router)

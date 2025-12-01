@@ -42,6 +42,7 @@ from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
 from utils.config import Config
+from utils.config_sections import AudioRouterConfig, load_audio_router_config
 from core.telemetry.loggers.navigation_logger import get_navigation_logger
 from core.audio.audio_system import AudioSystem
 from core.vision.slam_detection_worker import CameraSource, SlamDetectionEvent
@@ -100,8 +101,11 @@ class NavigationAudioRouter:
             SLAM2_SOURCE: 3.0,
             RGB_SOURCE: 1.2,
         }
-        self.global_cooldown = getattr(Config, "AUDIO_GLOBAL_COOLDOWN", 0.8)
-        self.interrupt_grace = getattr(Config, "AUDIO_INTERRUPT_GRACE", 0.25)  # Anti-entrecorte grace
+
+        # Load audio router config (typed section)
+        self._router_config = load_audio_router_config()
+        self.global_cooldown = self._router_config.global_cooldown
+        self.interrupt_grace = self._router_config.interrupt_grace  # Anti-stutter grace
 
         self.events_enqueued = 0
         self.events_processed = 0
@@ -389,7 +393,7 @@ class NavigationAudioRouter:
             return True, "non_slam"
 
         # For peripheral events, check spacing between both SLAM channels
-        slam_grace = getattr(Config, "SLAM_AUDIO_DUPLICATE_GRACE", 1.0)
+        slam_grace = self._router_config.slam_duplicate_grace
         primary_last = max(
             self._last_source_announcement.get(SLAM1_SOURCE, 0.0),
             self._last_source_announcement.get(SLAM2_SOURCE, 0.0),

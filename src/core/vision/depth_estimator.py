@@ -31,6 +31,7 @@ import numpy as np
 import torch
 
 from utils.config import Config
+from utils.config_sections import DepthConfig, load_depth_config
 from core.telemetry.loggers.depth_logger import get_depth_logger
 from .gpu_utils import configure_mps_environment, empty_mps_cache, get_preferred_device
 
@@ -48,8 +49,11 @@ class DepthEstimator:
     def __init__(self) -> None:
         logger = get_depth_logger()
         logger.section("DepthEstimator Initialization")
-        
-        if not Config.DEPTH_ENABLED:
+
+        # Load typed config
+        self._config = load_depth_config()
+
+        if not self._config.enabled:
             logger.log("DEPTH_ENABLED = False - Depth estimation disabled")
             self.model = None
             self.backend = None
@@ -61,42 +65,42 @@ class DepthEstimator:
             print("[INFO] ⚠️ Depth estimator disabled via configuration")
             return
 
-        logger.log(f"DEPTH_ENABLED = {Config.DEPTH_ENABLED}")
-        
-        configure_mps_environment(getattr(Config, "YOLO_FORCE_MPS", False))
+        logger.log(f"DEPTH_ENABLED = {self._config.enabled}")
 
-        self.backend = getattr(Config, "DEPTH_BACKEND", "midas").lower()
+        configure_mps_environment(self._config.force_mps)
+
+        self.backend = self._config.backend.lower()
         logger.log(f"Backend selected: {self.backend}")
-        
+
         # Use correct device config: DEPTH_ANYTHING_DEVICE for depth_anything, MIDAS_DEVICE for midas
         if self.backend == "depth_anything_v2":
-            device_config = getattr(Config, "DEPTH_ANYTHING_DEVICE", "cuda")
+            device_config = self._config.depth_anything_device
         else:
-            device_config = getattr(Config, "MIDAS_DEVICE", "cuda")
-        
+            device_config = self._config.midas_device
+
         logger.log(f"Device config from Config: {device_config}")
         self.device = get_preferred_device(device_config)
         logger.log(f"Device resolved: {self.device.type}")
-        
+
         self.transform = None
         self.processor = None
         self.last_inference_ms = 0.0
-        self.input_size = getattr(Config, "DEPTH_INPUT_SIZE", 384)
+        self.input_size = self._config.input_size
         self._last_map_8bit: Optional[np.ndarray] = None
-        
+
         # Enable pinned memory and non-blocking transfers for performance
-        self.use_pinned_memory = getattr(Config, 'PINNED_MEMORY', False) and torch.cuda.is_available()
-        self.non_blocking = getattr(Config, 'NON_BLOCKING_TRANSFER', False)
+        self.use_pinned_memory = self._config.pinned_memory and torch.cuda.is_available()
+        self.non_blocking = self._config.non_blocking_transfer
         if self.use_pinned_memory:
             logger.log("✓ Depth: Pinned memory enabled")
         if self.non_blocking:
             logger.log("✓ Depth: Non-blocking transfers enabled")
 
         logger.log(f"Input size: {self.input_size}")
-        logger.log(f"Frame skip: {getattr(Config, 'DEPTH_FRAME_SKIP', 1)}")
+        logger.log(f"Frame skip: {self._config.frame_skip}")
         print(f"[INFO] 🔍 Initializing depth backend '{self.backend}' on {self.device.type}...")
         print(f"[INFO]   - Input size: {self.input_size}")
-        print(f"[INFO]   - Frame skip: {getattr(Config, 'DEPTH_FRAME_SKIP', 1)}")
+        print(f"[INFO]   - Frame skip: {self._config.frame_skip}")
 
         try:
             logger.log(f"Loading model for backend: {self.backend}")
@@ -121,7 +125,7 @@ class DepthEstimator:
             self.model = None
 
     def _load_midas(self) -> None:
-        model_name = getattr(Config, "MIDAS_MODEL", "MiDaS_small")
+        model_name = self._config.midas_model
         self.model = torch.hub.load("intel-isl/MiDaS", model_name)
         self.model.to(self.device)
         self.model.eval()
@@ -139,7 +143,7 @@ class DepthEstimator:
         logger = get_depth_logger()
         
         # Check for TensorRT-optimized ONNX first
-        use_tensorrt = getattr(Config, 'USE_TENSORRT', False)
+        use_tensorrt = self._config.use_tensorrt
         onnx_path = Path("checkpoints/depth_anything_v2_vits.onnx")
         
         logger.log(f"[DEBUG] TensorRT check: use_tensorrt={use_tensorrt}, cuda_available={torch.cuda.is_available()}, onnx_exists={onnx_path.exists()}")
@@ -180,7 +184,7 @@ class DepthEstimator:
         # Fallback to PyTorch
         from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
-        variant = getattr(Config, "DEPTH_ANYTHING_MODEL", "Small")
+        variant = self._config.depth_anything_model
         name = f"depth-anything/Depth-Anything-V2-{variant}-hf"
         
         logger.log(f"[INFO] Loading Depth Anything V2 model: {name}")
