@@ -1,0 +1,20 @@
+# FastVLM Configuration
+   model:
+     id: "apple/FastVLM-0.5B"
+     dtype: "float16"
+     device: "cuda"
+   
+   generation:
+     max_new_tokens: 16
+     do_sample: false
+     use_cache: false  # Optional
+   
+   optimization:
+     use_torch_compile: true  # Overhead en Turing pero compatible
+     cudnn_benchmark: true
+     allow_tf32: true
+   
+   expected_performance:
+     model_latency_ms: 372
+     e2e_latency_ms: 752
+     vram_gb: 1.19
