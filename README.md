@@ -211,8 +211,6 @@ aria-nav/
 
 ## 🤝 Contributing
 
-This is a Master's thesis project (TFM 2025). Contributions welcome after publication.
-
 See [Development Workflow](docs/development/development_workflow.md) for guidelines.
 
 ---
@@ -225,9 +223,7 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 👤 Author
 
-**Roberto Rojas Sahuquillo**  
-Master's Thesis 2025  
-Universidad [Your University]
+**Roberto Rojo Sahuquillo**  
 
 ---
 
