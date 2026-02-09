@@ -457,7 +457,7 @@ class YoloProcessor:
                 depth_map=depth_map,
                 depth_raw=depth_raw,
             )
-            distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value)
+            distance_bucket = self._estimate_distance_with_depth(area, frame_width, depth_value, frame_height)
 
             base_priority = self.navigation_objects[class_name]["priority"]
             frame_area = max(1.0, float(frame_width) * float(frame_height))
@@ -555,14 +555,16 @@ class YoloProcessor:
         return float(np.mean(crop) / 255.0)
 
     def _estimate_distance_with_depth(
-        self, area: float, frame_width: int, depth_value: float
+        self, area: float, frame_width: int, depth_value: float, frame_height: int = 0
     ) -> str:
         if depth_value >= Config.DEPTH_CLOSE_THRESHOLD:
             return "very_close"
         if depth_value >= Config.DEPTH_MEDIUM_THRESHOLD:
             return "medium"
 
-        area_ratio = area / (frame_width * frame_width)
+        # Use actual frame area (width * height), not width squared
+        frame_area = frame_width * (frame_height if frame_height > 0 else frame_width)
+        area_ratio = area / frame_area
         if area_ratio > Config.DISTANCE_VERY_CLOSE:
             return "very_close"
         if area_ratio > Config.DISTANCE_CLOSE:

@@ -6,6 +6,12 @@ Sets mp.set_start_method BEFORE any torch imports
 import sys
 import os
 
+# CRITICAL: Hide CUDA from main process BEFORE importing torch
+# FastDDS (Aria SDK) and CUDA cannot coexist in the same process
+# Worker processes will restore CUDA_VISIBLE_DEVICES="0"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["NUMBA_DISABLE_CUDA"] = "1"
+
 # Configure Qt BEFORE any imports
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 

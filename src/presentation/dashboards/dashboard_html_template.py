@@ -520,10 +520,10 @@ DASHBOARD_HTML = '''
                 .then(data => {
                     const detectionsContainer = document.getElementById('detections-container');
                     if (data.recent_detections.length > 0) {
-                        detectionsContainer.innerHTML = data.recent_detections.map(det => 
+                        detectionsContainer.innerHTML = data.recent_detections.map(det =>
                             `<div class="detection-item">
-                                <strong>${det.name}</strong> (${det.confidence.toFixed(2)}) 
-                                - ${det.zone} - ${det.distance || 'unknown distance'}
+                                <strong>${det.name || det.class_name || 'object'}</strong> (${(det.confidence || 0).toFixed(2)})
+                                - ${det.zone || 'unknown'} - ${det.distance_bucket || det.distance || 'unknown'}
                             </div>`
                         ).join('');
                     } else {

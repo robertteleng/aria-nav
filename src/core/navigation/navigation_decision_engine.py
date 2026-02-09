@@ -163,15 +163,18 @@ class NavigationDecisionEngine:
             in_yellow_zone = self._in_yellow_zone(bbox, self._critical_config.center_tolerance)
 
             navigation_obj = {
-                "class": class_name,
+                "name": class_name,  # Standard field name for frontend compatibility
+                "class": class_name,  # Keep for backwards compatibility
                 "spanish_name": self.object_priorities[class_name]["spanish"],
                 "bbox": bbox,
                 "confidence": detection.get("confidence"),
                 "zone": zone,
                 "distance": distance_category,
+                "distance_bucket": distance_category,  # Alias for frontend
                 "priority": final_priority,
                 "original_priority": base_priority,
                 "in_yellow_zone": in_yellow_zone,  # Pre-computed
+                "camera_source": detection.get("camera_source", "rgb"),  # Preserve source for rendering filter
             }
             navigation_objects.append(navigation_obj)
 
@@ -270,6 +273,7 @@ class NavigationDecisionEngine:
         now: float,
     ) -> Optional[DecisionCandidate]:
         """Evaluate critical-priority objects (immediate risks)."""
+        logger = get_navigation_logger().decision
         cfg = self._critical_config
         critical_classes = cfg.critical_allowed_classes
         critical_distances_walking = self._slam_audio_config.critical_distances_walking
@@ -427,38 +431,44 @@ class NavigationDecisionEngine:
 
 
     def _estimate_distance(self, bbox, class_name: str, detection: Optional[Dict[str, Any]] = None, depth_map: Optional[np.ndarray] = None) -> str:
+        # bbox format is [x1, y1, x2, y2], NOT [x1, y1, w, h]
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        height = y2 - y1
+        width = x2 - x1
+
         # Prioridad 1: Usar mapa de profundidad si está disponible
-        if depth_map is not None and bbox:
-            x1, y1, w, h = [int(v) for v in bbox]
-            x2, y2 = x1 + w, y1 + h
-            
+        if depth_map is not None:
             # Asegurarse de que las coordenadas están dentro de los límites del mapa de profundidad
             h_depth, w_depth = depth_map.shape
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w_depth, x2), min(h_depth, y2)
-            
-            if x1 < x2 and y1 < y2:
-                depth_roi = depth_map[y1:y2, x1:x2]
-                # Usar la mediana para ser robusto a outliers
-                median_depth = np.median(depth_roi[depth_roi > 0])
-                
-                if median_depth > 0:
-                    # Definir umbrales de distancia en metros
-                    if median_depth < 1.5: return "very_close"
-                    if median_depth < 3.0: return "close"
-                    if median_depth < 5.0: return "medium"
-                    return "far"
+            x1_clip, y1_clip = max(0, x1), max(0, y1)
+            x2_clip, y2_clip = min(w_depth, x2), min(h_depth, y2)
 
-        # Prioridad 2: Fallback a la estimación por altura del bbox si no hay mapa de profundidad
-        height = bbox[3]
+            if x1_clip < x2_clip and y1_clip < y2_clip:
+                depth_roi = depth_map[y1_clip:y2_clip, x1_clip:x2_clip]
+                # Usar la mediana para ser robusto a outliers
+                valid_depths = depth_roi[depth_roi > 0]
+                if len(valid_depths) > 0:
+                    median_depth = np.median(valid_depths)
+
+                    if median_depth > 0:
+                        # Definir umbrales de distancia en metros
+                        if median_depth < 1.5: return "very_close"
+                        if median_depth < 3.0: return "close"
+                        if median_depth < 5.0: return "medium"
+                        return "far"
+
+        # Prioridad 2: Fallback a la estimación por altura del bbox
         if class_name == "person":
             if height > 200: return "very_close"
             if height > 100: return "close"
+            if height > 50: return "medium"
             return "far"
         if class_name in {"car", "truck", "bus"}:
             if height > 150: return "very_close"
             if height > 75: return "close"
+            if height > 40: return "medium"
             return "far"
+        # Generic objects
         if height > 100: return "close"
         if height > 50: return "medium"
         return "far"

@@ -74,8 +74,9 @@ wandb/
 
 # Model checkpoints
 checkpoints/
-models/*.pt
-models/*.pth
+models/
+*.pt
+*.pth
 *.weights
 
 # Training outputs

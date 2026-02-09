@@ -25,6 +25,10 @@ Usage:
 # NOTE: Multiprocessing spawn is configured in run.py wrapper
 # Do NOT call set_start_method here - it must be done before importing this module
 
+# IMPORTANT: Set headless mode BEFORE importing cv2 to avoid Qt plugin errors
+import os
+os.environ['QT_QPA_PLATFORM'] = 'xcb'  # Use xcb backend (available on this system)
+
 import cv2
 import time
 import gc
@@ -103,22 +107,15 @@ def _select_dashboard_config():
     """
     Select dashboard configuration.
 
+    Web dashboard is enabled by default for better compatibility.
+
     Returns:
         tuple: (enable_dashboard, dashboard_type)
     """
-    enable_dashboard = input("\n¿Habilitar dashboard? (y/n): ").lower() == 'y'
-    dashboard_type = "opencv"  # Default
-
-    if enable_dashboard:
-        allowed_dashboards = ["opencv", "rerun", "web"]
-        dashboard_choice = input("Dashboard type (opencv/rerun/web) [opencv]: ").lower() or "opencv"
-        if dashboard_choice not in allowed_dashboards:
-            print(f"[MAIN] Dashboard '{dashboard_choice}' no reconocido, usando 'opencv'")
-            dashboard_choice = "opencv"
-        dashboard_type = dashboard_choice
-        print(f"[MAIN] Dashboard {dashboard_type} habilitado")
-    else:
-        print("[MAIN] Display OpenCV simple habilitado")
+    # Web dashboard enabled by default - no prompts needed
+    enable_dashboard = True
+    dashboard_type = "web"
+    print("[MAIN] Web dashboard habilitado por defecto (http://localhost:5000)")
 
     return enable_dashboard, dashboard_type
 

@@ -42,6 +42,12 @@ def detect_device() -> str:
     Returns:
         str: Device identifier ("cuda", "mps", or "cpu")
     """
+    # Check if CUDA is hidden (for FastDDS/Aria SDK compatibility in main process)
+    cuda_hidden = os.environ.get("CUDA_VISIBLE_DEVICES", None) == ""
+    if cuda_hidden:
+        print("CUDA hidden (main process) - workers will use GPU")
+        return "cpu"  # Main process runs on CPU, workers will restore CUDA
+
     if torch.cuda.is_available():
         device = "cuda"
         is_wsl = "microsoft" in platform.uname().release.lower()
@@ -147,8 +153,8 @@ class Config:
 
         # Frame skipping (0 = process all frames)
         self.YOLO_SKIP_FRAMES = 0       # Process all frames
-        self.DEPTH_SKIP_FRAMES = 0      # Process all frames for TensorRT testing
-        self.DEPTH_FRAME_SKIP = 0       # Alias for navigation_pipeline.py
+        self.DEPTH_SKIP_FRAMES = 4      # Process depth every 4 frames for better FPS
+        self.DEPTH_FRAME_SKIP = 4       # Alias for navigation_pipeline.py
 
         log.info("Config Phase 1 loaded")
 
@@ -186,7 +192,7 @@ class Config:
     YOLO_FORCE_MPS = False                  # Disabled
 
     # Peripheral vision (SLAM cameras)
-    PERIPHERAL_VISION_ENABLED = True        # SLAM adds IPC overhead, minimal detections
+    PERIPHERAL_VISION_ENABLED = False       # DISABLED for debugging - only RGB camera
     SLAM_TARGET_FPS = 15                    # Target: 15 FPS for SLAM
     SLAM_FRAME_SKIP = 4                     # Process every 4th frame
 
@@ -206,10 +212,10 @@ class Config:
     ZONE_LEFT_BOUNDARY = 0.33
     ZONE_RIGHT_BOUNDARY = 0.67
 
-    # Distance thresholds (area ratios)
-    DISTANCE_VERY_CLOSE = 0.10
-    DISTANCE_CLOSE = 0.04
-    DISTANCE_MEDIUM = 0.015
+    # Distance thresholds (area ratios relative to frame area)
+    DISTANCE_VERY_CLOSE = 0.08   # 8% of frame area = very close
+    DISTANCE_CLOSE = 0.03        # 3% of frame area = close
+    DISTANCE_MEDIUM = 0.01       # 1% of frame area = medium
 
     # ==========================================================================
     # NAVIGATION: Detection Filtering
@@ -336,8 +342,8 @@ class Config:
     STREAMING_PROFILE = "profile28"         # 30 FPS (both profiles support 30 FPS)
     STREAMING_INTERFACE = "usb"             # "usb" or "wifi"
     STREAMING_PROFILE_USB = "profile28"
-    STREAMING_PROFILE_WIFI = "profile15"
-    STREAMING_WIFI_DEVICE_IP = "192.168.0.204"
+    STREAMING_PROFILE_WIFI = "profile18"
+    STREAMING_WIFI_DEVICE_IP = "192.168.0.209"
 
     # ==========================================================================
     # PERFORMANCE: Detection History
@@ -412,8 +418,8 @@ class Config:
     # MULTIPROCESSING (Phase 2)
     # ==========================================================================
 
-    # Re-enabled to test parallel execution with TensorRT
-    PHASE2_MULTIPROC_ENABLED = True         # Best performance: 16.6 FPS (vs 10.9 without)
+    # DISABLED for debugging - simpler sequential mode
+    PHASE2_MULTIPROC_ENABLED = True         # MUST be True with real Aria (FastDDS + CUDA conflict)
     PHASE2_QUEUE_MAXSIZE = 1                # Optimized: Smaller queue = less latency
     PHASE2_SLAM_QUEUE_MAXSIZE = 1           # Optimized: Minimize IPC overhead
     PHASE2_RESULT_QUEUE_MAXSIZE = 2         # Optimized: Just enough for overlap

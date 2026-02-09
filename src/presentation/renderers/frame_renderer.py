@@ -29,18 +29,21 @@ class FrameRenderer:
             'bottom_right': 'Lower Right'
         }
     
-    def draw_navigation_overlay(self, frame: np.array, detections: List[dict], 
+    def draw_navigation_overlay(self, frame: np.array, detections: List[dict],
                               audio_system, depth_map: np.array = None) -> np.array:
         """Draw complete navigation overlay on frame"""
         height, width = frame.shape[:2]
         annotated_frame = frame.copy()
-        
-        # DEBUG: Log detection sources
+
+        # DEBUG: Log detection sources with details
         logger = get_navigation_logger().renderer
         rgb_count = sum(1 for d in detections if d.get('camera_source', 'rgb') == 'rgb')
-        slam_count = sum(1 for d in detections if d.get('camera_source') == 'slam')
-        if rgb_count > 0 or slam_count > 0:
-            logger.debug(f"RGB detections: {rgb_count}, SLAM detections: {slam_count}")
+        slam_count = sum(1 for d in detections if d.get('camera_source', '').startswith('slam'))
+        if detections:
+            # Log first detection details for debugging
+            first_det = detections[0]
+            logger.debug(f"Frame {width}x{height} | Detections: {len(detections)} (rgb={rgb_count}, slam={slam_count})")
+            logger.debug(f"  First: {first_det.get('name')} bbox={first_det.get('bbox')} src={first_det.get('camera_source', 'NO_SRC')}")
         
         # Draw zone grid
         self._draw_zone_grid(annotated_frame, width, height)

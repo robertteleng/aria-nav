@@ -101,8 +101,11 @@ class WebDashboard:
                 for det in self.recent_detections:
                     if isinstance(det, dict):
                         # Already a dict, ensure numpy types are converted
-                        det_dict = {k: (float(v) if hasattr(v, 'item') else v) 
+                        det_dict = {k: (float(v) if hasattr(v, 'item') else v)
                                    for k, v in det.items()}
+                        # Ensure 'name' field exists (fallback to class_name, label, or 'object')
+                        if 'name' not in det_dict:
+                            det_dict['name'] = det_dict.get('class_name', det_dict.get('label', 'object'))
                     else:
                         # DetectedObject dataclass - convert to dict with native Python types
                         det_dict = {
@@ -509,10 +512,10 @@ class WebDashboard:
                 .then(data => {
                     const detectionsContainer = document.getElementById('detections-container');
                     if (data.recent_detections.length > 0) {
-                        detectionsContainer.innerHTML = data.recent_detections.map(det => 
+                        detectionsContainer.innerHTML = data.recent_detections.map(det =>
                             `<div class="detection-item">
-                                <strong>${det.name}</strong> (${det.confidence.toFixed(2)}) 
-                                - ${det.zone} - ${det.distance || 'unknown distance'}
+                                <strong>${det.name || det.class_name || 'object'}</strong> (${(det.confidence || 0).toFixed(2)})
+                                - ${det.zone || 'unknown'} - ${det.distance_bucket || det.distance || 'unknown'}
                             </div>`
                         ).join('');
                     } else {

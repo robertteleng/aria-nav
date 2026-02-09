@@ -314,8 +314,9 @@ class NavigationPipeline:
         import torch.multiprocessing as mp
         # Note: start_method must be set in run.py BEFORE imports
         
-        from core.processing.central_worker import central_gpu_worker
-        from core.processing.slam_worker import slam_gpu_worker
+        # Use wrappers that restore CUDA before importing torch-based workers
+        from core.processing.worker_launcher import central_gpu_worker_wrapper as central_gpu_worker
+        from core.processing.worker_launcher import slam_gpu_worker_wrapper as slam_gpu_worker
         
         # Phase 7: Double Buffering Configuration
         self.double_buffering = self._pipeline_config.double_buffering
@@ -681,82 +682,88 @@ class NavigationPipeline:
     def _collect_results_with_overlap(self, frame_id: int, rgb_frame: np.ndarray, profile: bool) -> Dict[str, Any]:
         """SOLUTION #3: Non-blocking collection with age-limited cache"""
         results = {}
-        
+
         # System monitoring cada N segundos
         if time.time() - self.last_monitor_check > self.monitor_interval:
             self._print_system_metrics()
             self.last_monitor_check = time.time()
-        
-        # Track if we got a NEW result in this iteration
-        got_new_result = False
-        
+
+        # Track if we got a NEW RGB result in this iteration
+        got_new_rgb_result = False
+
+        # Initialize per-camera cache if not exists
+        if not hasattr(self, '_rgb_cached_result'):
+            self._rgb_cached_result = None
+            self._rgb_result_timestamp = 0.0
+
         # SOLUTION #3: Drain all available results (non-blocking)
         while True:
             try:
                 result = self.result_queue.get_nowait()
-                # Update cache with latest result
-                self.cached_result = result
-                self.result_timestamp = time.time()
                 self.first_result_received = True
-                got_new_result = True
                 # Organize by camera
                 self.pending_results[result.camera] = result
+
+                # CRITICAL: Only cache RGB results separately to prevent SLAM contamination
+                if result.camera == "rgb":
+                    self._rgb_cached_result = result
+                    self._rgb_result_timestamp = time.time()
+                    got_new_rgb_result = True
             except queue.Empty:
                 break
-        
+
         # SPECIAL CASE: First frame - must wait for initial model load
         if not self.first_result_received:
             log.info(f"[Frame {frame_id}] Waiting for first result (model loading)...")
             try:
                 result = self.result_queue.get(timeout=15.0)
-                self.cached_result = result
-                self.result_timestamp = time.time()
                 self.first_result_received = True
-                got_new_result = True
                 self.pending_results[result.camera] = result
+                if result.camera == "rgb":
+                    self._rgb_cached_result = result
+                    self._rgb_result_timestamp = time.time()
+                    got_new_rgb_result = True
                 log.info(f"[Frame {frame_id}] First result received after model load")
             except queue.Empty:
                 log.error(f"RGB worker timeout on frame {frame_id} after 15s")
                 self.stats["timeout_errors"] += 1
                 raise RuntimeError("RGB worker not responding")
-        
-        # SOLUTION #3: If no new result, use cached result from previous frame
-        if not got_new_result and self.cached_result is not None:
-            # CRITICAL: Only use cached result if it's from the central camera
-            # Prevents SLAM detections from appearing in RGB frame
-            if self.cached_result.camera == "rgb":
-                # Check age limit (100ms safety threshold)
-                age_ms = (time.time() - self.result_timestamp) * 1000
-                if age_ms > 100:
-                    log.warning(f"[Frame {frame_id}] Stale result: {age_ms:.1f}ms old (>100ms limit)")
-                    self.stats["stale_results"] += 1
-                
-                # Use cached result (from previous frame)
-                self.pending_results["rgb"] = self.cached_result
-                if frame_id % 30 == 0:
-                    log.info(f"[Frame {frame_id}] Using cached result ({age_ms:.1f}ms old)")
-            else:
-                # Cached result is from SLAM, don't use it for central
-                if frame_id % 30 == 0:
-                    log.warning(f"[Frame {frame_id}] No central result, cached is {self.cached_result.camera}")
-        
+
+        # SOLUTION #3: If no new RGB result, use cached RGB result from previous frame
+        if not got_new_rgb_result and self._rgb_cached_result is not None:
+            # Check age limit (100ms safety threshold)
+            age_ms = (time.time() - self._rgb_result_timestamp) * 1000
+            if age_ms > 100:
+                log.warning(f"[Frame {frame_id}] Stale RGB result: {age_ms:.1f}ms old (>100ms limit)")
+                self.stats["stale_results"] += 1
+
+            # Use cached RGB result (from previous frame)
+            self.pending_results["rgb"] = self._rgb_cached_result
+            if frame_id % 30 == 0:
+                log.info(f"[Frame {frame_id}] Using cached RGB result ({age_ms:.1f}ms old)")
+
         # Return available results
         results = dict(self.pending_results)
         self.pending_results.clear()
-        
+
         return results
 
     def _merge_results(self, results: Dict[str, Any], frames_dict: Dict[str, np.ndarray]) -> PipelineResult:
         rgb_result = results.get("rgb")
-        
+
         # Solo incluir detecciones de la cámara RGB en el PipelineResult
         # Las SLAM se manejan por separado en main.py
         all_detections = []
         if rgb_result:
-            for det in rgb_result.detections:
-                det["camera"] = "rgb"
-                det["camera_source"] = "rgb"  # CRITICAL: Tag for frame renderer filtering
-                all_detections.append(det)
+            # CRITICAL: Validate this is actually an RGB result to prevent SLAM contamination
+            if rgb_result.camera != "rgb":
+                log.error(f"[MERGE] BUG: Expected RGB result but got camera={rgb_result.camera}")
+                # Skip this result to prevent drawing SLAM boxes on RGB frame
+            else:
+                for det in rgb_result.detections:
+                    det["camera"] = "rgb"
+                    det["camera_source"] = "rgb"  # CRITICAL: Tag for frame renderer filtering
+                    all_detections.append(det)
         
         # Update latest depth (keep reference, but clear old one first)
         if rgb_result and rgb_result.depth_map is not None:
